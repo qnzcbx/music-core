@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     UNTRUSTED_MEDIA = 'untrusted_media'
     INVALID_RANGE = 'invalid_range'
     UPSTREAM_MEDIA_EXPIRED = 'upstream_media_expired'
+    PROVIDER_CONTEXT_REJECTED = 'provider_context_rejected'
 
 
 class CoreError(Exception):

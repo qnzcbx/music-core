@@ -12,26 +12,32 @@ from app.core.media_store import MediaSettings
 
 
 def main():
-    parser=argparse.ArgumentParser(description='真实酷我原生audio播放验收')
+    parser=argparse.ArgumentParser(description='真实酷我或QQ原生audio播放验收')
     parser.add_argument('--browser',help='已有Chrome/Chromium可执行文件路径')
+    parser.add_argument('--provider',choices=['kuwo','qq','netease'],default='kuwo',help='本次验收平台')
+    parser.add_argument('--track',help='稳定平台录音ID')
+    parser.add_argument('--recover',action='store_true',help='增加已关闭旧会话后的手动稳定身份恢复验收')
     args=parser.parse_args()
+    track=args.track or ('9942644' if args.provider=='kuwo' else None)
+    if not track:parser.error('QQ验收必须显式指定稳定songmid')
     app=create_app(media_settings=MediaSettings(media_ttl=4,lease_ttl=180,sweep_interval=1),dev_player=True)
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=port,access_log=False,log_level='critical'))
     thread=threading.Thread(target=server.run,daemon=True);thread.start()
-    summary={'rid':'9942644','port':port,'responses':[]}
+    summary={'provider':args.provider,'platformId':track,'port':port,'responses':[]}
     try:
         for _ in range(100):
             if server.started:break
             time.sleep(.1)
         assert server.started
         resolve_count=[0]
-        original_resolve=app.state.kuwo.resolve
+        provider=getattr(app.state,args.provider)
+        original_resolve=provider.resolve
         async def counted_resolve(identity,options=None):
             resolve_count[0]+=1
             return await original_resolve(identity,options)
-        app.state.kuwo.resolve=counted_resolve
+        provider.resolve=counted_resolve
         with sync_playwright() as playwright:
             browser=playwright.chromium.launch(headless=True,executable_path=args.browser,
                 args=['--autoplay-policy=no-user-gesture-required'])
@@ -45,6 +51,9 @@ def main():
                             'contentLength':response.headers.get('content-length')})
                 page.on('response',response_seen)
                 page.goto(f'http://127.0.0.1:{port}/dev/player');page.wait_for_load_state('networkidle')
+                original_audio=page.locator('#audio').element_handle()
+                page.locator('#provider').select_option(args.provider)
+                page.locator('#rid').fill(track)
                 page.locator('#open').click()
                 page.wait_for_function("Number.isFinite(document.querySelector('#audio').duration) && document.querySelector('#audio').duration>0 && document.querySelector('#audio').currentTime>2",timeout=60000)
                 summary['duration']=page.locator('#audio').evaluate('(a)=>a.duration')
@@ -68,6 +77,23 @@ def main():
                     summary[name]=page.locator('#audio').evaluate('(a)=>({time:a.currentTime,seeking:a.seeking,error:a.error?.code??null})')
                 # 测试脚本只在内存中持有本地能力地址，不输出或保存。
                 stream=page.locator('#audio').evaluate('(a)=>a.src')
+                summary['normalResolveCalls']=resolve_count[0]
+                assert resolve_count[0]==1
+                if args.recover:
+                    page.locator('#pause').click()
+                    page.locator('#audio').evaluate('(a)=>{a.volume=.3;a.playbackRate=1.2}')
+                    saved=page.locator('#audio').evaluate('(a)=>a.currentTime')
+                    old_key=stream.split('/')[-2]
+                    app.state.playback_leases.close(old_key)
+                    page.locator('#retry').click()
+                    page.wait_for_function("document.body.dataset.phase==='ready'",timeout=60000)
+                    summary['recovery']=page.locator('#audio').evaluate('(a)=>({time:a.currentTime,paused:a.paused,volume:a.volume,rate:a.playbackRate})')
+                    fresh=page.locator('#audio').evaluate('(a)=>a.src')
+                    summary['recovery']['differentPlaybackId']=fresh!=stream
+                    summary['recovery']['sameAudio']=original_audio.evaluate('(a)=>a===document.querySelector("audio")')
+                    assert fresh!=stream and abs(summary['recovery']['time']-saved)<.5 and summary['recovery']['paused']
+                    assert summary['recovery']['volume']==.3 and summary['recovery']['rate']==1.2
+                    stream=fresh
                 page.locator('#close').click()
                 page.wait_for_function("document.querySelector('#status').textContent==='会话已关闭'")
                 with httpx.Client() as client:
@@ -84,7 +110,7 @@ def main():
                 assert not records and active==0 and summary['browserOnlyLocalOrigin']
                 summary['browserVersion']=browser.version
                 summary['resolveCalls']=resolve_count[0]
-                assert resolve_count[0]==1
+                assert resolve_count[0]==(2 if args.recover else 1)
                 print(json.dumps(summary,ensure_ascii=True,indent=2))
             finally:
                 browser.close()

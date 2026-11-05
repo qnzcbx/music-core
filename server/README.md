@@ -14,6 +14,8 @@ py -3.10 -m venv .venv
 
 打开 `http://127.0.0.1:8001/api/health`、`/api/providers`、`/docs`、`/openapi.json`。Ctrl+C关闭。默认仅本机监听。POST `/api/search`输入如`{"providerId":"kuwo","query":"银临","limit":10}`。39-B.3B新增playback/open、stream(GET/HEAD)、renew、close；无下载接口。
 
+39-B.4A支持同一API选择QQ：search的providerId改为qq；open的identity可为`{"providerId":"qq","platformId":"001e7VNQ43nv4W"}`。开发页仅增加来源选择，单audio/恢复机制不变；QQ本次仅部分样本可播放。真实边界见[QQ报告](../docs/migration/39-B-4A/README.md)。可选自有QQ Cookie仅从服务端环境变量MUSIC_CORE_QQ_COOKIE读取，不写示例或日志；本次在线验证为无凭据匿名请求。
+
 开发原生audio页：以`MUSIC_CORE_DEV_PLAYER=1 ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001`启动，访问同Origin `/dev/player`。未设置开关时404。播放API及生命周期见[39-B.3B](../docs/migration/39-B-3B/README.md)。
 
 39-B.3C沿用该页与API：增加“重新打开当前歌曲”和恢复阶段显示；每次逻辑选择最多自动恢复一次，停止/切歌隔离旧异步结果，始终一个audio。受控故障脚本`./.venv/Scripts/python.exe scripts/verify_recovery_browser.py --browser <已有Chromium路径>`使用自生成WAV，和真实酷我回归脚本分开。pytest在有Node时额外包装17项纯JS状态机测试，无Node则明确skip；不需要npm或前端工程。详见[恢复说明](../docs/migration/39-B-3C/README.md)。

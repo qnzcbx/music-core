@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><title>原生音频开发验收</title>
-<body><h1>原生音频开发验收</h1><label>酷我录音 ID <input id="rid" value="9942644"></label>
+<body><h1>原生音频开发验收</h1><label>来源 <select id="provider"><option value="kuwo">酷我</option><option value="qq">QQ</option><option value="netease">网易云</option></select></label><label>录音 ID <input id="rid" value="9942644"></label>
 <button id="open">打开并播放</button><button id="pause">暂停</button><button id="resume">继续</button>
 <button id="retry">重新打开当前歌曲</button><button id="close">关闭会话</button>
 <p><audio id="audio" controls preload="metadata"></audio></p><p id="status">尚未打开</p><p id="recovery"></p>
@@ -12,7 +12,7 @@ const player=new RecoveryPlayer(audio,{notify:state=>{
  document.querySelector('#recovery').textContent=`自动恢复已使用：${state.automaticUsed?'是':'否'}；会话：${state.hasSession?'有效':'无'}`;
  document.body.dataset.phase=state.phase;
 }});
-document.querySelector('#open').onclick=()=>player.select({providerId:'kuwo',platformId:document.querySelector('#rid').value});
+document.querySelector('#open').onclick=()=>player.select({providerId:document.querySelector('#provider').value,platformId:document.querySelector('#rid').value});
 document.querySelector('#close').onclick=()=>player.stop();
 document.querySelector('#pause').onclick=()=>player.setPlaying(false);
 document.querySelector('#resume').onclick=()=>player.setPlaying(true);

@@ -158,7 +158,7 @@ def test_search_api_and_selection():
     app=create_app(transport=httpx.MockTransport(handler))
     with TestClient(app) as c:
         assert c.post('/api/search',json={'providerId':'kuwo','query':'歌','limit':1}).status_code==200
-        for pid,status in [('qq',501),('netease',501),('migu',501),('bad',400)]:
+        for pid,status in [('migu',501),('bad',400)]:
             assert c.post('/api/search',json={'providerId':pid,'query':'歌'}).status_code==status
         assert len(calls)==1
         assert c.post('/api/search',json={'providerId':'kuwo','query':' '}).status_code==422

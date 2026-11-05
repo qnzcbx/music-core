@@ -13,6 +13,9 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 from app.models import DTO, SearchPage
 from app.providers.kuwo import KuwoProvider
+from app.providers.qq import QQProvider
+from app.providers.netease import NeteaseProvider
+from app.providers import provider_for
 from app.config import load_policy, provider_info, ProviderInfo
 from app.core.errors import CoreError, ErrorCode
 from app.core.media_store import MediaStore,PlaybackLeases,MediaSettings
@@ -35,6 +38,7 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 ERRORS = {
+    ErrorCode.PROVIDER_CONTEXT_REJECTED: (502,'平台未接受当前请求上下文，暂不能取链',False),
     ErrorCode.PLAYBACK_MISSING: (404,'播放会话不存在',False),
     ErrorCode.PLAYBACK_CLOSED: (410,'播放会话已关闭',False),
     ErrorCode.PLAYBACK_EXPIRED: (410,'播放会话已过期',False),
@@ -101,6 +105,8 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
                 limits=httpx.Limits(max_connections=10,max_keepalive_connections=5),
                 follow_redirects=False,transport=transport) as client:
             api.state.kuwo = KuwoProvider(client)
+            api.state.qq = QQProvider(client,cookie=os.environ.get('MUSIC_CORE_QQ_COOKIE',''))
+            api.state.netease = NeteaseProvider(client)
             api.state.http_client = client
             async def cleanup():
                 while True:
@@ -157,9 +163,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
     async def search(body: SearchRequest):
         if body.providerId not in policy.sourceOrder:
             raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
-        if body.providerId != 'kuwo':
-            raise CoreError(ErrorCode.PROVIDER_NOT_INTEGRATED)
-        return await api.state.kuwo.search(body.query,body.limit,body.cursor)
+        return await provider_for(api.state,body.providerId).search(body.query,body.limit,body.cursor)
 
     return api
 

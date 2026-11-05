@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from app.models import DTO,TrackIdentity,PublicMedia
 from app.core.errors import CoreError,ErrorCode
 from app.media_stream import proxy,validate_target
+from app.providers import provider_for
 
 
 class OpenRequest(DTO):
@@ -23,10 +24,12 @@ def playback_router(*, dev_player=False):
 
     @router.post('/api/playback/open',response_model=OpenResponse)
     async def open_playback(body: OpenRequest,request: Request,response: Response):
-        if body.identity.providerId!='kuwo':
-            raise CoreError(ErrorCode.PROVIDER_NOT_INTEGRATED)
-        media=await request.app.state.kuwo.resolve(body.identity)
-        await request.app.state.target_check(media.upstreamUrl.get_secret_value())
+        media=await provider_for(request.app.state,body.identity.providerId).resolve(body.identity)
+        if media.identity!=body.identity:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+        validator=request.app.state.target_check
+        if validator is validate_target:
+            await validator(media.upstreamUrl.get_secret_value(),media.identity.providerId)
+        else:await validator(media.upstreamUrl.get_secret_value())
         store,leases=request.app.state.media_store,request.app.state.playback_leases
         stored=store.put(media)
         try:
