@@ -58,6 +58,11 @@ def playback_router(*, dev_player=False):
         return Response(status_code=204,headers={'Cache-Control':'no-store'})
 
     if dev_player:
+        @router.get('/dev/player-controller.mjs',include_in_schema=False)
+        async def controller():
+            return Response(Path(__file__).with_name('player-controller.mjs').read_text(encoding='utf8'),
+                media_type='text/javascript',headers={'Cache-Control':'no-store'})
+
         @router.get('/dev/player',include_in_schema=False,response_class=HTMLResponse)
         async def player():
             return HTMLResponse(Path(__file__).with_name('player.html').read_text(encoding='utf8'),

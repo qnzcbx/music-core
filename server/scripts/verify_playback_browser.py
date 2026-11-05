@@ -26,6 +26,12 @@ def main():
             if server.started:break
             time.sleep(.1)
         assert server.started
+        resolve_count=[0]
+        original_resolve=app.state.kuwo.resolve
+        async def counted_resolve(identity,options=None):
+            resolve_count[0]+=1
+            return await original_resolve(identity,options)
+        app.state.kuwo.resolve=counted_resolve
         with sync_playwright() as playwright:
             browser=playwright.chromium.launch(headless=True,executable_path=args.browser,
                 args=['--autoplay-policy=no-user-gesture-required'])
@@ -40,7 +46,7 @@ def main():
                 page.on('response',response_seen)
                 page.goto(f'http://127.0.0.1:{port}/dev/player');page.wait_for_load_state('networkidle')
                 page.locator('#open').click()
-                page.wait_for_function("Number.isFinite(audio.duration) && audio.duration>0 && audio.currentTime>2",timeout=60000)
+                page.wait_for_function("Number.isFinite(document.querySelector('#audio').duration) && document.querySelector('#audio').duration>0 && document.querySelector('#audio').currentTime>2",timeout=60000)
                 summary['duration']=page.locator('#audio').evaluate('(a)=>a.duration')
                 summary['initialTime']=page.locator('#audio').evaluate('(a)=>a.currentTime')
                 page.locator('#audio').evaluate('(a)=>a.pause()')
@@ -63,7 +69,7 @@ def main():
                 # 测试脚本只在内存中持有本地能力地址，不输出或保存。
                 stream=page.locator('#audio').evaluate('(a)=>a.src')
                 page.locator('#close').click()
-                page.wait_for_function("status.textContent==='会话已关闭'")
+                page.wait_for_function("document.querySelector('#status').textContent==='会话已关闭'")
                 with httpx.Client() as client:
                     summary['closedRequestStatus']=client.get(stream,headers={'Range':'bytes=0-10'}).status_code
                 assert summary['closedRequestStatus']==410
@@ -77,6 +83,8 @@ def main():
                 summary['browserOnlyLocalOrigin']=all(host==f'127.0.0.1:{port}' for host in paths)
                 assert not records and active==0 and summary['browserOnlyLocalOrigin']
                 summary['browserVersion']=browser.version
+                summary['resolveCalls']=resolve_count[0]
+                assert resolve_count[0]==1
                 print(json.dumps(summary,ensure_ascii=True,indent=2))
             finally:
                 browser.close()

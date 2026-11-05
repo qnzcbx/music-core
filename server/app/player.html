@@ -1,30 +1,22 @@
 <!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><title>原生音频开发验收</title>
 <body><h1>原生音频开发验收</h1><label>酷我录音 ID <input id="rid" value="9942644"></label>
-<button id="open">打开并播放</button><button id="close">关闭会话</button>
-<p><audio id="audio" controls preload="metadata"></audio></p><p id="status">尚未打开</p>
-<script>
-const audio=document.querySelector('#audio'), status=document.querySelector('#status');
-let playbackId=null;
-async function closeSession(){
- const old=playbackId; playbackId=null; audio.pause(); audio.removeAttribute('src'); audio.load();
- if(old)await fetch(`/api/playback/${old}/close`,{method:'POST',keepalive:true});
- status.textContent='会话已关闭';
-}
-document.querySelector('#close').onclick=closeSession;
-document.querySelector('#open').onclick=async()=>{
- await closeSession(); status.textContent='正在解析';
- try{
- const r=await fetch('/api/playback/open',{method:'POST',headers:{'Content-Type':'application/json'},
- body:JSON.stringify({identity:{providerId:'kuwo',platformId:document.querySelector('#rid').value}})});
- const data=await r.json();if(!r.ok)throw new Error(data.error?.message||'打开失败');
- playbackId=data.playbackId; audio.src=data.streamUrl;await audio.play();status.textContent='正在播放';
- }catch(e){status.textContent=e.message;}
-};
-// 暂停仍持有会话；开发页存活时续期，关闭页面失败则交给TTL回收。
-setInterval(async()=>{if(playbackId){try{
- const r=await fetch(`/api/playback/${playbackId}/renew`,{method:'POST'});
- if(!r.ok)status.textContent='会话已失效，请重新打开';
- }catch{status.textContent='暂时无法续期';}}},60000);
-addEventListener('pagehide',()=>{if(playbackId)fetch(`/api/playback/${playbackId}/close`,{method:'POST',keepalive:true});});
+<button id="open">打开并播放</button><button id="pause">暂停</button><button id="resume">继续</button>
+<button id="retry">重新打开当前歌曲</button><button id="close">关闭会话</button>
+<p><audio id="audio" controls preload="metadata"></audio></p><p id="status">尚未打开</p><p id="recovery"></p>
+<script type="module">
+import {RecoveryPlayer} from '/dev/player-controller.mjs';
+const audio=document.querySelector('#audio'), label=document.querySelector('#status');
+const player=new RecoveryPlayer(audio,{notify:state=>{
+ label.textContent=state.message;
+ document.querySelector('#recovery').textContent=`自动恢复已使用：${state.automaticUsed?'是':'否'}；会话：${state.hasSession?'有效':'无'}`;
+ document.body.dataset.phase=state.phase;
+}});
+document.querySelector('#open').onclick=()=>player.select({providerId:'kuwo',platformId:document.querySelector('#rid').value});
+document.querySelector('#close').onclick=()=>player.stop();
+document.querySelector('#pause').onclick=()=>player.setPlaying(false);
+document.querySelector('#resume').onclick=()=>player.setPlaying(true);
+document.querySelector('#retry').onclick=()=>player.recover(false);
+setInterval(()=>player.renew(),60000);
+addEventListener('pagehide',()=>{void player.stop();});
 </script></body></html>

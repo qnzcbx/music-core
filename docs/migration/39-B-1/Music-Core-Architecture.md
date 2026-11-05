@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.3C）：原生开发客户端已实现单首有界恢复，状态、书签及用户意图归客户端RecoveryPlayer，复用原open创建新MediaRecord/Lease，不增后端恢复服务；详见[当前恢复生命周期](../39-B-3C/Recovery-Lifecycle.md)。下文“未实现恢复”描述仅是历史阶段边界。
+
 最新更新（39-B.3B）：已新增内存MediaStore/PlaybackLeases、本地播放API与Range代理；原生Chromium真实录音播放/seek已验收，开发页需显式开启。通用模型保持不变，生命周期与当前API以[新说明](../39-B-3B/Media-Lifecycle.md)为准，下文未迁完整媒体服务的表述是历史阶段范围。
 
 最新更新（39-B.3A）：酷我mobi稳定ID解析及四样本前缀探测已成功；Core模型仍无改动，公共Resolve/Store/Stream仍未上线。当前路线及验证边界见../39-B-3A/Kuwo-Resolve-Routes.md。

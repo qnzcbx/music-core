@@ -1,5 +1,7 @@
 # 39-B.3B：最小播放传输闭环
 
+后续更新：39-B.3C已补单首失效恢复与可控网络验收，见[当前恢复说明](../39-B-3C/README.md)。本页未实现自动恢复的文字保留39-B.3B历史范围。
+
 日期：2026-11-05。已完成歌曲稳定身份→真实KuwoProvider→私有MediaStore→PlaybackLease→本地Stream URL→Chromium原生audio的闭环。
 
 本期实现进程内TTL/容量清理、独立播放租约、GET/HEAD单区间Range代理、取消/异常释放、目标域名与DNS检查、开发原生audio页。没有迁移旧ResultStore全套实现、请求观察、Vue、队列、下载或自动恢复。
