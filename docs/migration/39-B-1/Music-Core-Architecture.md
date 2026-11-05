@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+更新（39-B.2）：基础模型保持不变；新增`app/providers/kuwo.py`、POST `/api/search`与应用lifespan管理的httpx连接池，详见../39-B-2/Kuwo-Provider.md。酷我metadata已在线通过，媒体接口拒绝真实样本；其余来源未接入。以下“本期”描述保留39-B.1交付时的边界，不能当作当前路由清单。
+
 ## 当前最小结构
 
 `app/main.py`是薄HTTP层和安全错误转换；`app/models.py`定义JSON契约及显式私有字段；`app/core/providers.py`是唯一异步Provider协议；`app/core/errors.py`定义不依赖Web的业务错误；`app/config/`加载真实来源偏好并构造注册信息。未建立空search/media/download/infrastructure目录：外部HTTP/磁盘/FFmpeg接入尚未实现。

@@ -40,12 +40,13 @@ def test_live_contract_and_openapi():
         assert client.get('/api/health').json() == {'status':'ok','version':'0.1.0','configurationFallback':False}
         rows = client.get('/api/providers').json()
         assert [r['id'] for r in rows] == ['kuwo','qq','netease','migu']
-        assert all(r['implementationStatus']=='not_integrated' and not any(r['capabilities'].values()) for r in rows)
+        assert rows[0]['capabilities']['search'] and rows[0]['capabilities']['resolve']
+        assert all(r['implementationStatus']=='not_integrated' and not any(r['capabilities'].values()) for r in rows[1:])
         schema = client.get('/openapi.json').json()
-        assert set(schema['paths']) == {'/api/health','/api/providers'}
+        assert set(schema['paths']) == {'/api/health','/api/providers','/api/search'}
         assert 'upstreamUrl' not in json.dumps(schema)
         assert client.get('/docs').status_code == 200
-        assert client.get('/api/search').status_code == 404
+        assert client.get('/api/search').status_code == 405
         assert client.post('/api/health').status_code == 405
 
 

@@ -1,10 +1,14 @@
 """API 仅提供本期真实实现的健康状态与来源信息。"""
 import logging
+from contextlib import asynccontextmanager
+import httpx
+from pydantic import Field, field_validator
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
-from app.models import DTO
+from app.models import DTO, SearchPage
+from app.providers.kuwo import KuwoProvider
 from app.config import load_policy, provider_info, ProviderInfo
 from app.core.errors import CoreError, ErrorCode
 
@@ -16,7 +20,26 @@ ERRORS = {
     ErrorCode.UPSTREAM_FAILURE: (502, '上游请求失败，请稍后重试', True),
     ErrorCode.MEDIA_EXPIRED: (410, '媒体能力已过期，请重新解析', True),
     ErrorCode.INTERNAL_ERROR: (500, '内部服务异常', False),
+    ErrorCode.UPSTREAM_TIMEOUT: (504, '上游请求超时', True),
+    ErrorCode.ACCESS_DENIED: (403, '平台拒绝访问或需要认证', False),
+    ErrorCode.UPSTREAM_INVALID_RESPONSE: (502, '上游响应结构异常', True),
+    ErrorCode.PROVIDER_NOT_INTEGRATED: (501, '此来源尚未接入', False),
+    ErrorCode.CAPABILITY_UNSUPPORTED: (415, '尚不支持此媒体能力或解析选项', False),
 }
+
+
+class SearchRequest(DTO):
+    providerId: str = Field(min_length=1,max_length=32)
+    query: str = Field(min_length=1,max_length=80)
+    limit: int = Field(default=10,ge=1,le=10,strict=True)
+    cursor: str | None = Field(default=None,max_length=20)
+
+    @field_validator('query')
+    @classmethod
+    def nonempty(cls,value):
+        if not value.strip():
+            raise ValueError('搜索词不能为空白')
+        return value.strip()
 
 
 class ErrorDetail(DTO):
@@ -41,10 +64,18 @@ def error_response(code):
         code=code.value, message=message, retryable=retryable)).model_dump())
 
 
-def create_app(config_path=None) -> FastAPI:
+def create_app(config_path=None, *, transport=None) -> FastAPI:
     policy, fallback = load_policy(config_path)
+    @asynccontextmanager
+    async def lifespan(api):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(12,connect=5),
+                limits=httpx.Limits(max_connections=10,max_keepalive_connections=5),
+                follow_redirects=False,transport=transport) as client:
+            api.state.kuwo = KuwoProvider(client)
+            yield
+
     api = FastAPI(title='Music Core 本地后端', version='0.1.0', responses={
-        422: {'model': ErrorResponse}, 500: {'model': ErrorResponse}})
+        422: {'model': ErrorResponse}, 500: {'model': ErrorResponse}},lifespan=lifespan)
     api.state.source_policy = policy
 
     @api.exception_handler(CoreError)
@@ -74,6 +105,15 @@ def create_app(config_path=None) -> FastAPI:
     @api.get('/api/providers', response_model=list[ProviderInfo])
     async def providers():
         return provider_info(policy)
+
+    @api.post('/api/search',response_model=SearchPage,responses={
+        status:{'model':ErrorResponse} for status in (400,403,404,501,502,504)})
+    async def search(body: SearchRequest):
+        if body.providerId not in policy.sourceOrder:
+            raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
+        if body.providerId != 'kuwo':
+            raise CoreError(ErrorCode.PROVIDER_NOT_INTEGRATED)
+        return await api.state.kuwo.search(body.query,body.limit,body.cursor)
 
     return api
 

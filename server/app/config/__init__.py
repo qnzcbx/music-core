@@ -53,5 +53,7 @@ class ProviderInfo(DTO):
 
 
 def provider_info(policy: SourcePolicy) -> list[ProviderInfo]:
-    return [ProviderInfo(id=pid, name=NAMES[pid], order=i, defaultSelected=pid in policy.defaultSelectedSources)
+    return [ProviderInfo(id=pid, name=NAMES[pid], order=i, defaultSelected=pid in policy.defaultSelectedSources,
+            implementationStatus='implemented_unverified_media' if pid == 'kuwo' else 'not_integrated',
+            capabilities=Capabilities(search=pid=='kuwo',resolve=pid=='kuwo'))
             for i, pid in enumerate(policy.sourceOrder)]
