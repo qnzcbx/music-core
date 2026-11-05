@@ -1,5 +1,7 @@
 # 酷我 Provider：调用链与边界
 
+后续状态见[39-B.3A路线说明](../39-B-3A/Kuwo-Resolve-Routes.md)：已新增同平台mobi普通参数路线，模型不变。本文未实现mobi/未成功的表述仅为39-B.2历史。
+
 ## 有限源码调查
 
 参考旧项目`C:/Code_Home/2_projects/media-lab/musicdl-lab/server/app/provider_adapter.py:37,99,151`与vendor的`musicdl/modules/sources/kuwo.py:44,186,217`、`utils/kuwoutils.py`。旧search由URL构造进入abslist映射，MUSICRID去MUSIC_为platformId；旧resolve先第三方fallback再官方mobi convert_url2，官方加密query由kuwoutils完成，还有歌词编码工具。公共SongInfo、AudioLinkTester、装饰器/Session是库工具，不是平台协议本身。旧项目会保存SongInfo pickle/JSON，Candidate映射还有别名/兼容字段。

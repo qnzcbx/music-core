@@ -14,8 +14,8 @@ py -3.10 -m venv .venv
 
 打开 `http://127.0.0.1:8001/api/health`、`/api/providers`、`/docs`、`/openapi.json`。Ctrl+C关闭。默认仅本机监听。新增POST `/api/search`，输入如`{"providerId":"kuwo","query":"银临","limit":10}`。无公共Resolve、Stream或下载接口。
 
-`app/config/sources.json` 为真实产品配置；可用环境变量 `MUSIC_CORE_SOURCE_CONFIG` 指定另一JSON文件，启动时读取，不热更新。错误/空/缺失配置采用内置四来源与默认酷我，并使健康状态为degraded；不会输出原始配置内容。酷我search/resolve表示实现存在，`implemented_unverified_media`明确未验证成功媒体，其他来源仍为not_integrated。
+`app/config/sources.json` 为真实产品配置；可用环境变量 `MUSIC_CORE_SOURCE_CONFIG` 指定另一JSON文件，启动时读取，不热更新。错误/空/缺失配置采用内置四来源与默认酷我，并使健康状态为degraded；不会输出原始配置内容。酷我状态`implemented_sample_media_verified`表示有限样本已通过取链和前缀探测，不保证所有歌曲可播放；其他来源仍为not_integrated。
 
 运行时依赖FastAPI、Pydantic、Uvicorn、httpx0.28.1；dev额外pytest。`requirements-dev.lock.txt`记录完整环境版本；需要复现可先安装该文件再执行editable安装。不要安装整个旧项目requirements。
 
-有限在线验收（非日常单元测试）执行`./.venv/Scripts/python.exe scripts/verify_kuwo.py`：启动临时本地服务，两个关键词各至多10条，至多两次按ID取链，不获取音频、不保存媒体URL，最后关闭服务。本次搜索成功、两次取链均access_denied；不要据此宣称可播放。
+有限在线验收（非日常单元测试）执行`./.venv/Scripts/python.exe scripts/verify_kuwo.py`：启动临时本地服务，两个关键词各至多10条，至多四次按ID取链，各读取最多4096字节音频前缀，不保存媒体URL，最后关闭服务。39-B.3A四样本通过mobi取链/HTTP206前缀检查；尚未验收浏览器播放与完整下载。

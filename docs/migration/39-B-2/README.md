@@ -1,5 +1,7 @@
 # 39-B.2：酷我独立 Provider
 
+后续更新：39-B.3A已实现酷我mobi路线，四个录音取链及有限前缀探测通过，见[最新结果](../39-B-3A/README.md)。下文保留本阶段历史，不代表当前媒体路线状态。
+
 日期：2026-11-05。已完成轻量异步KuwoProvider、真实搜索API、按ID站内取链实现、连接池生命周期、安全错误分类与离线测试。没有复制musicdl源码或使用第三方替代线路。
 
 **真实搜索成功，成功媒体解析闭环尚未达成。** 银临、许嵩各返回10条SongCandidate；分别选择首条稳定ID执行resolve，两次均access_denied。平台返回HTTP200但业务success=false、message为The request is illegal!。没有媒体URL，不声明播放/完整下载成功。

@@ -16,6 +16,7 @@ from app.models import SongCandidate, TrackIdentity, SearchPage, ResolvedMedia, 
 
 SEARCH_URL = 'https://www.kuwo.cn/search/searchMusicBykeyWord'
 RESOLVE_URL = 'https://www.kuwo.cn/api/v1/www/music/playUrl'
+MOBI_URL = 'https://mobi.kuwo.cn/mobi.s'
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
@@ -70,16 +71,16 @@ class KuwoProvider:
         # Client由应用lifespan或独立验证脚本持有并关闭，Provider不私建连接池。
         self.client = client
 
-    async def request(self, url, params):
+    async def request(self, url, params, *, raw=False, headers=None):
         try:
-            return await asyncio.wait_for(self._request(url, params), timeout=20)
+            return await asyncio.wait_for(self._request(url, params, raw=raw, headers=headers), timeout=20)
         except (httpx.TimeoutException, asyncio.TimeoutError, TimeoutError):
             raise CoreError(ErrorCode.UPSTREAM_TIMEOUT) from None
 
-    async def _request(self, url, params):
+    async def _request(self, url, params, *, raw=False, headers=None):
         try:
             async with self.client.stream('GET', url, params=params, headers={
-                'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.kuwo.cn/'}) as response:
+                **({'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.kuwo.cn/'} if headers is None else headers)}) as response:
                 if response.status_code in (401,403):
                     raise CoreError(ErrorCode.ACCESS_DENIED)
                 if response.status_code == 404:
@@ -91,7 +92,7 @@ class KuwoProvider:
                     body.extend(chunk)
                     if len(body) > MAX_RESPONSE_BYTES:
                         raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-            return decode_response(bytes(body))
+            return bytes(body) if raw else decode_response(bytes(body))
         except (httpx.TimeoutException, asyncio.TimeoutError, TimeoutError):
             raise CoreError(ErrorCode.UPSTREAM_TIMEOUT) from None
         except httpx.HTTPError:
@@ -135,6 +136,10 @@ class KuwoProvider:
         if options.purpose != 'playback' or options.providerQualityId is not None:
             raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         data = await self.request(RESOLVE_URL, {'mid':identity.platformId,'type':'music','httpsStatus':1})
+        # 仅已实测的接口级请求拒绝可切到同平台mobi；权限码、超时、取消均不重试。
+        if (data.get('success') is False and data.get('code') is None
+                and data.get('message') == 'The request is illegal!'):
+            return await self.resolve_mobi(identity)
         if data.get('success') is False or data.get('code') in (401,403,'401','403'):
             raise CoreError(ErrorCode.ACCESS_DENIED)
         if data.get('code') not in (0,200,'0','200'):
@@ -145,6 +150,36 @@ class KuwoProvider:
         url = payload.get('url')
         if not url:
             raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+        return self.media_from_url(identity, url)
+
+    async def resolve_mobi(self, identity: TrackIdentity) -> ResolvedMedia:
+        if identity.providerId != self.id:
+            raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
+        content = await self.request(MOBI_URL, {'user':'0','corp':'kuwo',
+            'source':'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk','p2p':'1',
+            'type':'convert_url2','sig':'0','format':'mp3','rid':identity.platformId},
+            raw=True,headers={'User-Agent':'okhttp/3.10.0'})
+        try:
+            lines = content.decode('utf8').splitlines()
+            fields = {}
+            for line in lines:
+                if '=' not in line:
+                    continue
+                key,value = line.split('=',1)
+                if key in fields:
+                    raise ValueError()
+                fields[key] = value.strip()
+        except (UnicodeError,ValueError):
+            raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
+        if fields.get('rid') != identity.platformId:
+            raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+        if not fields.get('url'):
+            raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+        # format/bitrate只是平台声明，未经过字节检测，保持通用表示字段未知。
+        return self.media_from_url(identity, fields['url'], headers={'User-Agent':'okhttp/3.10.0'})
+
+    @staticmethod
+    def media_from_url(identity, url, headers=None):
         try:
             parsed = urlsplit(url)
             if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:
@@ -154,6 +189,6 @@ class KuwoProvider:
             # 后缀不作为编码证据；本期取链成功与媒体可播放、可完整下载分开。
             return ResolvedMedia(id=uuid4().hex, identity=identity,representation=MediaRepresentation(),
                 resolvedAt=int(time()*1000), validUntil=None,upstreamUrl=url,
-                headers={'User-Agent':'Mozilla/5.0','Referer':'https://www.kuwo.cn/'})
+                headers=headers if headers is not None else {'User-Agent':'Mozilla/5.0','Referer':'https://www.kuwo.cn/'})
         except (TypeError,ValueError,ValidationError):
             raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
