@@ -15,6 +15,13 @@ class ErrorCode(str, Enum):
     UPSTREAM_INVALID_RESPONSE = 'upstream_invalid_response'
     PROVIDER_NOT_INTEGRATED = 'provider_not_integrated'
     CAPABILITY_UNSUPPORTED = 'capability_unsupported'
+    PLAYBACK_MISSING = 'playback_missing'
+    PLAYBACK_CLOSED = 'playback_closed'
+    PLAYBACK_EXPIRED = 'playback_expired'
+    MEDIA_CAPACITY = 'media_capacity'
+    UNTRUSTED_MEDIA = 'untrusted_media'
+    INVALID_RANGE = 'invalid_range'
+    UPSTREAM_MEDIA_EXPIRED = 'upstream_media_expired'
 
 
 class CoreError(Exception):

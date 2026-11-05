@@ -1,5 +1,9 @@
 """API 仅提供本期真实实现的健康状态与来源信息。"""
 import logging
+import asyncio
+import re
+import os
+from contextlib import suppress
 from contextlib import asynccontextmanager
 import httpx
 from pydantic import Field, field_validator
@@ -11,8 +15,33 @@ from app.models import DTO, SearchPage
 from app.providers.kuwo import KuwoProvider
 from app.config import load_policy, provider_info, ProviderInfo
 from app.core.errors import CoreError, ErrorCode
+from app.core.media_store import MediaStore,PlaybackLeases,MediaSettings
+from app.media_stream import validate_target
+from app.playback import playback_router
+
+
+class SafeAccessLog(logging.Filter):
+    def filter(self,record):
+        if isinstance(record.args,tuple) and len(record.args)==5:
+            args=list(record.args)
+            args[2]=re.sub(r'/api/playback/[^/? ]+/(?=stream|close|renew)',
+                '/api/playback/[能力已隐藏]/',str(args[2]))
+            record.args=tuple(args)
+        return True
+
+
+logging.getLogger('uvicorn.access').addFilter(SafeAccessLog())
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 ERRORS = {
+    ErrorCode.PLAYBACK_MISSING: (404,'播放会话不存在',False),
+    ErrorCode.PLAYBACK_CLOSED: (410,'播放会话已关闭',False),
+    ErrorCode.PLAYBACK_EXPIRED: (410,'播放会话已过期',False),
+    ErrorCode.MEDIA_CAPACITY: (503,'临时媒体容量已满，请稍后重试',True),
+    ErrorCode.UNTRUSTED_MEDIA: (502,'媒体目标不受信任',False),
+    ErrorCode.INVALID_RANGE: (400,'仅支持合法的单个字节范围',False),
+    ErrorCode.UPSTREAM_MEDIA_EXPIRED: (410,'上游媒体地址已失效，请重新打开',True),
     ErrorCode.INVALID_INPUT: (422, '输入参数无效', False),
     ErrorCode.UNSUPPORTED_PROVIDER: (400, '不支持此音乐来源', False),
     ErrorCode.TRACK_NOT_FOUND: (404, '未找到原平台歌曲', False),
@@ -60,11 +89,11 @@ class Health(DTO):
 
 def error_response(code):
     status, message, retryable = ERRORS[code]
-    return JSONResponse(status_code=status, content=ErrorResponse(error=ErrorDetail(
+    return JSONResponse(status_code=status, headers={'Cache-Control':'no-store'}, content=ErrorResponse(error=ErrorDetail(
         code=code.value, message=message, retryable=retryable)).model_dump())
 
 
-def create_app(config_path=None, *, transport=None) -> FastAPI:
+def create_app(config_path=None, *, transport=None, target_check=validate_target, media_settings=MediaSettings(), dev_player=False) -> FastAPI:
     policy, fallback = load_policy(config_path)
     @asynccontextmanager
     async def lifespan(api):
@@ -72,11 +101,28 @@ def create_app(config_path=None, *, transport=None) -> FastAPI:
                 limits=httpx.Limits(max_connections=10,max_keepalive_connections=5),
                 follow_redirects=False,transport=transport) as client:
             api.state.kuwo = KuwoProvider(client)
-            yield
+            api.state.http_client = client
+            async def cleanup():
+                while True:
+                    await asyncio.sleep(media_settings.sweep_interval)
+                    api.state.playback_leases.sweep()
+            task=asyncio.create_task(cleanup())
+            try:
+                yield
+            finally:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+                api.state.playback_leases.entries.clear()
+                api.state.media_store.records.clear()
 
     api = FastAPI(title='Music Core 本地后端', version='0.1.0', responses={
         422: {'model': ErrorResponse}, 500: {'model': ErrorResponse}},lifespan=lifespan)
     api.state.source_policy = policy
+    api.state.media_store = MediaStore(media_settings)
+    api.state.playback_leases = PlaybackLeases(api.state.media_store)
+    api.state.target_check = target_check
+    api.include_router(playback_router(dev_player=dev_player))
 
     @api.exception_handler(CoreError)
     async def core_error(request: Request, exc: CoreError):
@@ -118,4 +164,4 @@ def create_app(config_path=None, *, transport=None) -> FastAPI:
     return api
 
 
-app = create_app()
+app = create_app(dev_player=os.environ.get('MUSIC_CORE_DEV_PLAYER')=='1')

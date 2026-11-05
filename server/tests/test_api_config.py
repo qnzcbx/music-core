@@ -44,7 +44,8 @@ def test_live_contract_and_openapi():
         assert rows[0]['implementationStatus']=='implemented_sample_media_verified'
         assert all(r['implementationStatus']=='not_integrated' and not any(r['capabilities'].values()) for r in rows[1:])
         schema = client.get('/openapi.json').json()
-        assert set(schema['paths']) == {'/api/health','/api/providers','/api/search'}
+        assert {'/api/health','/api/providers','/api/search','/api/playback/open',
+            '/api/playback/{key}/stream','/api/playback/{key}/close','/api/playback/{key}/renew'} == set(schema['paths'])
         assert 'upstreamUrl' not in json.dumps(schema)
         assert client.get('/docs').status_code == 200
         assert client.get('/api/search').status_code == 405

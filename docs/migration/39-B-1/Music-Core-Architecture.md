@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.3B）：已新增内存MediaStore/PlaybackLeases、本地播放API与Range代理；原生Chromium真实录音播放/seek已验收，开发页需显式开启。通用模型保持不变，生命周期与当前API以[新说明](../39-B-3B/Media-Lifecycle.md)为准，下文未迁完整媒体服务的表述是历史阶段范围。
+
 最新更新（39-B.3A）：酷我mobi稳定ID解析及四样本前缀探测已成功；Core模型仍无改动，公共Resolve/Store/Stream仍未上线。当前路线及验证边界见../39-B-3A/Kuwo-Resolve-Routes.md。
 
 更新（39-B.2）：基础模型保持不变；新增`app/providers/kuwo.py`、POST `/api/search`与应用lifespan管理的httpx连接池，详见../39-B-2/Kuwo-Provider.md。酷我metadata已在线通过，媒体接口拒绝真实样本；其余来源未接入。以下“本期”描述保留39-B.1交付时的边界，不能当作当前路由清单。
