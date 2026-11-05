@@ -1,0 +1,6 @@
+[
+  {"identity":{"providerId":"kuwo","platformId":"1001"},"title":"离线样本甲","artists":["测试歌手甲","测试歌手乙"],"durationSeconds":null},
+  {"identity":{"providerId":"qq","platformId":"TestMid01"},"title":"离线样本乙","artists":[],"album":null},
+  {"identity":{"providerId":"netease","platformId":"1001"},"title":"离线样本丙","durationSeconds":120.5},
+  {"identity":{"providerId":"migu","platformId":"100000000000000000001"},"title":"离线样本丁","cover":null}
+]
