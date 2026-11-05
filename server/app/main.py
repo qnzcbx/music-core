@@ -15,6 +15,7 @@ from app.models import DTO, SearchPage
 from app.providers.kuwo import KuwoProvider
 from app.providers.qq import QQProvider
 from app.providers.netease import NeteaseProvider
+from app.providers.migu import MiguProvider
 from app.providers import provider_for
 from app.config import load_policy, provider_info, ProviderInfo
 from app.core.errors import CoreError, ErrorCode
@@ -107,6 +108,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.kuwo = KuwoProvider(client)
             api.state.qq = QQProvider(client,cookie=os.environ.get('MUSIC_CORE_QQ_COOKIE',''))
             api.state.netease = NeteaseProvider(client)
+            api.state.migu = MiguProvider(client)
             api.state.http_client = client
             async def cleanup():
                 while True:

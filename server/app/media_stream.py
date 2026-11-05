@@ -12,7 +12,7 @@ from app.core.errors import CoreError,ErrorCode
 
 SAFE_HEADERS = ('content-type','content-length','content-range','accept-ranges','etag','last-modified')
 MEDIA_DOMAINS={'kuwo':('kuwo.cn',),'qq':('stream.qqmusic.qq.com','aqqmusic.tc.qq.com'),
-    'netease':('m701.music.126.net','m801.music.126.net')}
+    'netease':('m701.music.126.net','m801.music.126.net'),'migu':('freetyst.nf.migu.cn',)}
 
 
 async def validate_target(url,provider_id='kuwo'):
@@ -23,7 +23,7 @@ async def validate_target(url,provider_id='kuwo'):
     except ValueError:
         raise CoreError(ErrorCode.UNTRUSTED_MEDIA) from None
     if (parsed.scheme not in ('http','https') or parsed.username or parsed.password
-            or port not in (None,80,443) or not any(host==domain or host.endswith('.'+domain) for domain in MEDIA_DOMAINS.get(provider_id,()))):
+            or port not in (None,80,443) or not any(host==domain or provider_id!='migu' and host.endswith('.'+domain) for domain in MEDIA_DOMAINS.get(provider_id,()))):
         raise CoreError(ErrorCode.UNTRUSTED_MEDIA)
     try:
         addresses = await asyncio.get_running_loop().getaddrinfo(host,parsed.port or (443 if parsed.scheme=='https' else 80),type=socket.SOCK_STREAM)

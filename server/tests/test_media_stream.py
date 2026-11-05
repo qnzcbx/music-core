@@ -81,7 +81,6 @@ def test_open_private_and_provider_selection():
         body=response.json()
         assert body['streamUrl'].startswith('/api/playback/') and 'kuwo.cn' not in response.text
         assert body['media']['id']!=body['playbackId']
-        assert c.post('/api/playback/open',json={'identity':{'providerId':'migu','platformId':'1'}}).status_code==501
         assert c.post('/api/playback/open',json={'identity':{'providerId':'bad','platformId':'1'}}).status_code==422
         assert c.post('/api/playback/open',json={'identity':{'providerId':'kuwo','platformId':'1'},'url':'http://127.0.0.1'}).status_code==422
         assert len(calls)==1

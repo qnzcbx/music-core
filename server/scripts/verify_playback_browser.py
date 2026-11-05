@@ -12,14 +12,14 @@ from app.core.media_store import MediaSettings
 
 
 def main():
-    parser=argparse.ArgumentParser(description='真实酷我、QQ或网易云原生audio播放验收')
+    parser=argparse.ArgumentParser(description='四来源真实原生audio播放验收')
     parser.add_argument('--browser',help='已有Chrome/Chromium可执行文件路径')
-    parser.add_argument('--provider',choices=['kuwo','qq','netease'],default='kuwo',help='本次验收平台')
+    parser.add_argument('--provider',choices=['kuwo','qq','netease','migu'],default='kuwo',help='本次验收平台')
     parser.add_argument('--track',help='稳定平台录音ID')
     parser.add_argument('--recover',action='store_true',help='增加已关闭旧会话后的手动稳定身份恢复验收')
     args=parser.parse_args()
     track=args.track or ('9942644' if args.provider=='kuwo' else None)
-    if not track:parser.error('QQ或网易云验收必须显式指定稳定平台歌曲ID')
+    if not track:parser.error('非酷我验收必须显式指定稳定平台歌曲ID')
     app=create_app(media_settings=MediaSettings(media_ttl=4,lease_ttl=180,sweep_interval=1),dev_player=True)
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
@@ -90,6 +90,13 @@ def main():
                     saved=page.locator('#audio').evaluate('(a)=>a.currentTime')
                     old_key=stream.split('/')[-2]
                     app.state.playback_leases.close(old_key)
+                    if args.provider=='migu':
+                        # 丢弃Provider实例，证明双ID重建不依赖刚才的搜索或取链内存。
+                        replacement=type(provider)(app.state.http_client)
+                        original_resolve=replacement.resolve
+                        replacement.resolve=counted_resolve
+                        app.state.migu=replacement
+                        summary['providerReinitializedBeforeRecovery']=True
                     page.locator('#retry').click()
                     page.wait_for_function("document.body.dataset.phase==='ready'",timeout=60000)
                     summary['recovery']=page.locator('#audio').evaluate('(a)=>({time:a.currentTime,paused:a.paused,volume:a.volume,rate:a.playbackRate})')

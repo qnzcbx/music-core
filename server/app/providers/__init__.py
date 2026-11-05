@@ -3,6 +3,6 @@ from app.core.errors import CoreError,ErrorCode
 
 
 def provider_for(state,source):
-    # 固定三份实现，不动态扫描；保留测试对单个Provider的显式替换边界。
-    if source not in ('kuwo','qq','netease'):raise CoreError(ErrorCode.PROVIDER_NOT_INTEGRATED)
+    # 固定四份实现，不动态扫描；保留测试对单个Provider的显式替换边界。
+    if source not in ('kuwo','qq','netease','migu'):raise CoreError(ErrorCode.PROVIDER_NOT_INTEGRATED)
     return getattr(state,source)

@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.4C）：四来源均有独立Provider，MiguProvider使用contentId稳定身份，通过原生resourceinfo重建copyrightId及格式目录，再请求原生listen-url。无持久映射或搜索缓存前提，真实更换Provider实例后的重开通过；无需修改公共模型、Store/Lease或RecoveryPlayer。咪咕媒体仅按实测精确主机放行；完整身份对照见[咪咕说明](../39-B-4C/Migu-Provider.md)。下文“咪咕未接入”为历史范围；默认顺序及默认仅酷我保持不变。
+
 最新更新（39-B.4B）：NeteaseProvider复用统一协议、搜索与播放API；采用匿名原生cloudsearch/pc与普通player/url，已验证一个真实MP3样本的播放、Seek和稳定身份重开。没有迁入原库第三方解析、默认账号或加密工具，公共数据契约、Store/Lease与恢复协调器不变。网易云可信媒体主机按真实证据独立管理；详见[网易云Provider与Resolver依赖](../39-B-4B/Netease-Provider.md)。下文“网易云未接入”为历史阶段描述。
 
 最新更新（39-B.4A）：QQProvider已通过相同协议接入固定Provider查找、搜索及播放API；QQ私有凭据/协议留在Provider，公共模型与生命周期不变。可信媒体域按Provider隔离，详见[当前QQ实现](../39-B-4A/QQ-Provider.md)。下文“QQ未接入”文字仅为历史阶段范围。
