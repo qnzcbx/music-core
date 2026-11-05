@@ -11,11 +11,11 @@ from app.core.errors import CoreError
 from app.media_stream import validate_target
 
 
-async def probe(client,media):
+async def probe(client,media,provider_id='qq'):
     url=media.upstreamUrl.get_secret_value()
     headers={'User-Agent':'Mozilla/5.0','Range':'bytes=0-4095','Accept-Encoding':'identity'}
     for redirect in range(4):
-        await validate_target(url,'qq')
+        await validate_target(url,provider_id)
         response=await client.send(httpx.Request('GET',url,headers=headers),stream=True)
         try:
             if response.status_code in (301,302,303,307,308):
@@ -27,7 +27,7 @@ async def probe(client,media):
                 prefix.extend(chunk[:4096-len(prefix)])
                 if len(prefix)>=4096:break
             raw=bytes(prefix);mime=response.headers.get('content-type','')
-            kind='mp4' if raw[4:8]==b'ftyp' else 'mp3' if raw.startswith(b'ID3') else 'ogg' if raw.startswith(b'OggS') else None
+            kind='mp4' if raw[4:8]==b'ftyp' else 'mp3' if raw.startswith(b'ID3') or len(raw)>1 and raw[0]==255 and raw[1]&224==224 else 'ogg' if raw.startswith(b'OggS') else 'flac' if raw.startswith(b'fLaC') else None
             size=None;match=re.fullmatch(r'bytes 0-\d+/(\d+)',response.headers.get('content-range',''))
             if match:size=int(match[1])
             return {'passed':response.status_code in (200,206) and kind is not None and not any(t in mime for t in ('html','json')),

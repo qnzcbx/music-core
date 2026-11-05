@@ -12,14 +12,14 @@ from app.core.media_store import MediaSettings
 
 
 def main():
-    parser=argparse.ArgumentParser(description='真实酷我或QQ原生audio播放验收')
+    parser=argparse.ArgumentParser(description='真实酷我、QQ或网易云原生audio播放验收')
     parser.add_argument('--browser',help='已有Chrome/Chromium可执行文件路径')
     parser.add_argument('--provider',choices=['kuwo','qq','netease'],default='kuwo',help='本次验收平台')
     parser.add_argument('--track',help='稳定平台录音ID')
     parser.add_argument('--recover',action='store_true',help='增加已关闭旧会话后的手动稳定身份恢复验收')
     args=parser.parse_args()
     track=args.track or ('9942644' if args.provider=='kuwo' else None)
-    if not track:parser.error('QQ验收必须显式指定稳定songmid')
+    if not track:parser.error('QQ或网易云验收必须显式指定稳定平台歌曲ID')
     app=create_app(media_settings=MediaSettings(media_ttl=4,lease_ttl=180,sweep_interval=1),dev_player=True)
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
@@ -51,6 +51,11 @@ def main():
                             'contentLength':response.headers.get('content-length')})
                 page.on('response',response_seen)
                 page.goto(f'http://127.0.0.1:{port}/dev/player');page.wait_for_load_state('networkidle')
+                page.locator('#audio').evaluate('''a=>{
+                    window.mediaEvents={};
+                    for(const name of ['loadedmetadata','playing','pause','seeking','seeked','error'])
+                        a.addEventListener(name,()=>{window.mediaEvents[name]=(window.mediaEvents[name]??0)+1});
+                }''')
                 original_audio=page.locator('#audio').element_handle()
                 page.locator('#provider').select_option(args.provider)
                 page.locator('#rid').fill(track)
@@ -109,6 +114,7 @@ def main():
                 summary['browserOnlyLocalOrigin']=all(host==f'127.0.0.1:{port}' for host in paths)
                 assert not records and active==0 and summary['browserOnlyLocalOrigin']
                 summary['browserVersion']=browser.version
+                summary['events']=page.evaluate('window.mediaEvents')
                 summary['resolveCalls']=resolve_count[0]
                 assert resolve_count[0]==(2 if args.recover else 1)
                 print(json.dumps(summary,ensure_ascii=True,indent=2))

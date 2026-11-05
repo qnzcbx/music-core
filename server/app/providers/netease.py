@@ -5,6 +5,7 @@ import math
 import re
 from time import time
 from uuid import uuid4
+from urllib.parse import urlsplit
 import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
@@ -76,7 +77,7 @@ class NeteaseProvider:
         data=await self.request_json(SEARCH_URL,{'s':query.strip(),'type':'1','limit':str(limit),'offset':str((page-1)*limit)})
         result=data.get('result')
         if not isinstance(result,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-        rows=result.get('songs',[])
+        rows=result.get('songs',[] if result.get('songCount')==0 else None)
         if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         items=[];seen=set()
         for row in rows[:limit]:
@@ -98,7 +99,10 @@ class NeteaseProvider:
         if song_id(row.get('id'))!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         if row.get('code') in (301,401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
         if row.get('code')==404:raise CoreError(ErrorCode.TRACK_NOT_FOUND)
-        if row.get('code')!=200:raise CoreError(ErrorCode.UPSTREAM_FAILURE)
+        if row.get('code')!=200:
+            error=CoreError(ErrorCode.UPSTREAM_FAILURE)
+            error.platform_code=row.get('code') if type(row.get('code'))is int else None
+            raise error
         if not row.get('url'):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
         # 试听截取不能静默伪装成完整录音；不推断空URL的会员原因。
         if row.get('freeTrialInfo'):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
@@ -107,6 +111,8 @@ class NeteaseProvider:
         valid_until=now+expiry*1000 if type(expiry)is int and 0<expiry<=86400 else None
         size=row.get('size');bitrate=row.get('br')
         try:
+            if isinstance(row['url'],str) and urlsplit(row['url']).path.lower().endswith(('.m3u8','.mpd')):
+                raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
             return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=now,validUntil=valid_until,
                 upstreamUrl=row['url'],headers=HEADERS,
                 representation=MediaRepresentation(providerQualityId='standard',

@@ -43,6 +43,7 @@ def test_live_contract_and_openapi():
         assert rows[0]['capabilities']['search'] and rows[0]['capabilities']['resolve']
         assert rows[0]['implementationStatus']=='implemented_sample_media_verified'
         assert rows[1]['implementationStatus']=='implemented_sample_media_verified' and rows[1]['capabilities']['search'] and rows[1]['capabilities']['resolve']
+        assert rows[2]['implementationStatus']=='implemented_sample_media_verified' and rows[2]['capabilities']['search'] and rows[2]['capabilities']['resolve']
         assert all(r['implementationStatus']=='not_integrated' and not any(r['capabilities'].values()) for r in rows[3:])
         schema = client.get('/openapi.json').json()
         assert {'/api/health','/api/providers','/api/search','/api/playback/open',

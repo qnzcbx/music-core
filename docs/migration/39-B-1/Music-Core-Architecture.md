@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.4B）：NeteaseProvider复用统一协议、搜索与播放API；采用匿名原生cloudsearch/pc与普通player/url，已验证一个真实MP3样本的播放、Seek和稳定身份重开。没有迁入原库第三方解析、默认账号或加密工具，公共数据契约、Store/Lease与恢复协调器不变。网易云可信媒体主机按真实证据独立管理；详见[网易云Provider与Resolver依赖](../39-B-4B/Netease-Provider.md)。下文“网易云未接入”为历史阶段描述。
+
 最新更新（39-B.4A）：QQProvider已通过相同协议接入固定Provider查找、搜索及播放API；QQ私有凭据/协议留在Provider，公共模型与生命周期不变。可信媒体域按Provider隔离，详见[当前QQ实现](../39-B-4A/QQ-Provider.md)。下文“QQ未接入”文字仅为历史阶段范围。
 
 最新更新（39-B.3C）：原生开发客户端已实现单首有界恢复，状态、书签及用户意图归客户端RecoveryPlayer，复用原open创建新MediaRecord/Lease，不增后端恢复服务；详见[当前恢复生命周期](../39-B-3C/Recovery-Lifecycle.md)。下文“未实现恢复”描述仅是历史阶段边界。
