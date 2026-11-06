@@ -9,7 +9,7 @@ from test_qq import response
 BODY=b'fLaCdata'
 
 @pytest.mark.parametrize('dev_page',[False,True])
-@pytest.mark.parametrize('route',['vkeys','tang'])
+@pytest.mark.parametrize('route',['vkeys','tang','xunhuisi'])
 def test_development_normal_api_route_and_representation(monkeypatch,route,dev_page):
     calls=[]
     monkeypatch.setenv('MUSIC_CORE_QQ_RESOLVER_ORDER',f'{route},official')
@@ -18,6 +18,7 @@ def test_development_normal_api_route_and_representation(monkeypatch,route,dev_p
     def upstream(r):
         calls.append(r.url.host)
         if r.url.host=='api.vkeys.cn':return httpx.Response(200,json={'code':0,'data':{'url':'https://aqqmusic.tc.qq.com/sample'}})
+        if r.url.host=='api.xunhuisi.store':return httpx.Response(200,json={'code':200,'title':'test','singer':'artist','music_url':'https://aqqmusic.tc.qq.com/sample'})
         if r.url.host=='tang.api.s01s.cn':return httpx.Response(200,json={'song_mid':'ABC','song_name':'测试','singer_name':'甲','song_play_url_pq':'https://aqqmusic.tc.qq.com/sample'})
         assert r.url.host=='aqqmusic.tc.qq.com' and 'cookie' not in r.headers
         return httpx.Response(206,headers={'content-type':'audio/flac','content-range':'bytes 0-7/8'},stream=httpx.ByteStream(BODY))
@@ -29,7 +30,7 @@ def test_development_normal_api_route_and_representation(monkeypatch,route,dev_p
         assert rep['container']=='flac' and rep['codec']=='flac' and rep['sizeBytes']==8
         assert 'aqqmusic' not in opened.text
         assert 'u.y.qq.com' not in calls and len(calls)==2
-        assert app.state.qq.last_resolution['identity']==('request_bound' if route=='vkeys' else 'confirmed')
+        assert app.state.qq.last_resolution['identity']==('request_bound' if route in ('vkeys','xunhuisi') else 'confirmed')
         assert app.state.qq.last_resolution['scope']=='development_preview'
         assert client.get(value['streamUrl']).content==BODY
         assert client.post(value['streamUrl'].replace('/stream','/close')).status_code==204

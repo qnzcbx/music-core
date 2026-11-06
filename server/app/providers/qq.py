@@ -47,15 +47,15 @@ class QQProvider:
     id='qq'
 
     def __init__(self,client: httpx.AsyncClient,*,cookie='',route_order=('official',),resolve_timeout=25,continue_on_transient=True,enabled_external_routes=(),development_preview=False):
-        if not isinstance(route_order,(list,tuple)) or not route_order or any(r not in ('official','vkeys','qqovo','tang') for r in route_order) or len(set(route_order))!=len(route_order):raise ValueError('QQ resolver order invalid')
+        if not isinstance(route_order,(list,tuple)) or not route_order or any(r not in ('official','vkeys','qqovo','tang','xunhuisi') for r in route_order) or len(set(route_order))!=len(route_order):raise ValueError('QQ resolver order invalid')
         if type(resolve_timeout) not in (int,float) or not math.isfinite(resolve_timeout) or not 0<resolve_timeout<=60:raise ValueError('QQ resolve timeout invalid')
         if type(continue_on_transient)is not bool:raise ValueError('QQ continuation policy invalid')
-        if not isinstance(enabled_external_routes,(tuple,list)) or any(r not in ('vkeys','qqovo','tang') for r in enabled_external_routes):raise ValueError('External route selection invalid')
+        if not isinstance(enabled_external_routes,(tuple,list)) or any(r not in ('vkeys','qqovo','tang','xunhuisi') for r in enabled_external_routes):raise ValueError('External route selection invalid')
         if enabled_external_routes:self.available_routes=('official',*enabled_external_routes)
         if type(development_preview)is not bool:raise ValueError('Development preview invalid')
         self.development_preview=development_preview
         self.last_resolution=None
-        if development_preview:self.available_routes=('official','vkeys','tang')
+        if development_preview:self.available_routes=('official','vkeys','tang','xunhuisi')
         self.route_order=tuple(route_order)
         self.resolve_timeout=resolve_timeout
         self.continue_on_transient=continue_on_transient
@@ -162,8 +162,8 @@ class QQProvider:
 
     async def _resolve_route(self,route,identity,options):
         if route=='official':return await self._resolve_official(identity)
-        from .qq_resolvers import vkeys,qqovo,tang
-        adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang}[route]
+        from .qq_resolvers import vkeys,qqovo,tang,xunhuisi
+        adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang,'xunhuisi':xunhuisi}[route]
         result=await adapter.resolve(self.client,identity.platformId)
         if result.response_mid is None and not self.development_preview:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
         if result.response_mid is not None and result.response_mid!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
