@@ -128,7 +128,10 @@ def test_enabled_confirmed_dispatch_and_probe(monkeypatch):
     from app.providers.qq_resolvers import media
     calls=[]
     async def fake(client,mid):return result('tang',mid,{'url':URL,'mid':mid,'song_name':'歌','singer_name':'歌手'})
-    async def verify(client,url):calls.append(url)
+    async def verify(client,url):
+        calls.append(url)
+        from app.models import MediaRepresentation
+        return MediaRepresentation()
     monkeypatch.setattr(tang,'resolve',fake);monkeypatch.setattr(media,'verify_media',verify)
     identity=TrackIdentity(providerId='qq',platformId=MID)
     p=QQProvider(None,route_order=('tang',),enabled_external_routes=('tang',))

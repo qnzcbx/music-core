@@ -107,7 +107,8 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
                 follow_redirects=False,transport=transport) as client:
             api.state.kuwo = KuwoProvider(client)
             api.state.qq = QQProvider(client,cookie=os.environ.get('MUSIC_CORE_QQ_COOKIE',''),
-                route_order=tuple(os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official').split(',')))
+                route_order=tuple(os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official').split(',')),
+                development_preview=dev_player)
             api.state.netease = NeteaseProvider(client)
             api.state.migu = MiguProvider(client)
             api.state.http_client = client

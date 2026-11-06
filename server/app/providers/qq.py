@@ -42,12 +42,16 @@ def candidate_from(raw: dict) -> SongCandidate | None:
 class QQProvider:
     id='qq'
 
-    def __init__(self,client: httpx.AsyncClient,*,cookie='',route_order=('official',),resolve_timeout=25,continue_on_transient=True,enabled_external_routes=()):
+    def __init__(self,client: httpx.AsyncClient,*,cookie='',route_order=('official',),resolve_timeout=25,continue_on_transient=True,enabled_external_routes=(),development_preview=False):
         if not isinstance(route_order,(list,tuple)) or not route_order or any(r not in ('official','vkeys','qqovo','tang') for r in route_order) or len(set(route_order))!=len(route_order):raise ValueError('QQ resolver order invalid')
         if type(resolve_timeout) not in (int,float) or not math.isfinite(resolve_timeout) or not 0<resolve_timeout<=60:raise ValueError('QQ resolve timeout invalid')
         if type(continue_on_transient)is not bool:raise ValueError('QQ continuation policy invalid')
         if not isinstance(enabled_external_routes,(tuple,list)) or any(r not in ('vkeys','qqovo','tang') for r in enabled_external_routes):raise ValueError('External route selection invalid')
         if enabled_external_routes:self.available_routes=('official',*enabled_external_routes)
+        if type(development_preview)is not bool:raise ValueError('Development preview invalid')
+        self.development_preview=development_preview
+        self.last_resolution=None
+        if development_preview:self.available_routes=('official','vkeys','tang')
         self.route_order=tuple(route_order)
         self.resolve_timeout=resolve_timeout
         self.continue_on_transient=continue_on_transient
@@ -132,6 +136,7 @@ class QQProvider:
     available_routes=('official',)
 
     async def resolve(self,identity: TrackIdentity,options: ResolveOptions | None = None) -> ResolvedMedia:
+        self.last_resolution=None
         if identity.providerId!='qq':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
         if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
@@ -142,6 +147,7 @@ class QQProvider:
                 try:
                     result=await self._resolve_route(route,identity,options)
                     if result.identity!=identity:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                    if route=='official':self.last_resolution={'resolver':'official','identity':'official_mid_matched','protocol':'success','media':'upstream_unprobed','scope':'normal'}
                     return result
                 except CoreError as error:
                     if not self.continue_on_transient or error.code not in (ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.UPSTREAM_FAILURE,ErrorCode.MEDIA_UNAVAILABLE):raise
@@ -155,12 +161,14 @@ class QQProvider:
         from .qq_resolvers import vkeys,qqovo,tang
         adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang}[route]
         result=await adapter.resolve(self.client,identity.platformId)
-        if result.response_mid is None:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
-        if result.response_mid!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+        if result.response_mid is None and not self.development_preview:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+        if result.response_mid is not None and result.response_mid!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         from .qq_resolvers.media import verify_media
-        await verify_media(self.client,result.url.get_secret_value())
+        representation=await verify_media(self.client,result.url.get_secret_value())
+        self.last_resolution={'resolver':route,'identity':result.evidence,'protocol':'success','media':'prefix_verified',
+            'scope':'development_preview' if self.development_preview else 'normal'}
         return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
-            upstreamUrl=result.url,headers={'User-Agent':'Mozilla/5.0'},representation=MediaRepresentation())
+            upstreamUrl=result.url,headers={'User-Agent':'Mozilla/5.0'},representation=representation)
 
     async def _resolve_official(self,identity: TrackIdentity) -> ResolvedMedia:
         # 不构造猜测文件名，让平台按songmid选择当前允许访问的普通媒体表示。

@@ -38,6 +38,17 @@ def main():
             resolve_count[0]+=1
             return await original_resolve(identity,options)
         provider.resolve=counted_resolve
+        route_calls=[]
+        if args.provider=='qq':
+            original_route=provider._resolve_route
+            route_failures=[]
+            async def counted_route(route,identity,options):
+                route_calls.append(route)
+                try:return await original_route(route,identity,options)
+                except Exception as error:
+                    route_failures.append({'route':route,'error':getattr(getattr(error,'code',None),'value',type(error).__name__)})
+                    raise
+            provider._resolve_route=counted_route
         with sync_playwright() as playwright:
             browser=playwright.chromium.launch(headless=True,executable_path=args.browser,
                 args=['--autoplay-policy=no-user-gesture-required'])
@@ -46,6 +57,8 @@ def main():
                 paths=[]
                 page.on('request',lambda request:paths.append(request.url.split('/')[2]))
                 def response_seen(response):
+                    if response.url.endswith('/api/playback/open') and response.status==200:
+                        summary.setdefault('publicRepresentations',[]).append(response.json()['media']['representation'])
                     if '/stream' in response.url:
                         summary['responses'].append({'status':response.status,'contentRange':response.headers.get('content-range'),
                             'contentLength':response.headers.get('content-length')})
@@ -122,6 +135,10 @@ def main():
                 assert not records and active==0 and summary['browserOnlyLocalOrigin']
                 summary['browserVersion']=browser.version
                 summary['events']=page.evaluate('window.mediaEvents')
+                if args.provider=='qq':
+                    summary['routeCalls']=route_calls
+                    summary['routeFailures']=route_failures
+                    summary['lastResolution']=provider.last_resolution
                 summary['resolveCalls']=resolve_count[0]
                 assert resolve_count[0]==(2 if args.recover else 1)
                 print(json.dumps(summary,ensure_ascii=True,indent=2))

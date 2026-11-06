@@ -34,7 +34,10 @@ def test_approved_echo_stops_without_duplicate_probe(monkeypatch):
     calls=[]
     async def external(client,mid):
         calls.append('vkeys');return result('vkeys',mid,{'url':URL,'mid':mid})
-    async def probe(client,url):calls.append('probe')
+    async def probe(client,url):
+        calls.append('probe')
+        from app.models import MediaRepresentation
+        return MediaRepresentation()
     async def official(identity):pytest.fail('成功后不应继续官方')
     monkeypatch.setattr(vkeys,'resolve',external);monkeypatch.setattr(media,'verify_media',probe)
     p=QQProvider(None,route_order=('vkeys','official'),enabled_external_routes=('vkeys',))
