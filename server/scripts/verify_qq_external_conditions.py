@@ -8,7 +8,7 @@ import httpx
 async def main():
     rows=[]
     async with httpx.AsyncClient(timeout=httpx.Timeout(8,connect=5),follow_redirects=False) as client:
-        for route,url in [('vkeys','https://api.vkeys.cn/'),('qqovo','https://qqovo.top/'),('tang','https://tang.api.s01s.cn/')]:
+        for route,url in [('vkeys','https://api.vkeys.cn/'),('tang','https://tang.api.s01s.cn/')]:
             start=perf_counter();row={'route':route,'implemented':True,'enabled':False,'songRequests':0}
             response=None
             try:

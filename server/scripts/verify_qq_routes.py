@@ -12,7 +12,7 @@ from scripts.verify_qq import probe
 async def main():
     result={}
     async with httpx.AsyncClient(timeout=httpx.Timeout(12,connect=5),follow_redirects=False) as client:
-        for name,order in [('baseline',('official',)),('reviewed',('vkeys','qqovo','tang','official'))]:
+        for name,order in [('baseline',('official',)),('reviewed',('vkeys','tang','official'))]:
             rows=[];times=[];resolve_times=[];count=[0]
             async def count_request(request):count[0]+=1
             client.event_hooks={'request':[count_request]}

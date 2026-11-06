@@ -4,7 +4,7 @@ import json
 from time import perf_counter
 import httpx
 from app.providers.qq import QQProvider
-from app.providers.qq_resolvers import vkeys,qqovo,tang
+from app.providers.qq_resolvers import vkeys,tang
 from app.models import TrackIdentity
 from app.core.errors import CoreError,ErrorCode
 from scripts.verify_qq import probe
@@ -14,13 +14,13 @@ MID='001e7VNQ43nv4W'
 
 async def main():
     report=[]
-    for route in ('official','vkeys','qqovo','tang'):
+    for route in ('official','vkeys','tang'):
         events=[]
         class Observer(httpx.AsyncBaseTransport):
             def __init__(self):self.transport=httpx.AsyncHTTPTransport()
             async def handle_async_request(self,request):
                 event={'method':request.method,'host':request.url.host,
-                    'path':request.url.path if request.url.host in ('u.y.qq.com','api.vkeys.cn','qqovo.top','tang.api.s01s.cn') else '[media]'}
+                    'path':request.url.path if request.url.host in ('u.y.qq.com','api.vkeys.cn','tang.api.s01s.cn') else '[media]'}
                 events.append(event)
                 response=await self.transport.handle_async_request(request)
                 event['httpStatus']=response.status_code
@@ -52,8 +52,8 @@ async def main():
                     media=await QQProvider(client).resolve(TrackIdentity(providerId='qq',platformId=MID))
                     row.update({'urlObtained':True,'identity':'official_mid_matched'})
                 else:
-                    adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang}[route]
-                    value=await asyncio.wait_for(adapter.resolve(client,MID,session_factory=factory) if route=='qqovo' else adapter.resolve(client,MID),25)
+                    adapter={'vkeys':vkeys,'tang':tang}[route]
+                    value=await asyncio.wait_for(adapter.resolve(client,MID),25)
                     row.update({'urlObtained':True,'identity':value.evidence,'mediaHost':httpx.URL(value.url.get_secret_value()).host})
                     from app.models import ResolvedMedia,MediaRepresentation
                     media=ResolvedMedia(id='isolated-experiment',identity=TrackIdentity(providerId='qq',platformId=MID),
@@ -78,7 +78,7 @@ def chain_browser(browser_path,mid):
         async def resolve(self,identity,options=None):
             async def execute():
                 failures=[]
-                for route,adapter in [('vkeys',vkeys),('qqovo',qqovo),('tang',tang),('official',None)]:
+                for route,adapter in [('vkeys',vkeys),('tang',tang),('official',None)]:
                     try:
                         if adapter is None:return await super(ExperimentQQProvider,self).resolve(identity,options)
                         value=await adapter.resolve(self.client,identity.platformId)

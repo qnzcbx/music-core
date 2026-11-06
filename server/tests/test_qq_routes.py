@@ -20,7 +20,7 @@ def test_invalid_timeout(timeout):
 def test_disabled_external_cannot_make_requests():
     async def execute():
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r:pytest.fail('禁止外部请求'))) as client:
-            p=QQProvider(client,route_order=('vkeys','qqovo','tang'))
+            p=QQProvider(client,route_order=('vkeys','tang'))
             with pytest.raises(CoreError) as error:await p.resolve(TRACK)
             assert error.value.code==ErrorCode.CAPABILITY_UNSUPPORTED
     asyncio.run(execute())

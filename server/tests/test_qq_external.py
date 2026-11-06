@@ -2,7 +2,7 @@
 import asyncio
 import httpx
 import pytest
-from app.providers.qq_resolvers import vkeys,qqovo,tang,result,request_json
+from app.providers.qq_resolvers import vkeys,tang,result,request_json
 from app.providers.qq import QQProvider
 from app.models import TrackIdentity
 from app.core.errors import CoreError,ErrorCode
@@ -33,39 +33,8 @@ def test_vkeys_bad_response(body):
 def test_business_failure(code):
     with pytest.raises(CoreError):run(lambda c:vkeys.resolve(c,MID),lambda r:httpx.Response(200,json={'code':code}))
 
-def test_signature_vector():
-    url='https://qqovo.top/api/meting?type=url&server=tencent&id=ABC&quality=lossless'
-    assert qqovo.sign(url,'test-key','1700000000','nonce-1')=='4ohQ-umoxzw5l67JkI5T2gYNAPv6tv8ml25ae8BClmo'
-    reordered='https://qqovo.top/api/meting?quality=lossless&id=ABC&server=tencent&type=url'
-    assert qqovo.sign(url,'test-key','1700000000','nonce-1')==qqovo.sign(reordered,'test-key','1700000000','nonce-1')
-    assert qqovo.sign(url,'test-key','1700000001','nonce-1')!=qqovo.sign(url,'test-key','1700000000','nonce-1')
 
-def test_qqovo_bootstrap_session_signature(monkeypatch):
-    calls=[];sessions=[]
-    monkeypatch.setattr(qqovo,'time',lambda:1700000000)
-    def handler(r):
-        calls.append(r)
-        assert 'authorization' not in r.headers
-        if len(calls)==1:
-            assert r.method=='POST' and r.url.path=='/api/session/bootstrap'
-            assert 'cookie' not in r.headers
-            return httpx.Response(200,json={'apiSignKey':'synthetic'},headers={'set-cookie':'session=synthetic; Path=/; Secure'})
-        assert r.headers['cookie']=='session=synthetic'
-        assert r.headers['x-om-ts']=='1700000000'
-        assert r.headers['x-om-sign']==qqovo.sign(str(r.url),'synthetic',r.headers['x-om-ts'],r.headers['x-om-nonce'])
-        return httpx.Response(200,json={'url':URL})
-    def factory(**kwargs):
-        client=httpx.AsyncClient(transport=httpx.MockTransport(handler),**kwargs);sessions.append(client);return client
-    value=asyncio.run(qqovo.resolve(None,MID,session_factory=factory))
-    assert value.evidence=='request_bound' and sessions[0].is_closed and len(calls)==2
 
-@pytest.mark.parametrize('body,status',[({},200),({'apiSignKey':''},200),({'code':403},200),({},403)])
-def test_qqovo_bad_bootstrap(body,status):
-    calls=[]
-    def handler(r):calls.append(r);return httpx.Response(status,json=body)
-    def factory(**kwargs):return httpx.AsyncClient(transport=httpx.MockTransport(handler),**kwargs)
-    with pytest.raises(CoreError):asyncio.run(qqovo.resolve(None,MID,session_factory=factory))
-    assert len(calls)==1
 
 @pytest.mark.parametrize('payload,expected',[
     ({'song_mid':MID,'song_name':'原曲','singer_name':'歌手','song_play_url_pq':URL},True),
@@ -105,16 +74,6 @@ def test_timeout_and_cancellation(adapter):
             assert closed==[True]
     asyncio.run(execute())
 
-def test_qqovo_cancellation_no_second_request():
-    async def execute():
-        entered=asyncio.Event();calls=[];sessions=[]
-        async def handler(r):calls.append(r);entered.set();await asyncio.Event().wait()
-        def factory(**kwargs):
-            c=httpx.AsyncClient(transport=httpx.MockTransport(handler),**kwargs);sessions.append(c);return c
-        task=asyncio.create_task(qqovo.resolve(None,MID,session_factory=factory));await entered.wait();task.cancel()
-        with pytest.raises(asyncio.CancelledError):await task
-        assert len(calls)==1 and sessions[0].is_closed
-    asyncio.run(execute())
 
 def test_enabled_dispatch_request_bound_never_published(monkeypatch):
     calls=[]
@@ -142,15 +101,6 @@ def test_tang_version_mismatch():
     payload={'song_mid':MID,'song_name':'原曲 Live','singer_name':'歌手','song_play_url_pq':URL}
     with pytest.raises(CoreError):run(lambda c:tang.resolve(c,MID,expected_title='原曲'),lambda r:httpx.Response(200,json=payload))
 
-def test_qqovo_expired_session_no_retry():
-    calls=[];sessions=[]
-    def handler(r):
-        calls.append(r)
-        return httpx.Response(200,json={'apiSignKey':'synthetic'}) if len(calls)==1 else httpx.Response(401)
-    def factory(**kwargs):
-        c=httpx.AsyncClient(transport=httpx.MockTransport(handler),**kwargs);sessions.append(c);return c
-    with pytest.raises(CoreError) as error:asyncio.run(qqovo.resolve(None,MID,session_factory=factory))
-    assert error.value.code==ErrorCode.ACCESS_DENIED and len(calls)==2 and sessions[0].is_closed
 
 @pytest.mark.parametrize('status,mime,raw,valid',[(206,'audio/mpeg',b'ID3x',True),
     (200,'audio/flac',b'fLaCxxx',True),(200,'text/html',b'<html>',False),

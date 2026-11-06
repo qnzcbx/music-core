@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import pytest
 from app.providers.qq import QQProvider
-from app.providers.qq_resolvers import vkeys,qqovo,media,result,RouteResult
+from app.providers.qq_resolvers import vkeys,media,result,RouteResult
 from app.models import TrackIdentity
 from test_media_lifecycle import media as fixture_media
 
@@ -44,16 +44,3 @@ def test_approved_echo_stops_without_duplicate_probe(monkeypatch):
     monkeypatch.setattr(p,'_resolve_official',official)
     value=asyncio.run(p.resolve(TRACK))
     assert value.identity==TRACK and calls==['vkeys','probe']
-
-def test_qqovo_minimal_bootstrap_uses_one_scoped_cookie_jar():
-    requests=[];sessions=[]
-    def handler(r):
-        requests.append(r)
-        if len(requests)==1:return httpx.Response(200,json={'apiSignKey':'synthetic'},headers={'set-cookie':'local=synthetic; Secure; Path=/'})
-        assert r.headers['cookie']=='local=synthetic' and 'authorization' not in r.headers
-        return httpx.Response(200,json={'url':URL})
-    def factory(**options):
-        client=httpx.AsyncClient(transport=httpx.MockTransport(handler),**options);sessions.append(client);return client
-    value=asyncio.run(qqovo.resolve(None,'ABC',session_factory=factory))
-    assert value.evidence=='request_bound' and value.response_mid is None
-    assert len(requests)==2 and sessions[0].is_closed

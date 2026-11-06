@@ -31,7 +31,7 @@ def test_development_normal_api_route_and_representation(monkeypatch,route,dev_p
         assert 'aqqmusic' not in opened.text
         assert 'u.y.qq.com' not in calls and len(calls)==2
         assert app.state.qq.last_resolution['identity']==('request_bound' if route in ('vkeys','xunhuisi') else 'confirmed')
-        assert app.state.qq.last_resolution['scope']=='development_preview'
+        assert app.state.qq.last_resolution['scope']=='configured_preview'
         assert client.get(value['streamUrl']).content==BODY
         assert client.post(value['streamUrl'].replace('/stream','/close')).status_code==204
 
@@ -52,9 +52,3 @@ def test_development_explicit_denial_does_not_fallback(monkeypatch):
     with TestClient(create_app(transport=httpx.MockTransport(upstream),dev_player=True)) as client:
         result=client.post('/api/playback/open',json={'identity':{'providerId':'qq','platformId':'ABC'}})
         assert result.status_code==403 and calls==['api.vkeys.cn']
-
-def test_qqovo_not_enabled_by_development_preview(monkeypatch):
-    monkeypatch.setenv('MUSIC_CORE_QQ_RESOLVER_ORDER','qqovo')
-    with TestClient(create_app(transport=httpx.MockTransport(lambda r:pytest.fail('不得尝试无登录会话的路线')),dev_player=True)) as client:
-        result=client.post('/api/playback/open',json={'identity':{'providerId':'qq','platformId':'ABC'}})
-        assert result.status_code==415
