@@ -11,7 +11,7 @@ from app.main import create_app
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--browser',required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--browser',required=True);parser.add_argument('--provider',default='netease');parser.add_argument('--track',default='284617');args=parser.parse_args()
     app=create_app(dev_player=True)
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=port,access_log=False,log_level='critical'))
@@ -24,10 +24,10 @@ def main():
             browser=pw.chromium.launch(headless=True,executable_path=args.browser,args=['--autoplay-policy=no-user-gesture-required'])
             try:
                 page=browser.new_page();page.goto(f'http://127.0.0.1:{port}/dev/player')
-                page.locator('#provider').select_option('netease');page.locator('#rid').fill('284617')
+                page.locator('#provider').select_option(args.provider);page.locator('#rid').fill(args.track)
                 page.locator('#open').click()
                 page.wait_for_function("document.querySelector('audio').currentTime>1 && document.querySelector('#lyrics-state').textContent==='同步歌词'",timeout=30000)
-                with httpx.Client() as c:doc=c.get(f'http://127.0.0.1:{port}/api/lyrics',params={'providerId':'netease','platformId':'284617'}).json()
+                with httpx.Client() as c:doc=c.get(f'http://127.0.0.1:{port}/api/lyrics',params={'providerId':args.provider,'platformId':args.track}).json()
                 page.evaluate("window.originalAudio=document.querySelector('audio')")
                 page.locator('#pause').click();page.locator('audio').evaluate('a=>a.currentTime=120')
                 expected=max(i for i,l in enumerate(doc['lines']) if l['startMs']<=120000)
@@ -52,7 +52,7 @@ def main():
                 held[0].fulfill(json={'status':'plain','plainText':'人工旧歌曲','lines':[]})
                 page.wait_for_timeout(100);assert '人工旧歌曲' not in page.locator('#lyrics').text_content()
                 page.locator('#close').click()
-                print(json.dumps({'realProvider':'netease','platformId':'284617','lines':len(doc['lines']),'seek120Index':int(before),'rapidSeek60Index':expected,'pauseStable':True,'sameAudioAfterRecovery':True,'lateOldResponseIgnored':True,'translationDisplayed':True}))
+                print(json.dumps({'realProvider':args.provider,'platformId':args.track,'lines':len(doc['lines']),'seek120Index':int(before),'rapidSeek60Index':expected,'pauseStable':True,'sameAudioAfterRecovery':True,'lateOldResponseIgnored':True,'translationDisplayed':True}))
             finally:browser.close()
     finally:server.should_exit=True;thread.join(timeout=10)
 

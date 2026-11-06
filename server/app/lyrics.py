@@ -114,7 +114,7 @@ async def provider_lyrics(provider,identity):
             def decode(v):return base64.b64decode(v,validate=True).decode('utf8') if v else ''
             return document(identity,decode(value['lyric']),decode(value.get('trans','')))
         if provider.id=='kuwo':
-            value=await fetch(c,'https://m.kuwo.cn/newh5/singles/songinfoandlrc',params={'musicId':pid},headers={'Referer':'https://m.kuwo.cn/'})
+            value=await fetch(c,'https://m.kuwo.cn/newh5/singles/songinfoandlrc',params={'musicId':pid,'reqId':'','plat':'web','from':''},headers={'Referer':'https://m.kuwo.cn/'})
             if value.get('status') not in (None,200):raise CoreError(ErrorCode.UPSTREAM_FAILURE)
             rows=value.get('data',{}).get('lrclist')
             if not isinstance(rows,list):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
@@ -130,8 +130,7 @@ async def provider_lyrics(provider,identity):
         if not isinstance(rows,list) or len(rows)!=1 or str(rows[0].get('contentId'))!=pid:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         copyright=rows[0].get('copyrightId')
         if not copyright:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-        value=await fetch(c,'https://app.c.nf.migu.cn/MIGUM3.0/strategy/pc/listen/v1.0',params={'scene':'','netType':'01','resourceType':'2','copyrightId':copyright,'contentId':pid,'toneFlag':'PQ'})
-        url=value.get('data',{}).get('lrcUrl')
+        url=rows[0].get('lrcUrl')
         if not url:return document(identity)
         # 固定歌词CDN且不跟随跳转，不允许平台响应变成任意URL代理。
         parsed=urlsplit(url)

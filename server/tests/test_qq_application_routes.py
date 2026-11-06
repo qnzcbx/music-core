@@ -8,8 +8,9 @@ from test_qq import response
 
 BODY=b'fLaCdata'
 
+@pytest.mark.parametrize('dev_page',[False,True])
 @pytest.mark.parametrize('route',['vkeys','tang'])
-def test_development_normal_api_route_and_representation(monkeypatch,route):
+def test_development_normal_api_route_and_representation(monkeypatch,route,dev_page):
     calls=[]
     monkeypatch.setenv('MUSIC_CORE_QQ_RESOLVER_ORDER',f'{route},official')
     async def trusted(*args):pass
@@ -20,7 +21,7 @@ def test_development_normal_api_route_and_representation(monkeypatch,route):
         if r.url.host=='tang.api.s01s.cn':return httpx.Response(200,json={'song_mid':'ABC','song_name':'测试','singer_name':'甲','song_play_url_pq':'https://aqqmusic.tc.qq.com/sample'})
         assert r.url.host=='aqqmusic.tc.qq.com' and 'cookie' not in r.headers
         return httpx.Response(206,headers={'content-type':'audio/flac','content-range':'bytes 0-7/8'},stream=httpx.ByteStream(BODY))
-    app=create_app(transport=httpx.MockTransport(upstream),target_check=trusted,dev_player=True)
+    app=create_app(transport=httpx.MockTransport(upstream),target_check=trusted,dev_player=dev_page)
     with TestClient(app) as client:
         opened=client.post('/api/playback/open',json={'identity':{'providerId':'qq','platformId':'ABC'}})
         assert opened.status_code==200
@@ -34,7 +35,7 @@ def test_development_normal_api_route_and_representation(monkeypatch,route):
         assert client.post(value['streamUrl'].replace('/stream','/close')).status_code==204
 
 def test_normal_non_development_does_not_unlock_external(monkeypatch):
-    monkeypatch.setenv('MUSIC_CORE_QQ_RESOLVER_ORDER','vkeys,tang,official')
+    monkeypatch.delenv('MUSIC_CORE_QQ_RESOLVER_ORDER',raising=False)
     calls=[]
     def upstream(r):
         calls.append(r.url.host)

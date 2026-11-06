@@ -34,12 +34,14 @@ def test_provider_mapping(provider,monkeypatch):
         identity=TrackIdentity(providerId=provider,platformId='1')
         def handle(request):
             assert 'cookie' not in request.headers and 'authorization' not in request.headers
-            if provider=='kuwo':return httpx.Response(200,json={'data':{'lrclist':[{'time':'1.5','lineLyric':'人工'}]}})
+            if provider=='kuwo':
+                assert request.url.params['plat']=='web' and 'reqId' in request.url.params and 'from' in request.url.params
+                return httpx.Response(200,json={'data':{'lrclist':[{'time':'1.5','lineLyric':'人工'}]}})
             if provider=='qq':return httpx.Response(200,json={'code':0,'lyric':base64.b64encode('[00:01.500]人工'.encode()).decode()})
             if provider=='netease':return httpx.Response(200,json={'code':200,'lrc':{'lyric':'[00:01.500]人工'},'tlyric':{'lyric':'[00:01.500]翻译'}})
             if request.url.host=='d.musicapp.migu.cn':return httpx.Response(200,text='[00:01.500]人工')
             return httpx.Response(200,json={'data':{'lrcUrl':'https://d.musicapp.migu.cn/test.lrc'}})
-        async def detail(*args):return {'resource':[{'contentId':'1','copyrightId':'test'}]}
+        async def detail(*args):return {'resource':[{'contentId':'1','copyrightId':'test','lrcUrl':'https://d.musicapp.migu.cn/test.lrc'}]}
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle),cookies={'secret':'private'},auth=('a','b')) as client:
             value=await provider_lyrics(SimpleNamespace(id=provider,client=client,request_json=detail),identity)
             assert value.lines[0].startMs==1500 and value.status=='synced'
