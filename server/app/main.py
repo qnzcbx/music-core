@@ -21,6 +21,7 @@ from app.config import load_policy, provider_info, ProviderInfo
 from app.core.errors import CoreError, ErrorCode
 from app.core.media_store import MediaStore,PlaybackLeases,MediaSettings
 from app.media_stream import validate_target
+from app.lyrics import LyricsCache, lyrics_router
 from app.playback import playback_router
 from app.downloads import DownloadManager, DownloadSettings, download_router
 
@@ -139,6 +140,8 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
     api.state.target_check = target_check
     api.include_router(playback_router(dev_player=dev_player))
     api.include_router(download_router())
+    api.state.lyrics_cache = LyricsCache()
+    api.include_router(lyrics_router())
 
     @api.exception_handler(CoreError)
     async def core_error(request: Request, exc: CoreError):

@@ -5,6 +5,7 @@
 <button id="retry">重新打开当前歌曲</button><button id="close">关闭会话</button>
 <p>开发试听：外部媒体可能仅有请求绑定证据，请核对录音；本页不代表全部资源已获正式身份确认。</p>
 <p><audio id="audio" controls preload="metadata"></audio></p><p id="status">尚未打开</p><p id="recovery"></p>
+<section aria-label="歌词观察"><button id="load-lyrics">获取当前输入歌曲歌词</button><p id="lyrics-state">尚未获取歌词</p><pre id="lyrics"></pre></section>
 <script type="module">
 import {RecoveryPlayer} from '/dev/player-controller.mjs';
 const audio=document.querySelector('#audio'), label=document.querySelector('#status');
@@ -13,7 +14,31 @@ const player=new RecoveryPlayer(audio,{notify:state=>{
  document.querySelector('#recovery').textContent=`自动恢复已使用：${state.automaticUsed?'是':'否'}；会话：${state.hasSession?'有效':'无'}`;
  document.body.dataset.phase=state.phase;
 }});
-document.querySelector('#open').onclick=()=>player.select({providerId:document.querySelector('#provider').value,platformId:document.querySelector('#rid').value});
+let lyricKey='', lyricDocument=null, lyricGeneration=0;
+const lyricView=document.querySelector('#lyrics'), lyricState=document.querySelector('#lyrics-state');
+function syncLyrics(){
+ if(!lyricDocument)return;
+ if(lyricDocument.status!=='synced'){lyricView.textContent=lyricDocument.plainText||'';lyricView.dataset.index='-1';return;}
+ const lines=lyricDocument.lines, ms=audio.currentTime*1000;
+ let index=-1;for(let i=0;i<lines.length && lines[i].startMs<=ms;i++)index=i;
+ lyricView.dataset.index=String(index);
+ lyricView.textContent=lines.slice(Math.max(0,index-1),index+2).map((l,i)=>`${Math.max(0,index-1)+i===index?'▶ ':''}${l.text}${l.translation?'\n'+l.translation:''}`).join('\n\n');
+}
+async function loadLyrics(identity){
+ const key=JSON.stringify(identity);if(key===lyricKey && lyricDocument)return;
+ lyricKey=key;lyricDocument=null;const generation=++lyricGeneration;
+ lyricView.textContent='';lyricView.dataset.index='-1';lyricState.textContent='正在获取歌词';
+ try{
+  const response=await fetch('/api/lyrics?'+new URLSearchParams(identity));
+  if(!response.ok)throw new Error('歌词请求失败');
+  const value=await response.json();if(generation!==lyricGeneration)return;
+  lyricDocument=value;lyricState.textContent=({synced:'同步歌词',plain:'纯文本歌词',instrumental:'纯音乐',unavailable:'暂无歌词'})[value.status];syncLyrics();
+ }catch(error){if(generation===lyricGeneration)lyricState.textContent='歌词获取失败，可重试';}
+}
+function inputIdentity(){return {providerId:document.querySelector('#provider').value,platformId:document.querySelector('#rid').value};}
+document.querySelector('#load-lyrics').onclick=()=>loadLyrics(inputIdentity());
+for(const event of ['timeupdate','seeking','seeked','loadedmetadata'])audio.addEventListener(event,syncLyrics);
+document.querySelector('#open').onclick=()=>{const identity=inputIdentity();void loadLyrics(identity);return player.select(identity);};
 document.querySelector('#close').onclick=()=>player.stop();
 document.querySelector('#pause').onclick=()=>player.setPlaying(false);
 document.querySelector('#resume').onclick=()=>player.setPlaying(true);

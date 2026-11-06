@@ -38,6 +38,10 @@ def candidate_from(raw):
 
 
 class NeteaseProvider:
+    async def get_lyrics(self, identity):
+        from app.lyrics import provider_lyrics
+        return await provider_lyrics(self, identity)
+
     id='netease'
 
     def __init__(self,client: httpx.AsyncClient,*,route_order=('native',)):

@@ -40,6 +40,10 @@ def candidate_from(raw: dict) -> SongCandidate | None:
 
 
 class QQProvider:
+    async def get_lyrics(self, identity):
+        from app.lyrics import provider_lyrics
+        return await provider_lyrics(self, identity)
+
     id='qq'
 
     def __init__(self,client: httpx.AsyncClient,*,cookie='',route_order=('official',),resolve_timeout=25,continue_on_transient=True,enabled_external_routes=(),development_preview=False):

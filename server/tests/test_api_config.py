@@ -46,9 +46,9 @@ def test_live_contract_and_openapi():
         assert rows[2]['implementationStatus']=='implemented_sample_media_verified' and rows[2]['capabilities']['search'] and rows[2]['capabilities']['resolve']
         assert rows[3]['implementationStatus']=='implemented_sample_media_verified' and rows[3]['capabilities']['search'] and rows[3]['capabilities']['resolve']
         assert [r['id'] for r in rows if r['defaultSelected']]==['kuwo']
-        assert all(not r['capabilities']['lyrics'] and r['capabilities']['download'] for r in rows)
+        assert all(r['capabilities']['lyrics'] and r['capabilities']['download'] for r in rows)
         schema = client.get('/openapi.json').json()
-        assert {'/api/health','/api/providers','/api/search','/api/playback/open',
+        assert {'/api/lyrics','/api/health','/api/providers','/api/search','/api/playback/open',
             '/api/playback/{key}/stream','/api/playback/{key}/close','/api/playback/{key}/renew',
             '/api/downloads','/api/downloads/{identifier}','/api/downloads/{identifier}/cancel',
             '/api/downloads/{identifier}/retry'} == set(schema['paths'])

@@ -65,6 +65,10 @@ def candidate_from(raw: dict) -> SongCandidate | None:
 
 
 class KuwoProvider:
+    async def get_lyrics(self, identity):
+        from app.lyrics import provider_lyrics
+        return await provider_lyrics(self, identity)
+
     id = 'kuwo'
 
     def __init__(self, client: httpx.AsyncClient):
