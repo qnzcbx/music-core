@@ -95,7 +95,7 @@ class NeteaseProvider:
         self.last_resolution=None
         if identity.providerId!='netease':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         async def execute():
             failure=None
             for route in self.route_order:
@@ -135,7 +135,7 @@ class NeteaseProvider:
     async def _resolve_native(self,identity: TrackIdentity,options: ResolveOptions | None=None) -> ResolvedMedia:
         if identity.providerId!='netease':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         # 普通128kbps原生取链，不尝试第三方账号、高品质解锁或DRM处理。
         data=await self.request_json(PLAYER_URL,{'ids':json.dumps([int(identity.platformId)]),'br':'128000'})
         rows=data.get('data')

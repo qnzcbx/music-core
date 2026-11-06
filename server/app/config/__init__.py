@@ -55,5 +55,5 @@ class ProviderInfo(DTO):
 def provider_info(policy: SourcePolicy) -> list[ProviderInfo]:
     return [ProviderInfo(id=pid, name=NAMES[pid], order=i, defaultSelected=pid in policy.defaultSelectedSources,
             implementationStatus='implemented_sample_media_verified',
-            capabilities=Capabilities(search=pid in IDS,resolve=pid in IDS))
+            capabilities=Capabilities(search=pid in IDS,resolve=pid in IDS,download=pid in IDS))
             for i, pid in enumerate(policy.sourceOrder)]

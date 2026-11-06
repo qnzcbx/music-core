@@ -133,7 +133,7 @@ class KuwoProvider:
         if identity.providerId != self.id:
             raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options = options or ResolveOptions()
-        if options.purpose != 'playback' or options.providerQualityId is not None:
+        if options.providerQualityId is not None:
             raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         data = await self.request(RESOLVE_URL, {'mid':identity.platformId,'type':'music','httpsStatus':1})
         # 仅已实测的接口级请求拒绝可切到同平台mobi；权限码、超时、取消均不重试。

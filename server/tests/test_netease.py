@@ -75,13 +75,14 @@ def test_bad_search_response(data):
     with pytest.raises(CoreError):run(lambda p:p.search('歌',1),lambda r:httpx.Response(200,json=data))
 
 
-def test_resolve_native_and_private_fields():
+@pytest.mark.parametrize('purpose',['playback','download'])
+def test_resolve_native_and_private_fields(purpose):
     def handler(r):
         assert r.url.path=='/api/song/enhance/player/url'
         assert parse_qs(r.content.decode())=={'ids':['[123]'],'br':['128000']}
         assert 'cookie' not in r.headers and 'authorization' not in r.headers
         return response()
-    media=run(lambda p:p.resolve(TRACK),handler)
+    media=run(lambda p:p.resolve(TRACK,ResolveOptions(purpose=purpose)),handler)
     assert media.identity==TRACK and media.validUntil-media.resolvedAt==1200000
     assert media.representation.bitrateBps==128000 and media.representation.sizeBytes==123456
     assert media.representation.codec is None
@@ -118,7 +119,7 @@ def test_platform_errors(status,body,expected):
     assert e.value.code==expected
 
 
-@pytest.mark.parametrize('options',[ResolveOptions(purpose='download'),ResolveOptions(providerQualityId='lossless')])
+@pytest.mark.parametrize('options',[ResolveOptions(providerQualityId='unsupported'),ResolveOptions(providerQualityId='lossless')])
 def test_unsupported_options(options):
     with pytest.raises(CoreError) as e:run(lambda p:p.resolve(TRACK,options),lambda r:pytest.fail('不应发请求'))
     assert e.value.code==ErrorCode.CAPABILITY_UNSUPPORTED

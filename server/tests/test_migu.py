@@ -96,9 +96,10 @@ def test_invalid_encoding(raw,signature):
     with pytest.raises(CoreError):decode_response(raw,signature)
 
 
-def test_resolve_without_search_and_new_provider():
-    first=run(lambda p:p.resolve(TRACK),handler)
-    second=run(lambda p:p.resolve(TRACK),handler)
+@pytest.mark.parametrize('purpose',['playback','download'])
+def test_resolve_without_search_and_new_provider(purpose):
+    first=run(lambda p:p.resolve(TRACK,ResolveOptions(purpose=purpose)),handler)
+    second=run(lambda p:p.resolve(TRACK,ResolveOptions(purpose=purpose)),handler)
     assert first.identity==second.identity==TRACK and first.id!=second.id
     assert first.representation.codec is None and first.representation.sizeBytes is None and first.validUntil is None
     assert 'example' not in first.model_dump_json() and 'headers' not in first.model_dump()
@@ -140,7 +141,7 @@ def test_platform_errors(status,payload,expected):
     assert error.value.code==expected and len(calls)==1
 
 
-@pytest.mark.parametrize('options',[ResolveOptions(purpose='download'),ResolveOptions(providerQualityId='SQ')])
+@pytest.mark.parametrize('options',[ResolveOptions(providerQualityId='unsupported'),ResolveOptions(providerQualityId='SQ')])
 def test_unsupported_options(options):
     with pytest.raises(CoreError):run(lambda p:p.resolve(TRACK,options),lambda r:pytest.fail('不应请求'))
 

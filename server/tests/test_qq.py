@@ -87,13 +87,14 @@ def test_timeout_and_cancel_no_retry():
     asyncio.run(cancelled())
 
 
-def test_resolve_mid_purl_and_privacy():
+@pytest.mark.parametrize('purpose',['playback','download'])
+def test_resolve_mid_purl_and_privacy(purpose):
     def handler(r):
         payload=json.loads(r.url.params['data']);param=payload['req_0']['param']
         assert param['songmid']==['SongMid1'] and 'filename' not in param and param['loginflag']==0
         return response({'midurlinfo':[{'songmid':'SongMid1','purl':'C400file.m4a'}],
             'sip':['https://isure.stream.qqmusic.qq.com/']})
-    media=run(lambda p:p.resolve(TRACK),handler)
+    media=run(lambda p:p.resolve(TRACK,ResolveOptions(purpose=purpose)),handler)
     assert media.identity==TRACK and media.representation.codec is None and media.representation.sizeBytes is None
     assert media.validUntil is None and 'qqmusic.qq.com' not in media.public_view().model_dump_json()+repr(media)
 
@@ -120,7 +121,7 @@ def test_credentials_only_qq_rpc_not_media():
 
 
 def test_wrong_provider_and_selection():
-    for track,options in [(TrackIdentity(providerId='kuwo',platformId='1'),None),(TRACK,ResolveOptions(purpose='download'))]:
+    for track,options in [(TrackIdentity(providerId='kuwo',platformId='1'),None),(TRACK,ResolveOptions(providerQualityId='unsupported'))]:
         with pytest.raises(CoreError):run(lambda p:p.resolve(track,options),lambda r:pytest.fail('不应请求'))
 
 

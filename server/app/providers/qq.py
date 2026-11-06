@@ -139,7 +139,7 @@ class QQProvider:
         self.last_resolution=None
         if identity.providerId!='qq':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         async def execute():
             failure=None
             for route in self.route_order:

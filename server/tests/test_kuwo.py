@@ -121,11 +121,12 @@ def test_bounded_parser():
         run(lambda p:p.search('歌',1),lambda r:httpx.Response(200,content=b'x'*(2*1024*1024+1)))
 
 
-def test_resolve_identity_and_private_projection():
+@pytest.mark.parametrize('purpose',['playback','download'])
+def test_resolve_identity_and_private_projection(purpose):
     def handler(r):
         assert r.url.params['mid']=='123' and 'all' not in r.url.params
         return httpx.Response(200,json={'code':200,'data':{'url':'https://example.invalid/private.mp3'}})
-    media=run(lambda p:p.resolve(TrackIdentity(providerId='kuwo',platformId='123')),handler)
+    media=run(lambda p:p.resolve(TrackIdentity(providerId='kuwo',platformId='123'),ResolveOptions(purpose=purpose)),handler)
     assert media.identity.platformId=='123'
     assert media.representation.codec is None and media.representation.sizeBytes is None
     assert media.validUntil is None

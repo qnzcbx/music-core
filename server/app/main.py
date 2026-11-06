@@ -22,6 +22,7 @@ from app.core.errors import CoreError, ErrorCode
 from app.core.media_store import MediaStore,PlaybackLeases,MediaSettings
 from app.media_stream import validate_target
 from app.playback import playback_router
+from app.downloads import DownloadManager, DownloadSettings, download_router
 
 
 class SafeAccessLog(logging.Filter):
@@ -98,7 +99,7 @@ def error_response(code):
         code=code.value, message=message, retryable=retryable)).model_dump())
 
 
-def create_app(config_path=None, *, transport=None, target_check=validate_target, media_settings=MediaSettings(), dev_player=False) -> FastAPI:
+def create_app(config_path=None, *, transport=None, target_check=validate_target, media_settings=MediaSettings(), dev_player=False, download_settings=None) -> FastAPI:
     policy, fallback = load_policy(config_path)
     @asynccontextmanager
     async def lifespan(api):
@@ -112,6 +113,9 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.netease = NeteaseProvider(client,route_order=tuple(os.environ.get('MUSIC_CORE_NETEASE_RESOLVER_ORDER','native').split(',')))
             api.state.migu = MiguProvider(client)
             api.state.http_client = client
+            settings = download_settings or DownloadSettings(directory=os.environ.get('MUSIC_CORE_DOWNLOAD_DIR', DownloadSettings().directory))
+            api.state.downloads = DownloadManager(api.state, settings)
+            api.state.downloads.prepare()
             async def cleanup():
                 while True:
                     await asyncio.sleep(media_settings.sweep_interval)
@@ -120,6 +124,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             try:
                 yield
             finally:
+                await api.state.downloads.close()
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
@@ -133,6 +138,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
     api.state.playback_leases = PlaybackLeases(api.state.media_store)
     api.state.target_check = target_check
     api.include_router(playback_router(dev_player=dev_player))
+    api.include_router(download_router())
 
     @api.exception_handler(CoreError)
     async def core_error(request: Request, exc: CoreError):

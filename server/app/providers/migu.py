@@ -117,7 +117,7 @@ class MiguProvider:
     async def resolve(self,identity: TrackIdentity,options: ResolveOptions | None=None) -> ResolvedMedia:
         if identity.providerId!='migu':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         # 先按精确资源ID重新取得双ID及格式目录，绝不按歌名猜测录音。
         metadata=await self.request_json(DETAIL_URL,{'resourceId':identity.platformId,'resourceType':'2'})
         rows=metadata.get('resource')

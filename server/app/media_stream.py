@@ -12,7 +12,7 @@ from app.core.errors import CoreError,ErrorCode
 
 SAFE_HEADERS = ('content-type','content-length','content-range','accept-ranges','etag','last-modified')
 MEDIA_DOMAINS={'kuwo':('kuwo.cn',),'qq':('stream.qqmusic.qq.com','aqqmusic.tc.qq.com'),
-    'netease':('m701.music.126.net','m801.music.126.net'),'migu':('freetyst.nf.migu.cn',)}
+    'netease':('m701.music.126.net','m801.music.126.net','m10.music.126.net'),'migu':('freetyst.nf.migu.cn',)}
 
 
 async def validate_target(url,provider_id='kuwo'):
