@@ -1,5 +1,7 @@
 # 独立后端
 
+39-B.4D-3完成QQ小范围收敛：资格只在路线循环检查，输入只在resolve入口检查；evidence由MID回显推导，qqovo只用一次独立会话及其自身Cookie容器。默认与服务资格、正式身份和媒体安全边界不变，没有外部在线收益证据。见[行为差异和验收](../docs/migration/39-B-4D-3/README.md)。
+
 39-B.4D-2已新增vkeys、qqovo、Tang实际协议模块及专项测试，qqovo有独立短会话与确定性HMAC测试；不再只有编排配置。默认仍official，当前外部使用条件未确认，应用不授予enabled_external_routes资格，顺序环境变量不能自行解禁。URL-only保留request_bound，正式发布只接受已核验结果并执行安全媒体探测。[实现和当前验收边界](../docs/migration/39-B-4D-2/README.md)。
 
 39-B.4D新增QQ路线配置：服务端`MUSIC_CORE_QQ_RESOLVER_ORDER`为逗号分隔，默认`official`；可填vkeys、qqovo、tang、official，未知/重复/空配置拒绝。前三条当前均禁用，配置不会自行解禁；全部禁用时解析返回capability_unsupported。QQProvider总预算默认25秒，官方路线可独立使用。本期未验证外部路线播放或覆盖率提升，见[审核与对照](../docs/migration/39-B-4D/README.md)。

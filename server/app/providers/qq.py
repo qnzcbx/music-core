@@ -151,23 +151,18 @@ class QQProvider:
         except asyncio.TimeoutError:raise CoreError(ErrorCode.UPSTREAM_TIMEOUT) from None
 
     async def _resolve_route(self,route,identity,options):
-        if route=='official':return await self._resolve_official(identity,options)
-        if route not in self.available_routes:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if route=='official':return await self._resolve_official(identity)
         from .qq_resolvers import vkeys,qqovo,tang
-        adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang}.get(route)
-        if adapter is None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang}[route]
         result=await adapter.resolve(self.client,identity.platformId)
-        if result.evidence!='confirmed':raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+        if result.response_mid is None:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
         if result.response_mid!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         from .qq_resolvers.media import verify_media
         await verify_media(self.client,result.url.get_secret_value())
         return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
             upstreamUrl=result.url,headers={'User-Agent':'Mozilla/5.0'},representation=MediaRepresentation())
 
-    async def _resolve_official(self,identity: TrackIdentity,options: ResolveOptions | None = None) -> ResolvedMedia:
-        if identity.providerId!='qq':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
-        options=options or ResolveOptions()
-        if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+    async def _resolve_official(self,identity: TrackIdentity) -> ResolvedMedia:
         # 不构造猜测文件名，让平台按songmid选择当前允许访问的普通媒体表示。
         data=await self.rpc(VKEY_MODULE,'UrlGetVkey',{'songmid':[identity.platformId],'songtype':[0],
             'guid':str(randbelow(9_000_000_000)+1_000_000_000),'uin':self._uin,'loginflag':1 if self._key else 0,'platform':'20'})

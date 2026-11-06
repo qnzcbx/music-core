@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.4D-3）：QQ移除重复输入/资格判断和身份重复存储，qqovo单一会话管理Cookie，业务代码净减9行。执行资格、录音核验、媒体安全仍各归单一位置，不以简化为由静默发布未确认录音。公共Core不变，详情见[行为对照](../39-B-4D-3/Behavior-Diff.md)。
+
 最新更新（39-B.4D-2）：QQ三条外部协议已独立实现在qq_resolvers，接入原有预算/分发，身份等级和会话材料仍归QQ内部；URL-only不会自动发布为confirmed。当前外部服务使用条件不足，默认只official，不把实现等同于在线验证或启用。公共模型与媒体生命周期不变，见[外部解析器说明](../39-B-4D-2/QQ-External-Resolvers.md)。
 
 最新更新（39-B.4D）：QQProvider内部增加固定有序配置、路线资格及整次Resolve预算，默认仅official。vkeys/qqovo/Tang因当前使用条件和身份依据不足保持禁用，未增加外部运行适配器；不改变来源、公共模型、Store/Lease或恢复状态机。详情见[QQ路线审核](../39-B-4D/QQ-Resolver-Routes.md)。
