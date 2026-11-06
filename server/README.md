@@ -1,5 +1,7 @@
 # 独立后端
 
+39-B.4D-2已新增vkeys、qqovo、Tang实际协议模块及专项测试，qqovo有独立短会话与确定性HMAC测试；不再只有编排配置。默认仍official，当前外部使用条件未确认，应用不授予enabled_external_routes资格，顺序环境变量不能自行解禁。URL-only保留request_bound，正式发布只接受已核验结果并执行安全媒体探测。[实现和当前验收边界](../docs/migration/39-B-4D-2/README.md)。
+
 39-B.4D新增QQ路线配置：服务端`MUSIC_CORE_QQ_RESOLVER_ORDER`为逗号分隔，默认`official`；可填vkeys、qqovo、tang、official，未知/重复/空配置拒绝。前三条当前均禁用，配置不会自行解禁；全部禁用时解析返回capability_unsupported。QQProvider总预算默认25秒，官方路线可独立使用。本期未验证外部路线播放或覆盖率提升，见[审核与对照](../docs/migration/39-B-4D/README.md)。
 
 要求 Python 3.10+；本次在 Windows Python 3.10.10 验证。VSCode Git Bash：

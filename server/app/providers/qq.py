@@ -42,10 +42,12 @@ def candidate_from(raw: dict) -> SongCandidate | None:
 class QQProvider:
     id='qq'
 
-    def __init__(self,client: httpx.AsyncClient,*,cookie='',route_order=('official',),resolve_timeout=25,continue_on_transient=True):
+    def __init__(self,client: httpx.AsyncClient,*,cookie='',route_order=('official',),resolve_timeout=25,continue_on_transient=True,enabled_external_routes=()):
         if not isinstance(route_order,(list,tuple)) or not route_order or any(r not in ('official','vkeys','qqovo','tang') for r in route_order) or len(set(route_order))!=len(route_order):raise ValueError('QQ resolver order invalid')
         if type(resolve_timeout) not in (int,float) or not math.isfinite(resolve_timeout) or not 0<resolve_timeout<=60:raise ValueError('QQ resolve timeout invalid')
         if type(continue_on_transient)is not bool:raise ValueError('QQ continuation policy invalid')
+        if not isinstance(enabled_external_routes,(tuple,list)) or any(r not in ('vkeys','qqovo','tang') for r in enabled_external_routes):raise ValueError('External route selection invalid')
+        if enabled_external_routes:self.available_routes=('official',*enabled_external_routes)
         self.route_order=tuple(route_order)
         self.resolve_timeout=resolve_timeout
         self.continue_on_transient=continue_on_transient
@@ -126,7 +128,7 @@ class QQProvider:
         more=bool(rows) and page<10 and (not isinstance(total,int) or page*limit<total)
         return SearchPage(items=tuple(items),nextCursor=f'{page+1}:{limit}' if more else None)
 
-    # 外部路线尚未满足当前使用条件和录音验证要求，不能由配置自行解禁。
+    # 默认只启用官方；外部资格需由调用方核实服务条件，顺序配置不能自行解禁。
     available_routes=('official',)
 
     async def resolve(self,identity: TrackIdentity,options: ResolveOptions | None = None) -> ResolvedMedia:
@@ -149,8 +151,18 @@ class QQProvider:
         except asyncio.TimeoutError:raise CoreError(ErrorCode.UPSTREAM_TIMEOUT) from None
 
     async def _resolve_route(self,route,identity,options):
-        if route!='official':raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
-        return await self._resolve_official(identity,options)
+        if route=='official':return await self._resolve_official(identity,options)
+        if route not in self.available_routes:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        from .qq_resolvers import vkeys,qqovo,tang
+        adapter={'vkeys':vkeys,'qqovo':qqovo,'tang':tang}.get(route)
+        if adapter is None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        result=await adapter.resolve(self.client,identity.platformId)
+        if result.evidence!='confirmed':raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+        if result.response_mid!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+        from .qq_resolvers.media import verify_media
+        await verify_media(self.client,result.url.get_secret_value())
+        return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
+            upstreamUrl=result.url,headers={'User-Agent':'Mozilla/5.0'},representation=MediaRepresentation())
 
     async def _resolve_official(self,identity: TrackIdentity,options: ResolveOptions | None = None) -> ResolvedMedia:
         if identity.providerId!='qq':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)

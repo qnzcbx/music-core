@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.4D-2）：QQ三条外部协议已独立实现在qq_resolvers，接入原有预算/分发，身份等级和会话材料仍归QQ内部；URL-only不会自动发布为confirmed。当前外部服务使用条件不足，默认只official，不把实现等同于在线验证或启用。公共模型与媒体生命周期不变，见[外部解析器说明](../39-B-4D-2/QQ-External-Resolvers.md)。
+
 最新更新（39-B.4D）：QQProvider内部增加固定有序配置、路线资格及整次Resolve预算，默认仅official。vkeys/qqovo/Tang因当前使用条件和身份依据不足保持禁用，未增加外部运行适配器；不改变来源、公共模型、Store/Lease或恢复状态机。详情见[QQ路线审核](../39-B-4D/QQ-Resolver-Routes.md)。
 
 最新更新（39-B.4C）：四来源均有独立Provider，MiguProvider使用contentId稳定身份，通过原生resourceinfo重建copyrightId及格式目录，再请求原生listen-url。无持久映射或搜索缓存前提，真实更换Provider实例后的重开通过；无需修改公共模型、Store/Lease或RecoveryPlayer。咪咕媒体仅按实测精确主机放行；完整身份对照见[咪咕说明](../39-B-4C/Migu-Provider.md)。下文“咪咕未接入”为历史范围；默认顺序及默认仅酷我保持不变。
