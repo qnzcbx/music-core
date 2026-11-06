@@ -40,7 +40,11 @@ def candidate_from(raw):
 class NeteaseProvider:
     id='netease'
 
-    def __init__(self,client: httpx.AsyncClient):self.client=client
+    def __init__(self,client: httpx.AsyncClient,*,route_order=('native',)):
+        if not isinstance(route_order,(tuple,list)) or not route_order or any(r not in ('native','gdstudio-preview','jfjt') for r in route_order) or len(set(route_order))!=len(route_order):raise ValueError('Invalid Netease resolver order')
+        self.client=client
+        self.route_order=tuple(route_order)
+        self.last_resolution=None
 
     async def request_json(self,url,form):
         async def execute():
@@ -88,6 +92,47 @@ class NeteaseProvider:
         return SearchPage(items=tuple(items),nextCursor=f'{page+1}:{limit}' if more else None)
 
     async def resolve(self,identity: TrackIdentity,options: ResolveOptions | None=None) -> ResolvedMedia:
+        self.last_resolution=None
+        if identity.providerId!='netease':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
+        options=options or ResolveOptions()
+        if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        async def execute():
+            failure=None
+            for route in self.route_order:
+                try:
+                    if route=='native':
+                        value=await self._resolve_native(identity,options)
+                        self.last_resolution={'resolver':'native','identity':'response_id_matched','scope':'normal'}
+                        return value
+                    from .netease_resolvers import gdstudio,jfjt
+                    from app.core.media_probe import verify_media
+                    adapter=gdstudio if route=='gdstudio-preview' else jfjt
+                    candidate=await adapter.resolve(self.client,identity.platformId)
+                    if route=='jfjt':
+                        detail=await self.request_json('https://music.163.com/api/v3/song/detail',
+                            {'c':json.dumps([{'id':int(identity.platformId),'v':0}])})
+                        songs=detail.get('songs')
+                        if not isinstance(songs,list) or len(songs)!=1 or not isinstance(songs[0],dict) or song_id(songs[0].get('id'))!=identity.platformId:
+                            raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                        title=candidate.get('title');artist=candidate.get('artist')
+                        if not isinstance(title,str) or title.strip()!=str(songs[0].get('name','')).strip():raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                        artists=songs[0].get('ar')
+                        if not isinstance(artists,list):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                        expected={a['name'].strip().casefold() for a in artists if isinstance(a,dict) and isinstance(a.get('name'),str)}
+                        actual={a.strip().casefold() for a in re.split(r'[/,、，]',artist) if a.strip()} if isinstance(artist,str) else set()
+                        if not actual or not actual<=expected:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                    representation=await verify_media(self.client,candidate['url'].get_secret_value(),'netease')
+                    self.last_resolution={'resolver':route,'identity':candidate['evidence'],'scope':'configured_preview'}
+                    return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
+                        upstreamUrl=candidate['url'],headers={'User-Agent':'Mozilla/5.0'},representation=representation)
+                except CoreError as error:
+                    if error.code not in (ErrorCode.UPSTREAM_FAILURE,ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.MEDIA_UNAVAILABLE):raise
+                    failure=error
+            raise failure
+        try:return await asyncio.wait_for(execute(),25)
+        except asyncio.TimeoutError:raise CoreError(ErrorCode.UPSTREAM_TIMEOUT) from None
+
+    async def _resolve_native(self,identity: TrackIdentity,options: ResolveOptions | None=None) -> ResolvedMedia:
         if identity.providerId!='netease':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
         if options.purpose!='playback' or options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)

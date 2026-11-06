@@ -33,14 +33,17 @@ def main():
         assert server.started
         resolve_count=[0]
         provider=getattr(app.state,args.provider)
+        resolution_history=[]
         original_resolve=provider.resolve
         async def counted_resolve(identity,options=None):
             resolve_count[0]+=1
-            return await original_resolve(identity,options)
+            resolved=await original_resolve(identity,options)
+            if args.provider in ('qq','netease'):resolution_history.append(provider.last_resolution)
+            return resolved
         provider.resolve=counted_resolve
         route_calls=[]
-        if args.provider=='qq':
-            original_route=provider._resolve_route
+        if args.provider in ('qq','netease'):
+            original_route=provider._resolve_route if args.provider=='qq' else None
             route_failures=[]
             async def counted_route(route,identity,options):
                 route_calls.append(route)
@@ -48,7 +51,7 @@ def main():
                 except Exception as error:
                     route_failures.append({'route':route,'error':getattr(getattr(error,'code',None),'value',type(error).__name__)})
                     raise
-            provider._resolve_route=counted_route
+            if args.provider=='qq':provider._resolve_route=counted_route
         with sync_playwright() as playwright:
             browser=playwright.chromium.launch(headless=True,executable_path=args.browser,
                 args=['--autoplay-policy=no-user-gesture-required'])
@@ -135,9 +138,11 @@ def main():
                 assert not records and active==0 and summary['browserOnlyLocalOrigin']
                 summary['browserVersion']=browser.version
                 summary['events']=page.evaluate('window.mediaEvents')
-                if args.provider=='qq':
-                    summary['routeCalls']=route_calls
-                    summary['routeFailures']=route_failures
+                if args.provider in ('qq','netease'):
+                    if args.provider=='qq':
+                        summary['routeCalls']=route_calls
+                        summary['routeFailures']=route_failures
+                    summary['resolutionHistory']=resolution_history
                     summary['lastResolution']=provider.last_resolution
                 summary['resolveCalls']=resolve_count[0]
                 assert resolve_count[0]==(2 if args.recover else 1)

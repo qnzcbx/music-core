@@ -156,7 +156,7 @@ def test_qqovo_expired_session_no_retry():
     (200,'audio/flac',b'fLaCxxx',True),(200,'text/html',b'<html>',False),
     (200,'audio/mpeg',b'wrong',False),(403,'audio/mpeg',b'ID3x',False)])
 def test_bounded_media_validation(monkeypatch,status,mime,raw,valid):
-    from app.providers.qq_resolvers import media
+    from app.core import media_probe as media
     closed=[];targets=[]
     async def guard(url,provider):targets.append(url);assert provider=='qq'
     monkeypatch.setattr(media,'validate_target',guard)

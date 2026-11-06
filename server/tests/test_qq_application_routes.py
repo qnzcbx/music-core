@@ -3,7 +3,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from app.main import create_app
-from app.providers.qq_resolvers import media
+from app.core import media_probe as media
 from test_qq import response
 
 BODY=b'fLaCdata'

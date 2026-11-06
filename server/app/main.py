@@ -109,7 +109,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.qq = QQProvider(client,cookie=os.environ.get('MUSIC_CORE_QQ_COOKIE',''),
                 route_order=tuple(os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official').split(',')),
                 development_preview=dev_player)
-            api.state.netease = NeteaseProvider(client)
+            api.state.netease = NeteaseProvider(client,route_order=tuple(os.environ.get('MUSIC_CORE_NETEASE_RESOLVER_ORDER','native').split(',')))
             api.state.migu = MiguProvider(client)
             api.state.http_client = client
             async def cleanup():
