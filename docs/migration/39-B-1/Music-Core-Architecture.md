@@ -1,5 +1,7 @@
 # Music Core 架构与所有权
 
+最新更新（39-B.4D）：QQProvider内部增加固定有序配置、路线资格及整次Resolve预算，默认仅official。vkeys/qqovo/Tang因当前使用条件和身份依据不足保持禁用，未增加外部运行适配器；不改变来源、公共模型、Store/Lease或恢复状态机。详情见[QQ路线审核](../39-B-4D/QQ-Resolver-Routes.md)。
+
 最新更新（39-B.4C）：四来源均有独立Provider，MiguProvider使用contentId稳定身份，通过原生resourceinfo重建copyrightId及格式目录，再请求原生listen-url。无持久映射或搜索缓存前提，真实更换Provider实例后的重开通过；无需修改公共模型、Store/Lease或RecoveryPlayer。咪咕媒体仅按实测精确主机放行；完整身份对照见[咪咕说明](../39-B-4C/Migu-Provider.md)。下文“咪咕未接入”为历史范围；默认顺序及默认仅酷我保持不变。
 
 最新更新（39-B.4B）：NeteaseProvider复用统一协议、搜索与播放API；采用匿名原生cloudsearch/pc与普通player/url，已验证一个真实MP3样本的播放、Seek和稳定身份重开。没有迁入原库第三方解析、默认账号或加密工具，公共数据契约、Store/Lease与恢复协调器不变。网易云可信媒体主机按真实证据独立管理；详见[网易云Provider与Resolver依赖](../39-B-4B/Netease-Provider.md)。下文“网易云未接入”为历史阶段描述。
