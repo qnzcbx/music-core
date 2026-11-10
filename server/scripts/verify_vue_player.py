@@ -13,10 +13,11 @@ from playwright.sync_api import sync_playwright
 from app.main import create_app
 from app.models import SearchPage,SongCandidate,TrackIdentity
 from app.core.media_store import MediaSettings
+from app.lyrics import LyricDocument
 from recovery_fixture import FaultUpstream,allow_fixture_target
 
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'docs/migration/40-D-1/screenshots'
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/migration/40-D-1/screenshots'))
 
 
 def main():
@@ -27,6 +28,7 @@ def main():
         upstream=FaultUpstream()
         async def resolve(identity,options=None):return await upstream.resolve(identity)
         async def search(*args):return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'人工测试{i}',artists=('人工',)) for i in (1,2)))
+        async def get_lyrics(identity):return LyricDocument(identity=identity,status='unavailable')
         app=create_app(transport=httpx.MockTransport(upstream.handle),target_check=allow_fixture_target,media_settings=MediaSettings(media_ttl=.3,lease_ttl=30,sweep_interval=.1))
         server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8002,log_level='critical',access_log=False))
         thread=threading.Thread(target=server.run,daemon=True);thread.start()
@@ -34,7 +36,7 @@ def main():
             if server.started or not thread.is_alive():break
             time.sleep(.05)
         if not server.started:raise RuntimeError('受控服务8002启动失败；两个受控验收脚本应串行运行')
-        app.state.kuwo=SimpleNamespace(resolve=resolve,search=search)
+        app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=get_lyrics)
         vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5175'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8002'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         url='http://127.0.0.1:5175';mid='1';query='人工'
         for _ in range(100):

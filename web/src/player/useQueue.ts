@@ -23,8 +23,9 @@ export function useQueue(open:(song:SearchEntry)=>Promise<void>,stop:()=>Promise
  async function previous(){const step=navigation.previous(current.value),entry=entries.value.find(e=>e.key===step?.key);if(step&&entry)await choose(entry,step);}
  async function remove(key:string){entries.value=entries.value.filter(e=>e.key!==key);if(current.value===key){current.value=null;await stop();}sync();}
  function clearPending(){entries.value=entries.value.filter(e=>e.key===current.value);sync();}
+ async function clear(){entries.value=[];current.value=null;navigation.reset();await stop();}
  function setMode(mode:PlaybackMode){navigation.setMode(mode,keys(),current.value);}
  watch([entries,current,navigation],()=>{try{storage?.setItem(storageKey,encodePlayer({queue:entries.value,currentQueueKey:current.value,navigation,volume:1}));}catch{/* 不因配额或隐私模式中断播放。 */}},{deep:true,flush:'sync'});
- return {entries,current,navigation,add,select,choose,remove,clearPending,setMode,next:()=>advance(false),advance,previous,
+ return {entries,current,navigation,add,select,choose,remove,clearPending,clear,setMode,next:()=>advance(false),advance,previous,
   hasNext:computed(()=>!!navigation.preview(keys(),current.value,false)),hasPrevious:computed(()=>!!navigation.previous(current.value)),key:(song:SearchEntry)=>queueEntryFrom(song).key};
 }

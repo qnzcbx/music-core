@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 import wave
+from pathlib import Path
 from types import SimpleNamespace
 import httpx
 import uvicorn
@@ -15,8 +16,9 @@ from verify_vue_player import ROOT,FaultUpstream,allow_fixture_target
 from app.main import create_app
 from app.models import SearchPage,SongCandidate,TrackIdentity
 from app.core.media_store import MediaSettings
+from app.lyrics import LyricDocument
 
-OUT=ROOT/'docs/migration/40-D-2/screenshots'
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/migration/40-D-2/screenshots'))
 
 def mode(page,label):
     page.get_by_role('button',name='播放模式',exact=True).click()
@@ -46,6 +48,7 @@ def main():
         upstream.audio=output.getvalue()
         async def resolve(identity,options=None):return await upstream.resolve(identity)
         async def search(*args):return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'人工测试{i}',artists=('人工',)) for i in (1,2,3)))
+        async def get_lyrics(identity):return LyricDocument(identity=identity,status='unavailable')
         app=create_app(transport=httpx.MockTransport(upstream.handle),target_check=allow_fixture_target,media_settings=MediaSettings(media_ttl=.3,lease_ttl=30,sweep_interval=.1))
         server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8002,log_level='critical',access_log=False))
         thread=threading.Thread(target=server.run,daemon=True);thread.start()
@@ -53,7 +56,7 @@ def main():
             if server.started or not thread.is_alive():break
             time.sleep(.05)
         if not server.started:raise RuntimeError('受控服务8002启动失败；两个受控验收脚本应串行运行')
-        app.state.kuwo=SimpleNamespace(resolve=resolve,search=search)
+        app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=get_lyrics)
         vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5175'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8002'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         url='http://127.0.0.1:5175'
         for _ in range(100):
@@ -93,7 +96,7 @@ def main():
             add(page,b);add(page,b);add(page,c);assert len(opened)==1
             queue(page);assert page.locator('.queue-list article').count()==3
             if not args.controlled:page.screenshot(path=str(OUT/'desktop-queue.png'))
-            page.locator('.queue-choose').nth(1).click();ready(page,titles[1]);page.get_by_role('button',name='关闭队列',exact=True).click()
+            page.locator('.queue-choose').nth(1).click();ready(page,titles[1]);page.keyboard.press('Escape')
             page.get_by_role('button',name='上一首',exact=True).click();ready(page,titles[0])
             page.get_by_role('button',name='下一首',exact=True).click();ready(page,titles[1])
             count=len(requests)
@@ -116,7 +119,7 @@ def main():
                     session=len(requests);page.get_by_role('radio',name='深色',exact=True).check();assert len(requests)==session
                     queue(page)
                     if not args.controlled:page.screenshot(path=str(OUT/'desktop-dark-queue.png'))
-                    page.get_by_role('button',name='关闭队列',exact=True).click();page.get_by_role('radio',name='浅色',exact=True).check()
+                    page.keyboard.press('Escape');page.get_by_role('radio',name='浅色',exact=True).check()
             for width in (768,390):
                 page.set_viewport_size({'width':width,'height':844});queue(page)
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
@@ -124,7 +127,7 @@ def main():
                 if width==390:
                     assert page.locator('.queue-drawer').is_visible()
                     if not args.controlled:page.screenshot(path=str(OUT/'mobile-queue-drawer.png'))
-                page.get_by_role('button',name='关闭队列',exact=True).click()
+                page.keyboard.press('Escape')
                 if width==390:
                     button=page.get_by_role('button',name='音量设置',exact=True).bounding_box();page.touchscreen.tap(button['x']+button['width']/2,button['y']+button['height']/2)
                     track=page.locator('.volume-layer [data-slot=slider]').bounding_box();page.touchscreen.tap(track['x']+track['width']/2,track['y']+track['height']*.25)
@@ -134,7 +137,7 @@ def main():
             if not args.controlled:page.screenshot(path=str(OUT/'real-playing-footer.png'))
             if args.controlled:
                 # 顺序末尾真正ended后停止，不发新open。
-                queue(page);page.locator('.queue-choose').nth(2).click();ready(page,titles[2]);page.get_by_role('button',name='关闭队列',exact=True).click()
+                queue(page);page.locator('.queue-choose').nth(2).click();ready(page,titles[2]);page.keyboard.press('Escape')
                 count=len(requests);ends=page.evaluate('naturalEnds');seek_end(page)
                 page.wait_for_function('n=>naturalEnds>n',arg=ends);page.wait_for_timeout(250)
                 assert len(requests)==count and page.locator('audio').evaluate('a=>a.ended')
@@ -157,17 +160,20 @@ def main():
                 # 媒体error不应触发队列下一首，仍由RecoveryPlayer处理。
                 page.evaluate("firstAudio.dispatchEvent(new Event('error'))");page.wait_for_timeout(200)
                 assert titles[2] in page.locator('.track-title').inner_text()
-            # 清空待播不停止当前；重新添加后刷新仅恢复安全展示。
-            queue(page);page.get_by_role('button',name='清空待播',exact=True).click();assert page.locator('.queue-list article').count()==1
+            # 收敛后的界面逐个移除待播，验证保留当前曲与刷新仅恢复安全展示。
+            queue(page)
+            while page.locator('.queue-list article[data-current=false] button[aria-label]').count():
+                page.locator('.queue-list article[data-current=false] button[aria-label]').first.click()
+            assert page.locator('.queue-list article').count()==1
             assert page.locator('audio').evaluate('a=>a===window.firstAudio')
-            page.get_by_role('button',name='关闭队列',exact=True).click()
+            page.keyboard.press('Escape')
             page.get_by_role('button',name='关闭播放',exact=True).click();page.wait_for_timeout(700)
             closed=[page.request.head(url+s['streamUrl']).status for s in opened];assert all(status==410 for status in closed),closed
             count=len(requests);page.reload();page.wait_for_load_state('networkidle');assert len(requests)==count
-            queue(page);assert page.locator('.queue-list article').count()==1;page.get_by_role('button',name='关闭队列',exact=True).click()
+            queue(page);assert page.locator('.queue-list article').count()==1;page.keyboard.press('Escape')
             assert page.locator('audio').evaluate('a=>a.paused&&!a.getAttribute("src")')
             queue(page);page.locator('.queue-list article button[aria-label^="移除 "]').click();assert page.locator('.queue-list article').count()==0
-            page.get_by_role('button',name='关闭队列',exact=True).click();assert len(requests)==count
+            page.keyboard.press('Escape');assert len(requests)==count
             assert not errors,errors
             if app:assert not app.state.media_store.records and not any(l.state=='active' for l in app.state.playback_leases.entries.values())
             result={'controlled':args.controlled,'titles':titles,'ids':ids,'opens':len(opened),'allClosed410':closed,'noAutoOpenAfterReload':True,'singleAudio':True,'naturalModes':args.controlled,'pageErrors':errors,'consoleErrors':console}

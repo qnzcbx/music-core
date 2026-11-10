@@ -43,3 +43,9 @@ test('快速切歌和旧打开晚到不提交错误历史',async()=>{
  await q.select(song('1'));q.add(song('2'));q.add(song('3'));const late=q.next();await q.next();finish();await late;
  assert.equal(q.current.value,q.key(song('3')));assert.deepEqual(q.navigation.history,[q.key(song('1')),q.key(song('3'))]);f.close();
 });
+test('清空整个队列在打开中停止，旧请求晚到不能恢复队列或历史',async()=>{
+ let release,raw;const storage={getItem:()=>null,setItem:(_key,value)=>{raw=value;}};
+ const f=fixture(storage,()=>new Promise(resolve=>{release=resolve;}));const opening=f.queue.select(song('1'));
+ await f.queue.clear();assert.equal(f.stops.length,1);assert.equal(f.queue.current.value,null);assert.deepEqual(f.queue.entries.value,[]);
+ release();await opening;assert.deepEqual(f.queue.navigation.history,[]);assert.deepEqual(JSON.parse(raw).queue,[]);f.close();
+});

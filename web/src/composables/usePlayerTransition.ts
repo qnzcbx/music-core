@@ -13,7 +13,7 @@ import {
 import { useRouter } from "vue-router";
 import gsap from "gsap";
 import { Flip } from "gsap/Flip";
-import type { Song } from "../types/music";
+import type { SearchEntry as Song } from "../types/music";
 import { isPlayerPath } from "../utils/player-view-song";
 import { useReducedMotion } from "./useReducedMotion";
 import { useCoverPalette } from "./useCoverPalette";
@@ -316,7 +316,7 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
   );
   const footerObserver = new ResizeObserver((entries) => {
     for (const entry of entries)
-      miniHeight.value = Math.round(entry.target.getBoundingClientRect().height);
+      if(entry.target.getBoundingClientRect().height>0)miniHeight.value = Math.round(entry.target.getBoundingClientRect().height);
   });
   function setMiniFooter(value: unknown) {
     footerObserver.disconnect();

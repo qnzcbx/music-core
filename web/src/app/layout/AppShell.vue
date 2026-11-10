@@ -30,7 +30,7 @@ watch(() => route.fullPath, (to, from) => {
       <main id="app-content" ref="content" class="app-content" :class="{ 'full-screen-content': immersive, 'home-content': home, 'settings-content': route.path === '/settings' }" tabindex="-1">
         <slot />
       </main>
-      <div v-show="!hidePlayer" class="workspace-player"><slot name="player" /></div>
+      <div v-show="!hidePlayer && !immersive" class="workspace-player"><slot name="player" /></div>
       <MobileTabBar v-if="!immersive" :search-query="searchQuery"/>
     </div>
     <!-- Constant location: audio, queue and global dialogs never belong to a route. -->

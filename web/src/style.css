@@ -106,14 +106,10 @@ header {
   cursor: pointer;
 }
 .search p,
-.notice,
 .hint {
   font-size: 12px;
   color: var(--app-text-muted);
   line-height: 1.7;
-}
-.notice {
-  margin: 20px 0;
 }
 .workbench {
   display: grid;

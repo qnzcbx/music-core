@@ -1,0 +1,16 @@
+{
+  "controlled": false,
+  "opens": 1,
+  "lyricsRequests": 1,
+  "renewStatuses": [],
+  "closedStatuses": [
+    410
+  ],
+  "desktopHeight": 700,
+  "mobileHeight": 624.546875,
+  "pageErrors": [],
+  "consoleErrors": [],
+  "singleRootAudio": true,
+  "templatesNoOpen": true,
+  "sameIdentityLyricsRetained": true
+}

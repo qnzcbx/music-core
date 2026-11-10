@@ -17,3 +17,4 @@ downloads/
 *.tmp
 .coverage
 htmlcov/
+docs/migration/**/screenshots/
