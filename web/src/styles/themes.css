@@ -1,0 +1,65 @@
+:root { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #171c19;
+  --app-sidebar: #1e2521;
+  --app-input: #2c342f;
+  --app-surface: #262e29;
+  --app-surface-raised: #222a25;
+  --app-surface-subtle: #202822;
+  --app-selected: #254432;
+  --app-hover: #2f3c34;
+  --app-text: #edf2ee;
+  --app-text-muted: #b1bdb5;
+  --app-text-soft: #a6b2aa;
+  --app-border: #46574b;
+  --app-border-soft: #344239;
+  --app-border-strong: #718779;
+  --app-accent: #00cc65;
+  --app-link: #69e8a4;
+  --app-button: #00cc65;
+  --app-button-hover: #00eb81;
+  --app-on-button: #092414;
+  --app-focus: #69e8a4;
+  --app-focus-ring: #00cc6533;
+  --app-danger: #f1aa9c;
+  --app-success: #bfdbad;
+  --app-success-bg: #304735;
+  --app-warning: #e0c18c;
+  --app-warning-bg: #6a5737;
+  --app-tooltip-bg: #d9e3cf;
+  --app-tooltip-text: #233a2b;
+  --app-overlay: #07160ecc;
+  --app-shadow-color: #00000040;
+  --app-shadow-soft: #0000001c;
+  --app-cover-base: #3d5140;
+  --app-cover-line: #304535;
+  --app-ocean-ink: #c8cbc9;
+  --app-ocean-grid: #ffffff0e;
+  --app-ocean-fish: #a1a5a3;
+  --app-ocean-wake: #00eb81;
+  --mini-bg: #15251d;
+  --mini-border: #4b674f;
+  --mini-text: #edf2ee;
+  --mini-muted: #b1bdb5;
+  --mini-accent: #69e8a4;
+  --mini-surface: #26382d;
+}
+/* Preserve the existing local full-screen footer, independent of app light colors. */
+.player-immersive {
+  --mini-text:#f0f2e5; --mini-muted:#c3cfc0; --mini-accent:#bbd2a8;
+  --mini-button:#e4ecd8; --mini-button-text:#24432f; --mini-surface:#365644;
+}
+/* Native form controls inherit appearance without a universal element reset. */
+body { background: var(--app-bg); color: var(--app-text); }
+input, select, textarea, button { font-family: inherit; }
+input, select, textarea { color: inherit; }
+option { background: var(--app-surface-raised); color: var(--app-text); }
+a { color: var(--app-link); }
+:where(a, summary, input, button, select, textarea):focus-visible {
+  outline: 2px solid var(--app-focus); outline-offset: 3px;
+}
+/* Keep transitions narrow: no all/transform animation, no ambient descendants. */
+@media (prefers-reduced-motion: no-preference) {
+  body, .app-nav a, .theme-settings summary { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease; }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='25' font-size='28'%3E♪%3C/text%3E%3C/svg%3E" />
+    <script>
+      // Before styles/Vue: keep this small bootstrap aligned with appearance/theme.ts.
+      (() => {
+        let mode = 'system';
+        try { const saved = localStorage.getItem('media-lab.appearance.v1'); if (saved === 'light' || saved === 'dark') mode = saved; } catch {}
+        const actual = mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
+        document.documentElement.dataset.theme = actual;
+        document.documentElement.dataset.themeMode = mode;
+        document.documentElement.style.colorScheme = actual;
+      })();
+    </script>
+    <title>Music Core · 音乐</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

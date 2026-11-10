@@ -1,0 +1,52 @@
+/* Semantic app colors. Album palettes and turntable materials are independent. */
+:root {
+  --app-bg: #f6f6f6;
+  --app-sidebar: #f0f0f0;
+  --app-input: #e3e3e3;
+  --app-surface: #ededed;
+  --app-surface-raised: #ffffff;
+  --app-surface-subtle: #f2f2f2;
+  --app-selected: #ededed;
+  --app-hover: #ededed;
+  --app-text: #111111;
+  --app-text-muted: #717171;
+  --app-text-soft: #686868;
+  --app-border: #d8d8d8;
+  --app-border-soft: #e2e2e2;
+  --app-border-strong: #a8a8a8;
+  --app-accent: #717171;
+  --app-link: #717171
+  --app-button: #00cc65;
+  --app-button-hover: #00b95c;
+  --app-on-button: #092414;
+  --app-focus: #a8a8a8;
+  --app-focus-ring: #a8a8a826;
+  --app-danger: #9e372d;
+  --app-success: #007d3d;
+  --app-success-bg: #d9f7e8;
+  --app-warning: #896a3e;
+  --app-warning-bg: #cfb482;
+  --app-tooltip-bg: #222823;
+  --app-tooltip-text: #ffffff;
+  --app-overlay: #11111166;
+  --app-shadow-color: #1111111a;
+  --app-shadow-soft: #11111108;
+  --app-cover-base: #dce3df;
+  --app-cover-line: #edf0ee;
+  --app-ocean-ink: #2d302e;
+  --app-ocean-grid: #11111108;
+  --app-ocean-fish: #656b67;
+  --app-ocean-wake: #00994c;
+  --app-radius: 12px;
+  --app-radius-small: 8px;
+  --app-shadow-panel: 0 12px 40px var(--app-shadow-color);
+  --mini-bg: #ffffff;
+  --mini-bg-immersive: #213d30ed;
+  --mini-text: #111111;
+  --mini-muted: #666666;
+  --mini-accent: #008442;
+  --mini-button: #a8a8a8;
+  --mini-button-text: #092414;
+  --mini-surface: #ededed;
+  --mini-border: #d8d8d8;
+}

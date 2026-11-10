@@ -1,0 +1,106 @@
+export type QualityPolicy = 'auto' | 'space_saving' | 'balanced' | 'lossless_preferred';
+export type CandidateAvailability = 'unknown' | 'queued' | 'resolving' | 'ready' | 'failed' | 'stale' | 'timeout' | 'unsupported';
+export interface AccessDecision { state: 'allowed' | 'denied' | 'unknown'; reason: string; evidence: string }
+export interface TrackContract {
+  trackAccess?: { playback: AccessDecision; download: AccessDecision; facts?: { evidence: string; is_streamable: boolean | null; is_downloadable: boolean | null; is_stream_gated: boolean | null; is_download_gated: boolean | null; stream_conditions_present: boolean | null; download_conditions_present: boolean | null } | null };
+  license?: { id: string | null; url: string | null; conditions: string[]; evidence: string };
+  credits?: { name: string; role: 'credited_artist' | 'uploader' | 'unknown'; evidence: string }[];
+  recordingIdentity?: import("./core").TrackIdentity;
+  metadataSource?: string;
+}
+export interface MediaVariant {
+  providerQualityId: string;
+  requestedProviderQualityId: string;
+  container: string | null;
+  codec: string | null;
+  bitrate: number | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  lossless: boolean | null;
+  sizeBytes: number | null;
+  estimatedSizeBytes: number | null;
+  evidence: string;
+}
+
+export interface Song extends TrackContract {
+  mediaCheckedAt?: number;
+  mediaValidUntil?: number;
+  mediaProtocol?: 'progressive';
+  observedProtocols?: string[];
+  streamSnipped?: boolean;
+  providerId?: string;
+  candidateId?: string;
+  qualityPolicy?: QualityPolicy;
+  variant?: MediaVariant;
+  id: string;
+  mid: string;
+  name: string;
+  title?: string;
+  artist: string;
+  album: string;
+  duration: string;
+  cover: string | null;
+  ext: string;
+  playable: boolean;
+  source: string;
+  resolver: string;
+  probe_ok: boolean;
+  probe_status: number | null;
+  probe_method: string;
+  media_host: string;
+}
+
+export interface DownloadJob extends TrackContract {
+  selectionOrigin?: import('./download').DownloadOptionOrigin | 'legacy_policy';
+  requestedQuality?: string | null;
+  actualProviderQuality?: string | null;
+  actualCodec?: string | null;
+  title?: string;
+  artist?: string;
+  source?: string;
+  filename?: string;
+  size?: number;
+  selection?: import('./download').DownloadQualityOption | null;
+  actualMedia?: { container: string; codec: string; lossless: boolean; bitrate: number | null; tier: string };
+  qualityPolicy?: QualityPolicy | null;
+  variant?: MediaVariant;
+  id: string; state: string; message: string; path?: string;
+  downloaded_bytes?: number; total_bytes?: number; percent?: number | null;
+}
+
+// 候选与媒体记录是两个领域对象；候选没有已确认的格式或可播放标记。
+export interface CandidateRow extends TrackContract {
+  identity: import("./core").TrackIdentity;
+  resolvingBackground?: boolean;
+  availability?: CandidateAvailability;
+  availabilityValidUntil?: number;
+  id: string;
+  source: string;
+  platformId: string;
+  mid: string;
+  title: string;
+  name: string;
+  artist: string;
+  album: string;
+  duration: number | null;
+  cover: string | null;
+  resolvedId?: string;
+  canPlay?: boolean;
+  resolveState: 'idle' | 'resolving' | 'resolved' | 'failed';
+  ext?: never;
+  playable?: never;
+}
+export type SearchEntry = Song | CandidateRow;
+
+/** Stable recording identity; transient candidate/media handles never define a queue key. */
+export type TrackIdentity = import("./core").TrackIdentity;
+export interface TrackSnapshot {
+  title: string; artist: string; album: string; durationSeconds: number | null; cover: string | null;
+}
+export interface QueueEntry {
+  key: string;
+  track: TrackIdentity;
+  metadata: TrackSnapshot;
+  /** Runtime compatibility only; selecting this entry must prepare media again. */
+  resolved?: Song;
+}

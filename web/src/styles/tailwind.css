@@ -1,0 +1,18 @@
+@layer theme, base, components, utilities;
+/* Deliberately omit preflight.css: existing native CSS owns element defaults. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source("../");
+@theme inline {
+  --color-app-bg: var(--app-bg);
+  --color-app-surface: var(--app-surface);
+  --color-app-sidebar: var(--app-sidebar);
+  --color-app-input: var(--app-input);
+  --color-app-raised: var(--app-surface-raised);
+  --color-app-selected: var(--app-selected);
+  --color-app-text: var(--app-text);
+  --color-app-muted: var(--app-text-muted);
+  --color-app-border: var(--app-border);
+  --color-app-accent: var(--app-accent);
+  --color-app-focus: var(--app-focus);
+  --shadow-app-panel: var(--app-shadow-panel);
+}
