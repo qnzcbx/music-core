@@ -6,21 +6,25 @@ from pathlib import Path
 import os
 import re
 import stat
+import hashlib
+import ipaddress
+import json
+import threading
 import unicodedata
 from time import time
 from typing import Literal
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 
 import anyio
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 from app.models import DTO, TrackIdentity, ResolveOptions
 from app.providers import provider_for
 from app.core.errors import CoreError, ErrorCode
-from app.media_stream import validate_target
+from app.media_stream import validate_target, range_header, OwnedStream
 
 TERMINAL = {'completed', 'failed', 'cancelled'}
 ROOT = Path(__file__).resolve().parents[2] / 'downloads'
@@ -43,6 +47,7 @@ class DownloadTask(DTO):
     totalBytes: int | None = None
     progress: float | None = None
     filename: str | None = None
+    fileId: str | None = None
     format: str | None = None
     errorCode: str | None = None
     createdAt: int
@@ -50,10 +55,34 @@ class DownloadTask(DTO):
 
 
 class SavedDownloadFile(DTO):
+    fileId: str
     filename: str
     sizeBytes: int
     format: str
     modifiedAt: int
+
+
+class RemoveDownloadFile(DTO):
+    deleteFile: bool = False
+
+
+def file_error(status, message):
+    return JSONResponse(status_code=status, content={'error': {'code': 'local_file_error', 'message': message, 'retryable': status >= 500}})
+
+
+def trusted_local(request):
+    """文件能力只向回环客户端开放；拒绝跨站及恶意 Host 请求。"""
+    def loopback(host):
+        if host == 'localhost': return True
+        try: return ipaddress.ip_address(host or '').is_loopback
+        except ValueError: return False
+    try:
+        origin = request.headers.get('origin')
+        return (request.client is not None and loopback(request.client.host)
+                and loopback(urlsplit('http://' + request.headers.get('host', '')).hostname)
+                and (not origin or urlsplit(origin).scheme in ('http', 'https') and loopback(urlsplit(origin).hostname))
+                and request.headers.get('sec-fetch-site', 'same-origin') in ('same-origin', 'none'))
+    except ValueError: return False
 
 
 @dataclass(frozen=True)
@@ -121,6 +150,8 @@ class DownloadManager:
         self.jobs = {}
         self.slots = asyncio.Semaphore(settings.concurrency)
         self.closed = False
+        self.file_lock = threading.RLock()
+        self.readers = {}
 
     def prepare(self):
         # 只清理本实现自己创建的任务临时文件，不触碰其他文件及子目录。
@@ -147,21 +178,163 @@ class DownloadManager:
         if identifier not in self.jobs: raise HTTPException(404)
         return self.jobs[identifier]
 
+    def fingerprint(self, path, info):
+        value = (str(self.root), path.name, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        return hashlib.sha256(repr(value).encode('utf-8')).hexdigest()
+
+    def hidden(self):
+        path = self.root / '.music-core-hidden.json'
+        if not path.exists(): return set()
+        info = path.lstat()
+        if path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400 or not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
+            raise OSError('隐藏索引不可读')
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+            if data.get('version') != 1 or not isinstance(data.get('hidden'), list): raise ValueError()
+            if any(not isinstance(x, str) or not re.fullmatch('[0-9a-f]{64}', x) for x in data['hidden']): raise ValueError()
+            return set(data['hidden'])
+        except (ValueError, AttributeError): raise OSError('隐藏索引损坏') from None
+
+    def write_hidden(self, identifiers):
+        temporary = self.root / ('.music-core-hidden-' + uuid4().hex + '.tmp')
+        content = json.dumps({'version': 1, 'hidden': sorted(identifiers)})
+        if len(content.encode('utf-8')) > 1048576: raise OSError('隐藏索引容量已满')
+        try:
+            with temporary.open('x', encoding='utf-8') as output:
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, self.root / '.music-core-hidden.json')
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def snapshots(self):
+        if not self.root.exists(): return
+        for path in self.root.iterdir():
+            if path.name.startswith('.') or path.suffix.lower() not in ('.mp3', '.m4a', '.flac', '.ogg'): continue
+            try:
+                info = path.lstat()
+                if not stat.S_ISREG(info.st_mode) or path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400: continue
+                with path.open('rb') as stream:
+                    if self.fingerprint(path, os.fstat(stream.fileno())) != self.fingerprint(path, info): continue
+                    kind = audio_format(stream.read(16))
+                yield path, info, kind
+            except (CoreError, FileNotFoundError): continue
+
+    def find_file(self, identifier):
+        if not re.fullmatch('[0-9a-f]{64}', identifier): raise FileNotFoundError()
+        for path, info, kind in self.snapshots():
+            if self.fingerprint(path, info) == identifier: return path, info, kind
+        raise FileNotFoundError()
+
     def files(self):
         """只读列出受限目录内的音频，不推断已丢失的任务身份。"""
         if not self.root.exists(): return []
         output = []
         try:
-            for path in self.root.iterdir():
-                if path.name.startswith('.') or path.suffix.lower() not in ('.mp3','.m4a','.flac','.ogg'): continue
-                info = path.lstat()
-                if not stat.S_ISREG(info.st_mode) or path.is_symlink() or getattr(info,'st_file_attributes',0) & 0x400: continue
-                try:
-                    with path.open('rb') as stream: kind = audio_format(stream.read(16))
-                except (CoreError,FileNotFoundError): continue
-                output.append(SavedDownloadFile(filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000)))
+            with self.file_lock:
+                hidden = self.hidden()
+                for path, info, kind in self.snapshots():
+                    identifier = self.fingerprint(path, info)
+                    if identifier not in hidden:
+                        output.append(SavedDownloadFile(fileId=identifier,filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000)))
             return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
         except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
+
+    def remove_file(self, identifier, delete_file):
+        with self.file_lock:
+            path, info, _ = self.find_file(identifier)
+            if delete_file:
+                if self.readers.get(identifier): raise BlockingIOError()
+                # 删除前再次验证实例；无 await，其他 Core 请求不能在检查与删除之间插入。
+                if self.fingerprint(path, path.lstat()) != identifier: raise FileNotFoundError()
+                self.unlink_file(path, identifier)
+            else:
+                hidden = self.hidden()
+                hidden.add(identifier)
+                self.write_hidden(hidden)
+
+    def unlink_file(self, path, identifier):
+        """Windows 在经过验证的句柄上删除，避免检查后同名替换的竞态。"""
+        if os.name != 'nt':
+            path.unlink()
+            return
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        # 读取、删除权限；不跟随重解析点，允许其他只读者及时关闭。
+        handle = kernel.CreateFileW(str(path), 0x80010000, 7, None, 3, 0x00200000, None)
+        if handle == wintypes.HANDLE(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+        try: descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        except BaseException:
+            kernel.CloseHandle(handle)
+            raise
+        with os.fdopen(descriptor, 'rb') as stream:
+            if self.fingerprint(path, os.fstat(stream.fileno())) != identifier: raise FileNotFoundError()
+            disposition = wintypes.BOOL(True)
+            if not kernel.SetFileInformationByHandle(handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition)):
+                raise ctypes.WinError(ctypes.get_last_error())
+
+    def stream_file(self, request, identifier):
+        stream = None
+        try:
+            with self.file_lock:
+                path, info, kind = self.find_file(identifier)
+                stream = path.open('rb')
+                if self.fingerprint(path, os.fstat(stream.fileno())) != identifier:
+                    raise FileNotFoundError()
+                self.readers[identifier] = self.readers.get(identifier, 0) + 1
+        except BaseException:
+            if stream: stream.close()
+            raise
+        closed = False
+        async def cleanup():
+            nonlocal closed
+            if not closed:
+                closed = True
+                stream.close()
+                with self.file_lock:
+                    self.readers[identifier] -= 1
+                    if not self.readers[identifier]: del self.readers[identifier]
+        size = info.st_size
+        headers = {'Accept-Ranges': 'bytes', 'ETag': '"' + identifier + '"', 'Cache-Control': 'no-store'}
+        start, end, status = 0, size - 1, 200
+        try:
+            requested = range_header(request.headers.get('range'))
+            if requested:
+                left, right = requested[6:].split('-')
+                start = int(left) if left else max(0, size - int(right))
+                end = min(int(right), size - 1) if left and right else size - 1
+                if start >= size or start > end: raise CoreError(ErrorCode.INVALID_RANGE)
+                status = 206
+                headers['Content-Range'] = f'bytes {start}-{end}/{size}'
+        except CoreError:
+            stream.close()
+            self.readers[identifier] -= 1
+            if not self.readers[identifier]: del self.readers[identifier]
+            return Response(status_code=416, headers={**headers, 'Content-Range': f'bytes */{size}'})
+        headers['Content-Length'] = str(end - start + 1)
+        media_type = {'mp3': 'audio/mpeg', 'm4a': 'audio/mp4', 'flac': 'audio/flac', 'ogg': 'audio/ogg'}[kind]
+        async def chunks():
+            stream.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = stream.read(min(65536, remaining))
+                if not chunk: break
+                remaining -= len(chunk)
+                yield chunk
+                await asyncio.sleep(0)
+        if request.method == 'HEAD':
+            stream.close()
+            self.readers[identifier] -= 1
+            if not self.readers[identifier]: del self.readers[identifier]
+            return Response(status_code=status, headers=headers, media_type=media_type)
+        return OwnedStream(chunks(), status_code=status, headers=headers, media_type=media_type, cleanup=cleanup)
 
     def create(self, body):
         provider_for(self.state, body.identity.providerId)
@@ -299,7 +472,7 @@ class DownloadManager:
                     break
                 except FileExistsError: continue
             else: raise OSError('无可用文件名')
-            self.update(job, status='completed', filename=target.name, format=kind)
+            self.update(job, status='completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind)
         finally:
             if response is not None:
                 with anyio.CancelScope(shield=True): await response.aclose()
@@ -325,6 +498,29 @@ def download_router():
         try: return manager(request).files()
         except HTTPException:
             return JSONResponse(status_code=503,content={'error':{'code':'file_io_error','message':'无法读取下载目录','retryable':True}})
+
+    @router.post('/files/{identifier}/remove')
+    async def remove_file(identifier: str, body: RemoveDownloadFile, request: Request):
+        if not trusted_local(request): return file_error(403, '只允许本机页面管理下载文件')
+        m = manager(request)
+        # 等待播放器停止后正在取消的媒体响应释放句柄；超时明确返回失败。
+        for attempt in range(21):
+            try:
+                m.remove_file(identifier, body.deleteFile)
+                return {'removed': True, 'fileDeleted': body.deleteFile}
+            except BlockingIOError:
+                if attempt == 20: return file_error(409, '文件仍在播放，请停止后重试')
+                await asyncio.sleep(.05)
+            except FileNotFoundError: return file_error(404, '文件已变化或不存在，请刷新列表')
+            except OSError: return file_error(503, '无法修改本地文件，请检查占用及目录权限')
+
+    @router.get('/files/{identifier}/stream')
+    @router.head('/files/{identifier}/stream', include_in_schema=False)
+    async def stream_file(identifier: str, request: Request):
+        if not trusted_local(request): return file_error(403, '只允许本机页面读取下载文件')
+        try: return manager(request).stream_file(request, identifier)
+        except FileNotFoundError: return file_error(404, '文件已变化或不存在，请刷新列表')
+        except OSError: return file_error(503, '无法读取本地音频文件')
 
     @router.get('/{identifier}', response_model=DownloadTask)
     async def get(identifier: str, request: Request):

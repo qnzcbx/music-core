@@ -104,3 +104,13 @@ export interface QueueEntry {
   /** Runtime compatibility only; selecting this entry must prepare media again. */
   resolved?: Song;
 }
+
+/** 本地条目只携带稳定文件引用，绝不伪装为在线平台。 */
+export interface LocalSong {
+ kind:'local'; fileId:string; id:string; source:'local'; name:string; title:string;
+ artist:string; album:string; cover:null; duration:null;
+}
+export type PlayableSong=SearchEntry|LocalSong;
+export interface LocalQueueEntry {key:string;kind:'local';fileId:string;metadata:TrackSnapshot}
+export type PlayableQueueEntry=QueueEntry|LocalQueueEntry;
+export const isLocalSong=(song:PlayableSong):song is LocalSong=>'kind' in song&&song.kind==='local';

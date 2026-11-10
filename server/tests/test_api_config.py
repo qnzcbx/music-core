@@ -51,7 +51,8 @@ def test_live_contract_and_openapi():
         assert {'/api/lyrics','/api/health','/api/providers','/api/search','/api/playback/open',
             '/api/playback/{key}/stream','/api/playback/{key}/close','/api/playback/{key}/renew',
             '/api/downloads','/api/downloads/files','/api/downloads/{identifier}','/api/downloads/{identifier}/cancel',
-            '/api/downloads/{identifier}/retry'} == set(schema['paths'])
+            '/api/downloads/{identifier}/retry','/api/downloads/files/{identifier}/stream',
+            '/api/downloads/files/{identifier}/remove'} == set(schema['paths'])
         assert 'upstreamUrl' not in json.dumps(schema)
         assert client.get('/docs').status_code == 200
         assert client.get('/api/search').status_code == 405

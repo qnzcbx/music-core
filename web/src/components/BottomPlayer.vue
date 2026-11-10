@@ -25,7 +25,7 @@ function seek(event:Event){player.seek(Number((event.target as HTMLInputElement)
 <template>
 <footer ref="host" class="player" :class="{'immersive-controls':immersive}" :data-phase="phase">
  <div class="player-info"><button class="player-cover" :disabled="!selected" title="打开沉浸式播放器" aria-label="打开沉浸式播放器" @click="visuals.open"><span class="mini-cover-art"><CoverArt :src="selected?.cover"/></span></button>
- <div class="player-meta"><span class="track-title">{{selected?.title||selected?.name||'选择歌曲开始播放'}}</span><span class="player-artist">{{selected?.artist||'从搜索结果选择具体版本'}}</span><span class="player-album">{{selected?.album}}</span><span class="playback-status" :class="{'notice-visible':['opening','positioning','error','blocked','network'].includes(phase)}" role="status">{{message}}</span></div></div>
+ <div class="player-meta"><span class="track-title">{{selected?.title||selected?.name||'选择歌曲开始播放'}}</span><span class="player-artist">{{selected?.artist||(selected?'':'从搜索结果选择具体版本')}}</span><span class="player-album">{{selected?.album}}</span><span class="playback-status" :class="{'notice-visible':['opening','positioning','error','blocked','network'].includes(phase)}" role="status">{{message}}</span></div></div>
  <div class="transport"><div class="transport-buttons">
   <PlaybackModeMenu/><button aria-label="上一首" :disabled="!player.queue.hasPrevious.value" @click="player.queue.previous"><PreviousIcon/></button>
   <button class="play-toggle" :disabled="!selected" :aria-label="pauseAction?'暂停':'播放'" @click="player.toggle"><PauseIcon v-if="pauseAction"/><PlayIcon v-else/></button>

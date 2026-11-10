@@ -134,7 +134,7 @@ def main():
                 def old_list(route):
                     if route.request.method=='GET' and hold[0]:held.append(route);return
                     route.continue_()
-                page.route('**/api/downloads',old_list);page.get_by_role('button',name='刷新',exact=True).click()
+                page.route('**/api/downloads',old_list);page.get_by_role('button',name='刷新下载列表',exact=True).click()
                 for _ in range(100):
                     if held:break
                     page.wait_for_timeout(30)
@@ -151,7 +151,7 @@ def main():
                 assert opens[-1]['playbackId']==playing_id
                 # 列表保留传输态，但服务端已完成时取消，必须显示真实completed。
                 snapshot=page.request.get(url+'/api/downloads').json();held.clear();hold[0]=True
-                page.get_by_role('button',name='刷新',exact=True).click()
+                page.get_by_role('button',name='刷新下载列表',exact=True).click()
                 for _ in range(100):
                     if held:break
                     page.wait_for_timeout(30)
@@ -191,7 +191,7 @@ def main():
                 app.state.downloads.jobs.pop(missing);task(missing).get_by_role('button',name='重试',exact=True).click();page.get_by_text('任务不存在或已过期，请刷新',exact=True).wait_for()
                 # 服务不可用保留已有结果，手动刷新可以恢复。
                 page.route('**/api/downloads',lambda route:route.fulfill(status=503,json={'error':{'message':'人工下载服务不可用'}}) if route.request.method=='GET' else route.continue_())
-                page.get_by_role('button',name='刷新',exact=True).click();page.get_by_text('人工下载服务不可用',exact=True).wait_for();page.unroute('**/api/downloads');page.get_by_role('button',name='刷新',exact=True).click();page.wait_for_timeout(500)
+                page.get_by_role('button',name='刷新下载列表',exact=True).click();page.get_by_text('人工下载服务不可用',exact=True).wait_for();page.unroute('**/api/downloads');page.get_by_role('button',name='刷新下载列表',exact=True).click();page.wait_for_timeout(500)
                 assert page.locator('audio').evaluate('a=>a===firstAudio&&!a.paused')
                 count=len(lists);page.wait_for_timeout(3300);assert len(lists)==count
                 assert not list(directory.glob('.music-core-*.part'))

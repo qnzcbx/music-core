@@ -1,7 +1,7 @@
 /** 根据本期新Core OpenAPI核对生成的公开契约。 */
 export type Capabilities = { "search"?: boolean; "resolve"?: boolean; "lyrics"?: boolean; "download"?: boolean };
 export type DownloadRequest = { "identity": TrackIdentity; "title"?: string | null; "artist"?: string | null };
-export type DownloadTask = { "id": string; "identity": TrackIdentity; "title": string | null; "artist": string | null; "status": "queued" | "resolving" | "downloading" | "completed" | "failed" | "cancelled"; "receivedBytes"?: number; "totalBytes"?: number | null; "progress"?: number | null; "filename"?: string | null; "format"?: string | null; "errorCode"?: string | null; "createdAt": number; "updatedAt": number };
+export type DownloadTask = { "id": string; "identity": TrackIdentity; "title": string | null; "artist": string | null; "status": "queued" | "resolving" | "downloading" | "completed" | "failed" | "cancelled"; "receivedBytes"?: number; "totalBytes"?: number | null; "progress"?: number | null; "filename"?: string | null; "fileId"?: string | null; "format"?: string | null; "errorCode"?: string | null; "createdAt": number; "updatedAt": number };
 export type ErrorDetail = { "code": string; "message": string; "retryable": boolean };
 export type ErrorResponse = { "error": ErrorDetail };
 export type Health = { "status": string; "version": string; "configurationFallback": boolean };
@@ -17,4 +17,4 @@ export type SearchRequest = { "providerId": string; "query": string; "limit"?: n
 export type SongCandidate = { "identity": TrackIdentity; "title": string; "artists"?: (string)[]; "album"?: string | null; "durationSeconds"?: number | null; "cover"?: string | null };
 export type TrackIdentity = { "providerId": "kuwo" | "qq" | "netease" | "migu"; "platformId": string };
 export type ProviderId = TrackIdentity["providerId"];
-export type SavedDownloadFile = {filename:string;sizeBytes:number;format:string;modifiedAt:number};
+export type SavedDownloadFile = {fileId:string;filename:string;sizeBytes:number;format:string;modifiedAt:number};

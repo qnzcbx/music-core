@@ -3,11 +3,38 @@ import assert from 'node:assert/strict';
 import {effectScope} from 'vue';
 import {useQueue} from '../src/player/useQueue.ts';
 const song=(id,source='kuwo')=>({id,source,platformId:id,mid:id,name:'同名歌曲',title:'同名歌曲',artist:'歌手',album:'专辑',duration:10,resolveState:'idle'});
+const local=fileId=>({kind:'local',fileId,id:JSON.stringify(['local',fileId]),source:'local',name:'历史.mp3',title:'历史.mp3',artist:'',album:'',cover:null,duration:null});
 function fixture(storage,open=async()=>{}) {
  const scope=effectScope(),calls=[],stops=[];
  const queue=scope.run(()=>useQueue(async row=>{calls.push(row.platformId);await open(row);},async()=>{stops.push(true);},()=>true,()=>0,storage));
  return {queue,calls,stops,close:()=>scope.stop()};
 }
+
+test('本地身份与在线不碰撞，同文件去重，队列直接交还本地条目',async()=>{
+ const scope=effectScope(),opened=[];
+ const q=scope.run(()=>useQueue(async row=>opened.push(row),async()=>{},()=>true,()=>0));
+ q.add(song('same'));q.add(local('same'));q.add(local('same'));assert.equal(q.entries.value.length,2);
+ await q.select(local('same'));assert.equal(opened[0].kind,'local');assert.equal(opened[0].fileId,'same');assert.equal(opened[0].artist,'');
+ assert.equal('identity' in opened[0],false);scope.stop();
+});
+
+test('混合队列复用四种模式与历史，删除其他文件不中断，删除当前文件停止',async()=>{
+ const scope=effectScope(),opened=[],stopped=[];
+ const q=scope.run(()=>useQueue(async row=>opened.push(row.id),async()=>{stopped.push(true)},()=>true,()=>0));
+ await q.select(local('a'));q.add(song('r'));q.add(local('b'));
+ await q.next();assert.equal(q.current.value,JSON.stringify(['kuwo','r']));await q.previous();assert.equal(q.current.value,JSON.stringify(['local','a']));
+ for(const mode of ['repeat_all','repeat_one','shuffle','order']){q.setMode(mode);await q.next();assert.ok(q.entries.value.some(e=>e.key===q.current.value));}
+ await q.select(local('a'));await q.remove(JSON.stringify(['local','b']));assert.equal(stopped.length,0);
+ await q.remove(JSON.stringify(['local','a']));assert.equal(q.current.value,null);assert.equal(stopped.length,1);scope.stop();
+});
+
+test('本地条目不写入在线持久化协议或媒体 URL，在线队列重载兼容',async()=>{
+ let value=null;const storage={getItem:()=>value,setItem:(_key,text)=>{value=text}};
+ const f=fixture(storage);f.queue.add(song('11'));await f.queue.select(local('file-id'));
+ assert.ok(value);assert.equal(value.includes('file-id'),false);assert.equal(value.includes('/stream'),false);
+ const next=fixture(storage);assert.equal(next.queue.entries.value.length,1);assert.equal(next.queue.entries.value[0].track.platformId,'11');assert.equal(next.queue.current.value,null);
+ f.close();next.close();
+});
 test('稳定身份去重、同名不同版本保留，添加不解析',()=>{
  const f=fixture();f.queue.add(song('1'));f.queue.add(song('1'));f.queue.add(song('2'));f.queue.add(song('1','netease'));
  assert.equal(f.queue.entries.value.length,3);assert.deepEqual(f.calls,[]);f.close();

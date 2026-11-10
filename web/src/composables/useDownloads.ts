@@ -1,5 +1,5 @@
 import {computed,onMounted,onScopeDispose,ref,shallowRef} from 'vue';
-import {createDownload,listDownloads,listDownloadFiles,updateDownload} from '../api/downloads';
+import {createDownload,listDownloads,listDownloadFiles,updateDownload,removeDownloadFile} from '../api/downloads';
 import {ApiError} from '../api/http';
 import {trackIdentity,queueKey} from '../utils/player-queue';
 import type {SearchEntry} from '../types/music';
@@ -50,8 +50,15 @@ export function useDownloads(){
   if(result&&operation==='retry')retried.value={...retried.value,[task.id]:result.id};
   return result;
  }
+ async function removeFile(file:SavedDownloadFile,deleteFile:boolean){
+  if(pending.value.has(file.fileId))return false;
+  revision++;pending.value=new Set([...pending.value,file.fileId]);feedback.value=null;
+  try{await removeDownloadFile(file.fileId,deleteFile);files.value=files.value.filter(f=>f.fileId!==file.fileId);feedback.value={key:file.fileId,text:deleteFile?'已删除本地音频文件':'已移除下载记录，文件仍保留'};return true;}
+  catch(reason){fileError.value=message(reason);return false;}
+  finally{const next=new Set(pending.value);next.delete(file.fileId);pending.value=next;revision++;if(inflight)again=true;else void refresh();}
+ }
  const visible=()=>{if(document.hidden)clearTimeout(timer);else void refresh();};
  onMounted(()=>{void refresh();document.addEventListener('visibilitychange',visible);});
  onScopeDispose(()=>{disposed=true;clearTimeout(timer);for(const request of queries)request.abort();document.removeEventListener('visibilitychange',visible);});
- return {tasks,files,loading,error,fileError,feedback,pending,covers,retried,active,create,operate,refresh};
+ return {tasks,files,loading,error,fileError,feedback,pending,covers,retried,active,create,operate,refresh,removeFile};
 }

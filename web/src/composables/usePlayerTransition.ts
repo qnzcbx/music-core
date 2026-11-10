@@ -13,7 +13,7 @@ import {
 import { useRouter } from "vue-router";
 import gsap from "gsap";
 import { Flip } from "gsap/Flip";
-import type { SearchEntry as Song } from "../types/music";
+import type { PlayableSong as Song } from "../types/music";
 import { isPlayerPath } from "../utils/player-view-song";
 import { useReducedMotion } from "./useReducedMotion";
 import { useCoverPalette } from "./useCoverPalette";
