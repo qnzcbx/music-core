@@ -1,0 +1,80 @@
+[
+  {
+    "task": {
+      "id": "e3d3f1e4c48e4a0f8c3d360c0e7e374c",
+      "identity": {
+        "providerId": "kuwo",
+        "platformId": "9942644"
+      },
+      "title": "东风志",
+      "artist": "银临",
+      "status": "completed",
+      "receivedBytes": 4346545,
+      "totalBytes": 4346545,
+      "progress": 1.0,
+      "filename": "银临 - 东风志 (2).mp3",
+      "format": "mp3",
+      "errorCode": null,
+      "createdAt": 1794296067854,
+      "updatedAt": 1794296071589
+    },
+    "file": {
+      "filename": "银临 - 东风志 (2).mp3",
+      "bytes": 4346545,
+      "prefixHex": "49443303000000000033544954320000",
+      "sha256": "f4eb772341a45ab70d37afd18d62e72082a56b90aa3dad3e58598fa0994c32b0"
+    }
+  },
+  {
+    "task": {
+      "id": "799591adf5214317942acbdbfb34fcde",
+      "identity": {
+        "providerId": "qq",
+        "platformId": "001e7VNQ43nv4W"
+      },
+      "title": "牵丝戏",
+      "artist": "银临",
+      "status": "completed",
+      "receivedBytes": 2925618,
+      "totalBytes": 2925618,
+      "progress": 1.0,
+      "filename": "银临 - 牵丝戏 (2).m4a",
+      "format": "m4a",
+      "errorCode": null,
+      "createdAt": 1794296071640,
+      "updatedAt": 1794296072745
+    },
+    "file": {
+      "filename": "银临 - 牵丝戏 (2).m4a",
+      "bytes": 2925618,
+      "prefixHex": "00000020667479706d70343200000000",
+      "sha256": "dc7bb37453301b31d563ed835b6e1fb2fb2a5a8d480210b442a9d90c9c82466c"
+    }
+  },
+  {
+    "task": {
+      "id": "6e91f11b1172475cbf962f7f25074c40",
+      "identity": {
+        "providerId": "migu",
+        "platformId": "600929000006452915"
+      },
+      "title": "一场雨的瞬间",
+      "artist": "银临",
+      "status": "completed",
+      "receivedBytes": 3303760,
+      "totalBytes": 3303760,
+      "progress": 1.0,
+      "filename": "银临 - 一场雨的瞬间 (2).mp3",
+      "format": "mp3",
+      "errorCode": null,
+      "createdAt": 1794296072926,
+      "updatedAt": 1794296074343
+    },
+    "file": {
+      "filename": "银临 - 一场雨的瞬间 (2).mp3",
+      "bytes": 3303760,
+      "prefixHex": "4944330300000000004a544c454e0000",
+      "sha256": "02911c8b51e31b6ea5eba315a54194e982ef160f877f7d3517c95eeaceaf534a"
+    }
+  }
+]

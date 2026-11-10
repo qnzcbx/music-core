@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import os
 import re
+import stat
 import unicodedata
 from time import time
 from typing import Literal
@@ -14,6 +15,7 @@ from uuid import uuid4
 import anyio
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import Field
 from app.models import DTO, TrackIdentity, ResolveOptions
 from app.providers import provider_for
@@ -45,6 +47,13 @@ class DownloadTask(DTO):
     errorCode: str | None = None
     createdAt: int
     updatedAt: int
+
+
+class SavedDownloadFile(DTO):
+    filename: str
+    sizeBytes: int
+    format: str
+    modifiedAt: int
 
 
 @dataclass(frozen=True)
@@ -137,6 +146,22 @@ class DownloadManager:
     def get(self, identifier):
         if identifier not in self.jobs: raise HTTPException(404)
         return self.jobs[identifier]
+
+    def files(self):
+        """只读列出受限目录内的音频，不推断已丢失的任务身份。"""
+        if not self.root.exists(): return []
+        output = []
+        try:
+            for path in self.root.iterdir():
+                if path.name.startswith('.') or path.suffix.lower() not in ('.mp3','.m4a','.flac','.ogg'): continue
+                info = path.lstat()
+                if not stat.S_ISREG(info.st_mode) or path.is_symlink() or getattr(info,'st_file_attributes',0) & 0x400: continue
+                try:
+                    with path.open('rb') as stream: kind = audio_format(stream.read(16))
+                except (CoreError,FileNotFoundError): continue
+                output.append(SavedDownloadFile(filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000)))
+            return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
+        except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
 
     def create(self, body):
         provider_for(self.state, body.identity.providerId)
@@ -294,6 +319,12 @@ def download_router():
     async def listing(request: Request):
         m = manager(request)
         return [m.view(j) for j in m.jobs.values()]
+
+    @router.get('/files', response_model=list[SavedDownloadFile])
+    async def files(request: Request):
+        try: return manager(request).files()
+        except HTTPException:
+            return JSONResponse(status_code=503,content={'error':{'code':'file_io_error','message':'无法读取下载目录','retryable':True}})
 
     @router.get('/{identifier}', response_model=DownloadTask)
     async def get(identifier: str, request: Request):

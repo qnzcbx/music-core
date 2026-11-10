@@ -1,0 +1,48 @@
+{
+  "controlled": false,
+  "created": 2,
+  "progress": [
+    [
+      "downloading",
+      0
+    ],
+    [
+      "downloading",
+      655360
+    ],
+    [
+      "downloading",
+      1310720
+    ],
+    [
+      "downloading",
+      1835008
+    ],
+    [
+      "downloading",
+      2686976
+    ],
+    [
+      "completed",
+      4238986
+    ]
+  ],
+  "file": {
+    "filename": "齐豫、齐秦 - 飞鸟与鱼 (4).mp3",
+    "bytes": 4238986,
+    "format": "mp3",
+    "sha256": "922fea4a718125f628a7b86cd24ff3d0c8a86cbc16915681ad0124749dd7f912",
+    "duration": 264.8678,
+    "parallelDownloadState": "failed",
+    "secondDownloadFinal": "failed",
+    "secondDownloadErrorCode": "upstream_failure",
+    "secondDownloadIdentity": {
+      "providerId": "netease",
+      "platformId": "284782"
+    }
+  },
+  "pageErrors": [],
+  "consoleErrors": [],
+  "singleAudio": true,
+  "downloadResolveCount": null
+}

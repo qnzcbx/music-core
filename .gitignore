@@ -18,3 +18,5 @@ downloads/
 .coverage
 htmlcov/
 docs/migration/**/screenshots/
+docs/migration/**/regression-search/
+docs/migration/**/regression-recovery/

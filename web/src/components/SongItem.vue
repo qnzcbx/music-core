@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {useCoreClient} from '../composables/useCoreClient';
-const {player}=useCoreClient();
+const {player,downloads}=useCoreClient();
 import PlayIcon from '~icons/lucide/play';
 import DownloadIcon from '~icons/lucide/download';
 import NextIcon from '~icons/lucide/list-plus';
@@ -27,6 +27,9 @@ const disabled = computed(() => !!playbackBlockReason(props.song) || (candidate.
 const durationText = computed(() => typeof props.song.duration === 'number' && Number.isFinite(props.song.duration)
   ? Math.floor(props.song.duration / 60) + ':' + String(Math.floor(props.song.duration % 60)).padStart(2,'0') : props.song.duration || '—');
 const album = computed(() => props.song.album && props.song.album !== 'NULL' ? props.song.album : '—');
+const downloadKey=computed(()=>identityError.value?'':queueEntryFrom(props.song).key);
+const downloadNotice=computed(()=>downloads.feedback.value?.key===downloadKey.value?downloads.feedback.value.text:'');
+function download(){void downloads.create(props.song);}
 </script>
 <template>
   <article class="song-row" :class="{ selected, 'version-row':version }" :data-song-id="song.id" :data-provider="('providerId' in song && song.providerId) || song.source" :data-platform-id="'platformId' in song ? song.platformId : song.mid">
@@ -34,7 +37,7 @@ const album = computed(() => props.song.album && props.song.album !== 'NULL' ? p
     <div class="row-identity">
       <div class="cover"><CoverArt :src="song.cover" loading="lazy" /><span class="cover-play" aria-hidden="true"><PlayIcon /></span></div>
       <div class="song">
-        <h3>{{ song.name }}</h3><small v-if="selected" role="status">{{player.message.value}}</small>
+        <h3>{{ song.name }}</h3><small v-if="selected" role="status">{{player.message.value}}</small><small v-if="downloadNotice" class="download-feedback" role="status">{{downloadNotice}}</small>
         <div class="song-subline">
           <span class="row-artist">{{ song.artist }}</span>
           <span class="row-source">{{ source }}</span>
@@ -48,7 +51,7 @@ const album = computed(() => props.song.album && props.song.album !== 'NULL' ? p
       </div>
     </div>
     <div class="song-actions" aria-label="版本操作">
-      <button disabled title="播放、队列和下载将在下一阶段接入" type="button" class="song-action action-download" :aria-label="(downloadBlockReason(song) ? '下载条件 ' : '下载 ') + versionLabel" @click.stop="emit('download',song)"><DownloadIcon aria-hidden="true" /></button>
+      <button :disabled="!!identityError||!!downloadBlockReason(song)||downloadUnsupported||downloads.pending.value.has(downloadKey)" :title="downloadBlockReason(song)||'下载此版本'" type="button" class="song-action action-download" :aria-label="'下载 ' + versionLabel" @click.stop="download"><DownloadIcon aria-hidden="true" /></button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child><button title="歌曲操作" type="button" class="song-action action-play-next" :aria-label="'歌曲操作 ' + versionLabel" @click.stop><NextIcon aria-hidden="true" /></button></DropdownMenuTrigger>
         <DropdownMenuContent class="music-layer" align="end">
@@ -77,6 +80,7 @@ const album = computed(() => props.song.album && props.song.album !== 'NULL' ? p
 .cover-play svg { width:20px; height:20px; }
 .song-row:hover .cover-play,.song-row:focus-within .cover-play { opacity:1; }
 .song { min-width:0; flex:1; }
+.download-feedback{display:block;font-size:11px;color:var(--app-text-muted);margin:4px 0}
 .song h3 { margin:0 0 5px; font-size:14px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .song-subline { display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; min-width:0; font-size:11px; line-height:1.5; color:var(--app-text-muted); }
 .row-artist { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

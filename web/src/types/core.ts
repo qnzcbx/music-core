@@ -17,3 +17,4 @@ export type SearchRequest = { "providerId": string; "query": string; "limit"?: n
 export type SongCandidate = { "identity": TrackIdentity; "title": string; "artists"?: (string)[]; "album"?: string | null; "durationSeconds"?: number | null; "cover"?: string | null };
 export type TrackIdentity = { "providerId": "kuwo" | "qq" | "netease" | "migu"; "platformId": string };
 export type ProviderId = TrackIdentity["providerId"];
+export type SavedDownloadFile = {filename:string;sizeBytes:number;format:string;modifiedAt:number};
