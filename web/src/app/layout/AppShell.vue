@@ -5,7 +5,7 @@ import AppSidebar from './AppSidebar.vue'
 import MobileTabBar from './MobileTabBar.vue'
 import AppTopbar from './AppTopbar.vue'
 import { readSidebarExpanded, SIDEBAR_KEY } from './sidebar-preference'
-import { usePlayerStore } from '../../stores/player'
+import {useCoreClient} from '../../composables/useCoreClient'
 defineProps<{ immersive: boolean; searchQuery: string }>()
 let saved: string | null = null
 try { saved = localStorage.getItem(SIDEBAR_KEY) } catch { /* Session-only navigation. */ }
@@ -14,9 +14,9 @@ watch(expanded, value => {
   try { localStorage.setItem(SIDEBAR_KEY, JSON.stringify({ schemaVersion: 1, expanded: value })) } catch { /* Navigation remains usable. */ }
 })
 const route = useRoute(), content = ref<HTMLElement>()
-const { currentQueueKey, queue } = usePlayerStore()
+const {player}=useCoreClient()
 const home = computed(() => route.path === '/')
-const hidePlayer = computed(() => home.value && !currentQueueKey.value && !queue.value.length)
+const hidePlayer = computed(() => home.value && !player.selected.value && !player.queue.entries.value.length)
 const scrollPositions = new Map<string, number>()
 watch(() => route.fullPath, (to, from) => {
   if (content.value) { scrollPositions.set(from, content.value.scrollTop); content.value.scrollTop = scrollPositions.get(to) ?? 0 }

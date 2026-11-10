@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import {useCoreClient} from '../composables/useCoreClient';
+const {player}=useCoreClient();
 import PlayIcon from '~icons/lucide/play';
 import DownloadIcon from '~icons/lucide/download';
 import NextIcon from '~icons/lucide/list-plus';
+import {DropdownMenu,DropdownMenuTrigger,DropdownMenuContent,DropdownMenuItem} from './ui/dropdown-menu';
 import CoverArt from './CoverArt.vue';
 import DownloadProgress from './DownloadProgress.vue';
 import { providerName, providerFor } from '../composables/useProviders';
@@ -27,11 +30,11 @@ const album = computed(() => props.song.album && props.song.album !== 'NULL' ? p
 </script>
 <template>
   <article class="song-row" :class="{ selected, 'version-row':version }" :data-song-id="song.id" :data-provider="('providerId' in song && song.providerId) || song.source" :data-platform-id="'platformId' in song ? song.platformId : song.mid">
-    <button disabled title="播放、队列和下载将在下一阶段接入" type="button" class="row-play action-play" :aria-label="playLabel + ' ' + versionLabel" @click.stop="emit('play',song)"></button>
+    <button title="播放此版本" type="button" class="row-play action-play" :aria-label="playLabel + ' ' + versionLabel" @click.stop="selected ? player.toggle() : emit('play',song)"></button>
     <div class="row-identity">
       <div class="cover"><CoverArt :src="song.cover" loading="lazy" /><span class="cover-play" aria-hidden="true"><PlayIcon /></span></div>
       <div class="song">
-        <h3>{{ song.name }}</h3>
+        <h3>{{ song.name }}</h3><small v-if="selected" role="status">{{player.message.value}}</small>
         <div class="song-subline">
           <span class="row-artist">{{ song.artist }}</span>
           <span class="row-source">{{ source }}</span>
@@ -46,7 +49,14 @@ const album = computed(() => props.song.album && props.song.album !== 'NULL' ? p
     </div>
     <div class="song-actions" aria-label="版本操作">
       <button disabled title="播放、队列和下载将在下一阶段接入" type="button" class="song-action action-download" :aria-label="(downloadBlockReason(song) ? '下载条件 ' : '下载 ') + versionLabel" @click.stop="emit('download',song)"><DownloadIcon aria-hidden="true" /></button>
-      <button disabled title="播放、队列和下载将在下一阶段接入" type="button" class="song-action action-play-next" :aria-label="'下一首播放 ' + versionLabel" @click.stop="emit('playNext',song,$event.currentTarget as HTMLElement)"><NextIcon aria-hidden="true" /></button>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child><button title="歌曲操作" type="button" class="song-action action-play-next" :aria-label="'歌曲操作 ' + versionLabel" @click.stop><NextIcon aria-hidden="true" /></button></DropdownMenuTrigger>
+        <DropdownMenuContent class="music-layer" align="end">
+          <DropdownMenuItem class="mode-option" @select="selected ? player.toggle() : emit('play',song)">立即播放</DropdownMenuItem>
+          <DropdownMenuItem class="mode-option" @select="player.queue.add(song)">添加到播放队列</DropdownMenuItem>
+          <DropdownMenuItem class="mode-option" :disabled="!player.queue.entries.value.some(e=>e.key===player.queue.key(song))" @select="player.queue.remove(player.queue.key(song))">从队列移除</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
     <span class="row-album">{{ album }}</span>
     <time class="row-duration">{{ durationText }}</time>

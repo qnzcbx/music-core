@@ -6,9 +6,8 @@ import SearchRouteSync from './app/router/SearchRouteSync.vue';
 import BottomPlayer from './components/BottomPlayer.vue';
 import {provideCoreClient} from './composables/useCoreClient';
 import {providePlayerVisuals} from './composables/usePlayerTransition';
-import {usePlayerStore} from './stores/player';
+import {ref} from 'vue';
 const {searchState:{query}}=provideCoreClient();
-const {currentSong,currentQueueKey}=usePlayerStore();
-providePlayerVisuals(currentSong,currentQueueKey);
+providePlayerVisuals(ref(null),ref(null));
 </script>
 <template><SearchRouteSync/><AppShell :immersive="false" :search-query="query"><RouterView/><template #player><BottomPlayer/></template></AppShell></template>

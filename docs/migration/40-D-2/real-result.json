@@ -1,0 +1,25 @@
+{
+  "controlled": false,
+  "titles": [
+    "东风志",
+    "狐言",
+    "棠梨煎雪 (纯音乐)"
+  ],
+  "ids": [
+    "9942644",
+    "7075956",
+    "381746494"
+  ],
+  "opens": 4,
+  "allClosed410": [
+    410,
+    410,
+    410,
+    410
+  ],
+  "noAutoOpenAfterReload": true,
+  "singleAudio": true,
+  "naturalModes": false,
+  "pageErrors": [],
+  "consoleErrors": []
+}

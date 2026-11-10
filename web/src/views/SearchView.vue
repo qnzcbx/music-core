@@ -4,13 +4,13 @@ import SongList from '../components/SongList.vue';
 import {useCoreClient} from '../composables/useCoreClient';
 import {useSongGroups} from '../composables/useSongGroups';
 import type {Song} from '../types/music';
-const {searchState}=useCoreClient();const {query,songs,busy,error,perSourceStatus,loadingMore,cursors}=searchState;
+const {searchState,player}=useCoreClient();const {query,songs,busy,error,perSourceStatus,loadingMore,cursors}=searchState;
 const groupsState=useSongGroups(songs,searchState.providers,ref<Song|null>(null));const {groups,now}=groupsState;
 const hasMore=computed(()=>Object.values(cursors.value).some(Boolean));
 </script>
-<template><section class="search-view"><header class="search-results-header"><div><h1 class="page-title">{{query?'“'+query+'”':'搜索音乐'}}</h1><p class="results-count">歌曲 · 共 {{groups.length}} 组结果 · {{songs.length}} 个版本</p></div><button @click="searchState.search()" :disabled="busy">更新搜索</button></header>
-<p role="status">{{busy?'正在搜索…':songs.length?'搜索完成':'搜索后，歌曲会出现在这里。'}}</p><p v-if="error" role="alert">{{error}}</p><p v-for="(state,source) in perSourceStatus" :key="source" v-show="state.status==='failed'">{{source}}：{{state.message}}</p><p class="notice">搜索结果仅为歌曲元数据；播放、队列及下载将在下一阶段接入。</p>
-<SongList :songs="songs" :groups="groups" :now="now" :busy="busy" :pre-resolve-enabled="false" :submitting="true" :download-jobs="{}" @toggle="groupsState.toggle"/>
+<template><section class="search-view"><header class="search-results-header"><div><h1 class="page-title">{{query?'“'+query+'”':'搜索音乐'}}</h1><p class="results-count">歌曲 · 共 {{groups.length}} 组结果 · {{songs.length}} 个版本</p></div></header>
+<p role="status">{{busy?'正在搜索…':songs.length?'搜索完成':'搜索后，歌曲会出现在这里。'}}</p><p v-if="error" role="alert">{{error}}</p><p v-for="(state,source) in perSourceStatus" :key="source" v-show="state.status==='failed'">{{source}}：{{state.message}}</p><p class="notice">点击具体版本播放，或通过歌曲操作添加到播放队列。</p>
+<SongList :songs="songs" :groups="groups" :now="now" :busy="busy" :pre-resolve-enabled="false" :submitting="true" :download-jobs="{}" :active-id="player.selectedId.value" @play="player.select" @toggle="groupsState.toggle"/>
 <button v-if="hasMore" :disabled="busy||loadingMore" @click="searchState.loadMore()">{{loadingMore?'加载中…':'加载更多'}}</button></section></template>
 <style scoped>
 .search-view {

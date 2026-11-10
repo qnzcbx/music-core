@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 import SearchIcon from "~icons/lucide/search";
 import XIcon from "~icons/lucide/x";
 import { routeSearchQuery } from "../../app/router/search-route";
+import { useCoreClient } from "../../composables/useCoreClient";
+const { searchState } = useCoreClient();
 defineProps<{ hero?: boolean }>();
 const composing = ref(false);
 const route = useRoute(),
@@ -22,6 +24,7 @@ function submit() {
   draft.value = q;
   if (route.path !== "/search" || routeSearchQuery(route.query.q) !== q)
     void router.push({ path: "/search", query: { q } });
+  else void searchState.search();
 }
 </script>
 <template>

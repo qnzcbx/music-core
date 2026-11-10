@@ -39,7 +39,7 @@ onUnmounted(() => { observer?.disconnect(); document.removeEventListener('pointe
       <section v-if="opened" id="source-selection-panel" ref="panel" class="source-panel" aria-label="选择音乐来源" :style="position" @keydown.esc.stop.prevent="close(true)">
         <h2>{{ compact ? '音乐来源' : '更多来源' }}</h2>
         <SearchBar v-model:sources="sources" :providers="providers" :research-only="!compact" />
-        <p>至少选择一个来源。更改后点击「更新搜索」应用。</p>
+        <p>至少选择一个来源。更改后在搜索栏按回车或点击搜索图标应用。</p>
       </section>
     </Teleport>
   </div>
