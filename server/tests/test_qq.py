@@ -49,7 +49,7 @@ def test_bad_cursor(cursor):
     with pytest.raises(CoreError):run(lambda p:p.search('歌',2,cursor),lambda r:pytest.fail('不应请求'))
 
 
-@pytest.mark.parametrize('query,limit',[('',1),(' '*2,1),('x'*81,1),('歌',11),('歌',True)])
+@pytest.mark.parametrize('query,limit',[('',1),(' '*2,1),('x'*81,1),('歌',16),('歌',True)])
 def test_bad_input(query,limit):
     with pytest.raises(CoreError):run(lambda p:p.search(query,limit),lambda r:pytest.fail('不应请求'))
 

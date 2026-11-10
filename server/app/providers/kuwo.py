@@ -103,7 +103,7 @@ class KuwoProvider:
             raise CoreError(ErrorCode.UPSTREAM_FAILURE) from None
 
     async def search(self, query: str, limit: int, cursor: str | None = None) -> SearchPage:
-        if not isinstance(query,str) or not 1 <= len(query.strip()) <= 80 or type(limit) is not int or not 1 <= limit <= 10:
+        if not isinstance(query,str) or not 1 <= len(query.strip()) <= 80 or type(limit) is not int or not 1 <= limit <= 15:
             raise CoreError(ErrorCode.INVALID_INPUT)
         # 游标绑定页大小，防止续页时改变limit导致跳曲或重复；最多十页。
         page = 0
@@ -113,7 +113,8 @@ class KuwoProvider:
             page, previous_limit = map(int,cursor.split(':'))
             if previous_limit != limit:
                 raise CoreError(ErrorCode.INVALID_INPUT)
-        data = await self.request(SEARCH_URL, {'all':query.strip(),'ft':'music','client':'kt',
+        # 旧搜索携带vipver；实测遗漏它会使同词原版录音不进入上游结果。
+        data = await self.request(SEARCH_URL, {'all':query.strip(),'ft':'music','client':'kt','vipver':'1',
             'pn':page,'rn':limit,'rformat':'json','encoding':'utf8','mobi':'1'})
         if data.get('success') is False or data.get('code') not in (None,0,200,'0','200'):
             raise CoreError(ErrorCode.UPSTREAM_FAILURE)

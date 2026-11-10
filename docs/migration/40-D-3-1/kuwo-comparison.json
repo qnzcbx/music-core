@@ -1,0 +1,2631 @@
+[
+  {
+    "label": "core-10",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-10",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "cluster": "0",
+      "strategy": "2012",
+      "issubtitle": "1",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1712",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-15",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 15,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      },
+      {
+        "rank": 11,
+        "id": "MUSIC_622108819",
+        "title": "洛神赋",
+        "artist": "清城山下",
+        "album": "洛神赋",
+        "duration": "277",
+        "accepted": true
+      },
+      {
+        "rank": 12,
+        "id": "MUSIC_652028578",
+        "title": "洛神赋 (Remix)",
+        "artist": "海狐",
+        "album": "兰亭墨香rimix",
+        "duration": "248",
+        "accepted": true
+      },
+      {
+        "rank": 13,
+        "id": "MUSIC_55896248",
+        "title": "曹植：洛神赋",
+        "artist": "慕柏读书",
+        "album": "慕柏读书|精选美文",
+        "duration": "646",
+        "accepted": true
+      },
+      {
+        "rank": 14,
+        "id": "MUSIC_11132680",
+        "title": "芳华旧",
+        "artist": "银临&蔡翊昇",
+        "album": "",
+        "duration": "273",
+        "accepted": true
+      },
+      {
+        "rank": 15,
+        "id": "MUSIC_71560019",
+        "title": "云川雪青",
+        "artist": "银临",
+        "album": "云川雪青",
+        "duration": "276",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-15",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "cluster": "0",
+      "strategy": "2012",
+      "issubtitle": "1",
+      "show_copyright_off": "1",
+      "rn": 15,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1712",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 11,
+        "id": "MUSIC_32673026",
+        "title": "是风动",
+        "artist": "银临&河图",
+        "album": "蚍蜉渡海",
+        "duration": "288",
+        "accepted": true
+      },
+      {
+        "rank": 12,
+        "id": "MUSIC_55846390",
+        "title": "锦鲤抄",
+        "artist": "银临&云之泣",
+        "album": "锦鲤抄",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 13,
+        "id": "MUSIC_574371529",
+        "title": "洛神赋(三国·曹植·甄宓)",
+        "artist": "YangCity",
+        "album": "洛神赋",
+        "duration": "153",
+        "accepted": true
+      },
+      {
+        "rank": 14,
+        "id": "MUSIC_70679814",
+        "title": "洛神赋",
+        "artist": "SING女团",
+        "album": "洛神赋",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 15,
+        "id": "MUSIC_649484035",
+        "title": "洛神赋（live）",
+        "artist": "一泰&南风",
+        "album": "是勇敢是真心去表达爱",
+        "duration": "128",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page2",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 1
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_622108819",
+        "title": "洛神赋",
+        "artist": "清城山下",
+        "album": "洛神赋",
+        "duration": "277",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_652028578",
+        "title": "洛神赋 (Remix)",
+        "artist": "海狐",
+        "album": "兰亭墨香rimix",
+        "duration": "248",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_55896248",
+        "title": "曹植：洛神赋",
+        "artist": "慕柏读书",
+        "album": "慕柏读书|精选美文",
+        "duration": "646",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_11132680",
+        "title": "芳华旧",
+        "artist": "银临&蔡翊昇",
+        "album": "",
+        "duration": "273",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_71560019",
+        "title": "云川雪青",
+        "artist": "银临",
+        "album": "云川雪青",
+        "duration": "276",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_54860394",
+        "title": "傀 (cover:陈嘉桦)",
+        "artist": "银临",
+        "album": "傀(cover: 陈嘉桦)",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_656013140",
+        "title": "洛神赋",
+        "artist": "lioyn",
+        "album": "孤城的风",
+        "duration": "237",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_629634681",
+        "title": "洛神赋",
+        "artist": "李洪辉",
+        "album": "翰墨中国30",
+        "duration": "233",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_367912198",
+        "title": "天凉好个秋",
+        "artist": "银临",
+        "album": "5sing原创音乐精选",
+        "duration": "217",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page3",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 2
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_394286943",
+        "title": "【云梦泽】",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "284",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_474678743",
+        "title": "牵丝戏 (DJ 阿若版)",
+        "artist": "银临&Aki阿杰",
+        "album": "",
+        "duration": "179",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_657955796",
+        "title": "洛神赋",
+        "artist": "MR.Li",
+        "album": "凤凰佩",
+        "duration": "314",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_634100698",
+        "title": "洛神赋（上篇）",
+        "artist": "大牛（牛中伟）",
+        "album": "古文唱止 | 诗可以歌",
+        "duration": "385",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_659143387",
+        "title": "洛神赋",
+        "artist": "路人丁二三",
+        "album": "千年一梦",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_70709775",
+        "title": "草莓气泡",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_59153023",
+        "title": "花鸟卷 (Remix)",
+        "artist": "银临",
+        "album": "花鸟卷 Remix",
+        "duration": "288",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_483558942",
+        "title": "弦外知音 (DJ 阿树版)",
+        "artist": "鬼卞&银临",
+        "album": "",
+        "duration": "176",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_462508870",
+        "title": "洛神赋",
+        "artist": "起名大师",
+        "album": "曹植诗词",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_433238491",
+        "title": "洛神赋",
+        "artist": "半卷",
+        "album": "画",
+        "duration": "135",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "cluster-only",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "cluster": "0",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "strategy-only",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "strategy": "2012",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-http",
+    "url": "http://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "cluster": "0",
+      "strategy": "2012",
+      "issubtitle": "1",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 301
+  },
+  {
+    "label": "only-vipver",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1711",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋-电影《新神榜：杨戬》插曲",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "only-issubtitle",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "issubtitle": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "only-show_copyright_off",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "388",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-without-vipver",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "cluster": "0",
+      "strategy": "2012",
+      "issubtitle": "1",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "388",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_9942644",
+        "title": "东风志",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "271",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_7075956",
+        "title": "狐言",
+        "artist": "银临&排骨教主",
+        "album": "",
+        "duration": "211",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_381894833",
+        "title": "牵丝戏",
+        "artist": "银临&火花",
+        "album": "",
+        "duration": "238",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_655242574",
+        "title": "洛神赋（学生必背名篇）",
+        "artist": "杜关聚-佚名&桑杰&佚名",
+        "album": "洛神赋（学生必背名篇）",
+        "duration": "372",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_215131035",
+        "title": "《洛神赋》",
+        "artist": "九品农夫",
+        "album": "诗词散文经典朗诵",
+        "duration": "505",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_624965054",
+        "title": "洛神赋·惊鸿曲",
+        "artist": "天问九歌",
+        "album": "洛神赋·惊鸿曲",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_381746494",
+        "title": "棠梨煎雪 (纯音乐)",
+        "artist": "银临",
+        "album": "",
+        "duration": "255",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_30333724",
+        "title": "云梦谣 (念白版)",
+        "artist": "银临&慕寒",
+        "album": "云梦谣",
+        "duration": "216",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6617507",
+        "title": "湘桥月",
+        "artist": "银临&鸦青",
+        "album": "",
+        "duration": "272",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-without-cluster",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "strategy": "2012",
+      "issubtitle": "1",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1712",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-without-strategy",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "cluster": "0",
+      "issubtitle": "1",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1712",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-without-issubtitle",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "cluster": "0",
+      "strategy": "2012",
+      "show_copyright_off": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1712",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋-电影《新神榜：杨戬》插曲",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "old-without-show_copyright_off",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "vipver": "1",
+      "cluster": "0",
+      "strategy": "2012",
+      "issubtitle": "1",
+      "rn": 10,
+      "pn": 0
+    },
+    "http": 200,
+    "total": "1711",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_235133157",
+        "title": "洛神赋",
+        "artist": "银临",
+        "album": "新神榜：杨戬 电影原声带",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_524552001",
+        "title": "洛神赋 (DJ 追雪版)",
+        "artist": "银临",
+        "album": "洛神赋 DJ 追雪版",
+        "duration": "141",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_489880753",
+        "title": "洛神赋 (DJ 阿若版)",
+        "artist": "银临",
+        "album": "",
+        "duration": "152",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_6304356",
+        "title": "牵丝戏",
+        "artist": "银临&Aki阿杰",
+        "album": "牵丝戏",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_441119469",
+        "title": "牵丝戏 (0.9x|DJ版)",
+        "artist": "银临&Aki阿杰&赵允哲",
+        "album": "",
+        "duration": "298",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_5237999",
+        "title": "棠梨煎雪",
+        "artist": "银临",
+        "album": "腐草为萤",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_235587808",
+        "title": "洛神赋 (cover: 银临)",
+        "artist": "衍今",
+        "album": "古筝弹唱改编",
+        "duration": "207",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_634778830",
+        "title": "洛神赋-曹植",
+        "artist": "流風迴雪",
+        "album": "洛神",
+        "duration": "222",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_623472267",
+        "title": "洛神赋",
+        "artist": "临岳",
+        "album": "洛神赋",
+        "duration": "259",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28077139",
+        "title": "牵丝戏",
+        "artist": "大琴师音乐游戏&银临&Aki阿杰",
+        "album": "大琴师贰",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page4",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 3
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_252479254",
+        "title": "洛神赋",
+        "artist": "Run881",
+        "album": "中学经典文言文标准朗诵赏析",
+        "duration": "357",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_456293132",
+        "title": "【一人一花】（送给爸爸）",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "283",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_394297113",
+        "title": "荷花酿 ft.纱朵",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "332",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_394313653",
+        "title": "【仙五前传溟波同人】《月途》ft.冬子",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "254",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_256824532",
+        "title": "洛神赋 (cover: Winky诗)",
+        "artist": "断弦",
+        "album": "夜 断 弦",
+        "duration": "310",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_153159215",
+        "title": "洛神赋：洛水边惊鸿一面碧波羞颜",
+        "artist": "酷我二次元电台",
+        "album": "国风留声机",
+        "duration": "265",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_581975046",
+        "title": "洛神赋",
+        "artist": "阿岛",
+        "album": "洛神赋",
+        "duration": "240",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_28803188",
+        "title": "飞行安全颂",
+        "artist": "银临&双笙 (陈元汐)",
+        "album": "",
+        "duration": "185",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_394312349",
+        "title": "【不悔】ft.老鬼（流火）",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "242",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_394283607",
+        "title": "【舒云隽，醉云轻】 填词：慕清明",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "149",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page5",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 4
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_249693902",
+        "title": "洛神赋",
+        "artist": "WI-FI",
+        "album": "洛神赋",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_453460499",
+        "title": "洛神賦",
+        "artist": "秋元小康",
+        "album": "洛神赋",
+        "duration": "209",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_663830959",
+        "title": "洛神赋",
+        "artist": "秦昇",
+        "album": "洛神赋",
+        "duration": "253",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_481654462",
+        "title": "弦外知音 (DJ 阿若版)",
+        "artist": "鬼卞&银临",
+        "album": "",
+        "duration": "184",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_150990462",
+        "title": "待月西厢",
+        "artist": "银临",
+        "album": "",
+        "duration": "286",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_151380098",
+        "title": "夏目的美丽日记",
+        "artist": "奇然&银临",
+        "album": "奇然liya",
+        "duration": "247",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_71483135",
+        "title": "洛神赋（念白版）",
+        "artist": "莓仁爱",
+        "album": "洛神赋",
+        "duration": "324",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_421144252",
+        "title": "洛神赋",
+        "artist": "鸡腿公主",
+        "album": "林时工",
+        "duration": "212",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_411152994",
+        "title": "洛神赋",
+        "artist": "曹斌",
+        "album": "铜雀台",
+        "duration": "231",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_452448943",
+        "title": "天若灵犀",
+        "artist": "银临&小曲儿",
+        "album": "",
+        "duration": "236",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page6",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 5
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_367912168",
+        "title": "画壁",
+        "artist": "银临",
+        "album": "5sing原创音乐精选",
+        "duration": "262",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_394383663",
+        "title": "幽幽东流水（无念白）",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "249",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_557496012",
+        "title": "洛神赋",
+        "artist": "浪屿圆舞曲漫游者",
+        "album": "惊鸿一瞥",
+        "duration": "191",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_600653080",
+        "title": "洛神赋",
+        "artist": "达龙",
+        "album": "我们的音乐",
+        "duration": "302",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_231427979",
+        "title": "第二十四章：洛神赋",
+        "artist": "小酷说书",
+        "album": "重生极品皇帝",
+        "duration": "569",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_394270358",
+        "title": "幽幽东流水 HB2零、启翎",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "343",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_468858123",
+        "title": "【菩萨蛮·小山重叠金明灭】",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "128",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_59167631",
+        "title": "DON'T DON'T",
+        "artist": "银临",
+        "album": "Don't Don't",
+        "duration": "214",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_460935523",
+        "title": "洛神赋",
+        "artist": "关月影",
+        "album": "洛神赋",
+        "duration": "203",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_422929157",
+        "title": "洛神赋",
+        "artist": "小新爱听故事",
+        "album": "高考文言文",
+        "duration": "358",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page7",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 6
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_71483304",
+        "title": "洛神赋",
+        "artist": "莓仁爱",
+        "album": "洛神赋",
+        "duration": "324",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_394273949",
+        "title": "之子于归",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "279",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_394308388",
+        "title": "放手荣华·念敏敏",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_394328285",
+        "title": "【流云辞·诀别】",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "249",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_478564095",
+        "title": "洛神赋",
+        "artist": "毛不多先生",
+        "album": "古诗歌",
+        "duration": "262",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_514446939",
+        "title": "洛神赋",
+        "artist": "毛不多先生",
+        "album": "毛不多先生4",
+        "duration": "504",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_507736288",
+        "title": "洛神赋",
+        "artist": "春沢野さくら",
+        "album": "洛神赋",
+        "duration": "204",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_394309450",
+        "title": "【梦朝露】念白版",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "226",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_153302553",
+        "title": "大琴师乐曲——远行歌",
+        "artist": "银临",
+        "album": "",
+        "duration": "232",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_394299599",
+        "title": "落梅笺——《腐草为萤》专辑收录",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "239",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page8",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 7
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_507736290",
+        "title": "洛神赋.",
+        "artist": "春沢野さくら",
+        "album": "洛神赋",
+        "duration": "188",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_431880959",
+        "title": "洛神赋",
+        "artist": "赛国师",
+        "album": "木子黑的纯音乐长笛(治愈)",
+        "duration": "103",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_590644246",
+        "title": "第217章：千古名篇：《洛神赋》……",
+        "artist": "喜马拉雅",
+        "album": "我，谱写中华上下五千年",
+        "duration": "1135",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_394383330",
+        "title": "【最相思】HB2灰原穷",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "220",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_394382797",
+        "title": "【小毛驴】 ft.某汉子",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "66",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_394309494",
+        "title": "【花落水凉】ft.紫凌孤君 词：慕清明",
+        "artist": "银临",
+        "album": "默认专辑",
+        "duration": "148",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_466310960",
+        "title": "洛神赋",
+        "artist": "麒麟",
+        "album": "风起洛阳",
+        "duration": "198",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_538300099",
+        "title": "洛神赋",
+        "artist": "“晨沫”的爸爸",
+        "album": "“晨沫”的星星",
+        "duration": "295",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_70355974",
+        "title": "洛神赋",
+        "artist": "顾墨飞",
+        "album": "",
+        "duration": "239",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_28630786",
+        "title": "不离",
+        "artist": "银临",
+        "album": "不离",
+        "duration": "253",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page9",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 8
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_379226989",
+        "title": "醉笑花间",
+        "artist": "银临",
+        "album": "",
+        "duration": "220",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_83936482",
+        "title": "鼎立山河",
+        "artist": "银临",
+        "album": "鼎立山河",
+        "duration": "201",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_550203028",
+        "title": "洛神赋",
+        "artist": "孙杨杨",
+        "album": "洛神赋",
+        "duration": "190",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_466075958",
+        "title": "洛神赋",
+        "artist": "张连晓",
+        "album": "飞碟",
+        "duration": "202",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_554524650",
+        "title": "洛神赋",
+        "artist": "立志",
+        "album": "悠闲时光",
+        "duration": "162",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_153291494",
+        "title": "谜",
+        "artist": "银临",
+        "album": "",
+        "duration": "221",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_70893832",
+        "title": "风月黄粱",
+        "artist": "银临&唐六幺",
+        "album": "",
+        "duration": "333",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_380115408",
+        "title": "长安乱、平原驿马",
+        "artist": "银临",
+        "album": "",
+        "duration": "172",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_574460020",
+        "title": "洛神赋",
+        "artist": "相对论",
+        "album": "洛神赋",
+        "duration": "193",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_429260742",
+        "title": "洛神赋",
+        "artist": "狐说",
+        "album": "乐见新疆",
+        "duration": "153",
+        "accepted": true
+      }
+    ]
+  },
+  {
+    "label": "core-10-page10",
+    "url": "https://www.kuwo.cn/search/searchMusicBykeyWord",
+    "params": {
+      "all": "洛神赋 银临",
+      "ft": "music",
+      "client": "kt",
+      "rformat": "json",
+      "encoding": "utf8",
+      "mobi": "1",
+      "rn": 10,
+      "pn": 9
+    },
+    "http": 200,
+    "total": "387",
+    "rows": [
+      {
+        "rank": 1,
+        "id": "MUSIC_522313023",
+        "title": "洛神赋",
+        "artist": "零壹",
+        "album": "意难平",
+        "duration": "206",
+        "accepted": true
+      },
+      {
+        "rank": 2,
+        "id": "MUSIC_152839356",
+        "title": "商女恨 (春秋舞罢一梦休之二)",
+        "artist": "银临",
+        "album": "",
+        "duration": "21",
+        "accepted": true
+      },
+      {
+        "rank": 3,
+        "id": "MUSIC_420851283",
+        "title": "谢却荼蘼",
+        "artist": "银临&慕寒",
+        "album": "",
+        "duration": "278",
+        "accepted": true
+      },
+      {
+        "rank": 4,
+        "id": "MUSIC_367911810",
+        "title": "傀儡偶",
+        "artist": "银临",
+        "album": "5sing原创音乐精选",
+        "duration": "245",
+        "accepted": true
+      },
+      {
+        "rank": 5,
+        "id": "MUSIC_510240296",
+        "title": "洛神赋",
+        "artist": "虔诚敬神明",
+        "album": "幸运的光",
+        "duration": "237",
+        "accepted": true
+      },
+      {
+        "rank": 6,
+        "id": "MUSIC_464297066",
+        "title": "洛神赋",
+        "artist": "赵少荣",
+        "album": "朝辞白帝彩云间",
+        "duration": "184",
+        "accepted": true
+      },
+      {
+        "rank": 7,
+        "id": "MUSIC_70997889",
+        "title": "洛神赋",
+        "artist": "陈谦",
+        "album": "诗の歌",
+        "duration": "391",
+        "accepted": true
+      },
+      {
+        "rank": 8,
+        "id": "MUSIC_351523231",
+        "title": "赤",
+        "artist": "银临",
+        "album": "",
+        "duration": "158",
+        "accepted": true
+      },
+      {
+        "rank": 9,
+        "id": "MUSIC_382946940",
+        "title": "旧友 伴奏",
+        "artist": "银临",
+        "album": "",
+        "duration": "279",
+        "accepted": true
+      },
+      {
+        "rank": 10,
+        "id": "MUSIC_6802730",
+        "title": "苦竹林",
+        "artist": "银临&涵昱",
+        "album": "",
+        "duration": "383",
+        "accepted": true
+      }
+    ]
+  }
+]

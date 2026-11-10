@@ -1,0 +1,64 @@
+{
+  "controlled": false,
+  "requests": [
+    {
+      "providerId": "kuwo",
+      "query": "洛神赋 银临",
+      "limit": 15,
+      "cursor": null
+    },
+    {
+      "providerId": "kuwo",
+      "query": "洛神赋 银临",
+      "limit": 15,
+      "cursor": "1:15"
+    },
+    {
+      "providerId": "kuwo",
+      "query": "洛神赋 银临",
+      "limit": 15,
+      "cursor": "2:15"
+    },
+    {
+      "providerId": "kuwo",
+      "query": "洛神赋 银临",
+      "limit": 15,
+      "cursor": null
+    }
+  ],
+  "batches": [
+    {
+      "count": 15,
+      "nextCursor": "1:15"
+    },
+    {
+      "count": 15,
+      "nextCursor": "2:15"
+    },
+    {
+      "count": 15,
+      "nextCursor": "3:15"
+    },
+    {
+      "count": 15,
+      "nextCursor": "1:15"
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "originalFirstPage": true,
+  "realScrollContainer": "#app-content",
+  "firstPageOriginal": {
+    "identity": {
+      "providerId": "kuwo",
+      "platformId": "235133157"
+    },
+    "title": "洛神赋-电影《新神榜：杨戬》插曲",
+    "artists": [
+      "银临"
+    ],
+    "album": "新神榜：杨戬 电影原声带",
+    "durationSeconds": 206.0,
+    "cover": "https://img4.kuwo.cn/wmvpic/324/s4s19/66/1607940254.jpg"
+  }
+}

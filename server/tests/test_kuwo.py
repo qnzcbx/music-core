@@ -48,7 +48,7 @@ def test_limit_and_exhaustion(body):
     assert len(result.items)<=1 and result.nextCursor is None
 
 
-@pytest.mark.parametrize('query,limit,cursor',[('',1,None),(' '*3,1,None),('x'*81,1,None),('歌',11,None),
+@pytest.mark.parametrize('query,limit,cursor',[('',1,None),(' '*3,1,None),('x'*81,1,None),('歌',16,None),
     ('歌',True,None),('歌',1,'1:2'),('歌',1,'10:1'),('歌',1,'bad')])
 def test_invalid_input_no_network(query,limit,cursor):
     def unexpected(r):

@@ -57,7 +57,7 @@ def test_empty_optional_and_duration():
         assert candidate_from({**ROW,'dt':dt}).durationSeconds is None
 
 
-@pytest.mark.parametrize('query,limit,cursor',[('',1,None),(' '*2,1,None),('a'*81,1,None),('a',True,None),('a',11,None),('a',2,'2:1'),('a',2,'11:2'),('a',2,'bad')])
+@pytest.mark.parametrize('query,limit,cursor',[('',1,None),(' '*2,1,None),('a'*81,1,None),('a',True,None),('a',16,None),('a',2,'2:1'),('a',2,'11:2'),('a',2,'bad')])
 def test_invalid_search(query,limit,cursor):
     with pytest.raises(CoreError) as e:run(lambda p:p.search(query,limit,cursor),lambda r:pytest.fail('无效输入不应发请求'))
     assert e.value.code==ErrorCode.INVALID_INPUT

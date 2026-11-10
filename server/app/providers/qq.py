@@ -114,11 +114,11 @@ class QQProvider:
         except httpx.HTTPError:raise CoreError(ErrorCode.UPSTREAM_FAILURE) from None
 
     async def search(self,query: str,limit: int,cursor: str | None = None) -> SearchPage:
-        if not isinstance(query,str) or not 1<=len(query.strip())<=80 or type(limit)is not int or not 1<=limit<=10:
+        if not isinstance(query,str) or not 1<=len(query.strip())<=80 or type(limit)is not int or not 1<=limit<=15:
             raise CoreError(ErrorCode.INVALID_INPUT)
         page=1
         if cursor is not None:
-            if not isinstance(cursor,str) or not re.fullmatch(r'([2-9]|10):([1-9]|10)',cursor):raise CoreError(ErrorCode.INVALID_INPUT)
+            if not isinstance(cursor,str) or not re.fullmatch(r'([2-9]|10):(1[0-5]|[1-9])',cursor):raise CoreError(ErrorCode.INVALID_INPUT)
             page,old_limit=map(int,cursor.split(':'))
             if old_limit!=limit:raise CoreError(ErrorCode.INVALID_INPUT)
         headers={'User-Agent':'Mozilla/5.0','Referer':'https://y.qq.com/'}

@@ -67,7 +67,7 @@ ERRORS = {
 class SearchRequest(DTO):
     providerId: str = Field(min_length=1,max_length=32)
     query: str = Field(min_length=1,max_length=80)
-    limit: int = Field(default=10,ge=1,le=10,strict=True)
+    limit: int = Field(default=15,ge=1,le=15,strict=True)
     cursor: str | None = Field(default=None,max_length=20)
 
     @field_validator('query')

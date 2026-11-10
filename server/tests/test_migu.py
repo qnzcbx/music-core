@@ -60,7 +60,7 @@ def test_optional_metadata():
     assert not song.artists
 
 
-@pytest.mark.parametrize('query,limit,cursor',[('',1,None),(' '*2,1,None),('a'*81,1,None),('歌',True,None),('歌',11,None),('歌',2,'2:1'),('歌',2,'11:2'),('歌',2,'invalid')])
+@pytest.mark.parametrize('query,limit,cursor',[('',1,None),(' '*2,1,None),('a'*81,1,None),('歌',True,None),('歌',16,None),('歌',2,'2:1'),('歌',2,'11:2'),('歌',2,'invalid')])
 def test_invalid_search(query,limit,cursor):
     with pytest.raises(CoreError):run(lambda p:p.search(query,limit,cursor),lambda r:pytest.fail('不应请求'))
 
