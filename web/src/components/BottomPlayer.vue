@@ -3,6 +3,10 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useCoreClient } from "../composables/useCoreClient";
 import { usePlayerVisuals } from "../composables/usePlayerTransition";
 import {useMediaQuery} from "@vueuse/core";
+import DownloadStateIcon from "./DownloadStateIcon.vue";
+import { isLocalSong } from "../types/music";
+import { trackIdentity } from "../utils/player-queue";
+import { downloadBlockReason } from "../utils/track-access";
 import ExpandIcon from "~icons/lucide/expand";
 import BackIcon from "~icons/lucide/shrink";
 import PlayerLayoutSelector from "./PlayerLayoutSelector.vue";
@@ -15,7 +19,7 @@ import PlaybackModeMenu from "./player/PlaybackModeMenu.vue";
 import VolumePopover from "./player/VolumePopover.vue";
 import QueuePanel from "./player/QueuePanel.vue";
 import "../styles/player-layers.css";
-const { player } = useCoreClient();
+const { player, downloads } = useCoreClient();
 const props = defineProps<{ immersive?: boolean }>();
 const visuals = usePlayerVisuals();
 const mobile=useMediaQuery("(max-width:600px)");
@@ -37,12 +41,13 @@ onMounted(() => {
     visuals.setMiniCover(host.value.querySelector(".mini-cover-art"));
   }
 });
+const downloadable = computed(()=>selected.value&&!isLocalSong(selected.value)&&!downloadBlockReason(selected.value)?selected.value:null);
+const downloadIdentity = computed(()=>downloadable.value?trackIdentity(downloadable.value):null);
 const progress = computed(() => preview.value ?? time.value);
 const pauseAction = computed(() =>
   ["opening", "positioning"].includes(phase.value) ? player.playIntent.value : playing.value,
 );
-const retryAction=computed(()=>mobile.value&&!playing.value&&['error','network','blocked'].includes(phase.value));
-function transportAction(){return retryAction.value?player.retry():player.toggle();}
+function transportAction(){return player.toggle();}
 const format = (value: number) =>
   `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
 function seek(event: Event) {
@@ -75,31 +80,25 @@ function seek(event: Event) {
         aria-label="打开沉浸式播放器"
         @click="visuals.open"
       >
-        <span class="mini-cover-art"><CoverArt :src="selected?.cover" /></span><span v-if="selected" class="cover-expand" aria-hidden="true"><ExpandIcon/></span>
+        <span class="mini-cover-art">
+          <CoverArt :src="selected?.cover" />
+        </span>
+        <span v-if="selected" class="cover-expand" aria-hidden="true">
+          <ExpandIcon/>
+        </span>
       </button>
       <div class="player-meta">
         <span class="track-title">
           {{
-            selected?.title || selected?.name || "选择歌曲开始播放"
+            selected?.title || selected?.name || "随心听"
           }}
         </span>
         <span class="player-artist">
           {{
-            selected?.artist || (selected ? "" : "从搜索结果选择具体版本")
+            selected?.artist || (selected ? "" : "听我想听")
           }}
         </span>
         <span class="player-album">{{ selected?.album }}</span>
-        <span
-          class="playback-status"
-          :class="{
-            'notice-visible': ['opening', 'positioning', 'error', 'blocked', 'network'].includes(
-              phase,
-            ),
-          }"
-          role="status"
-        >
-          {{ message }}
-        </span>
       </div>
     </div>
     <div v-if="!compactMini" class="transport">
@@ -117,8 +116,8 @@ function seek(event: Event) {
         </button>
         <button
           class="play-toggle"
-          :disabled="!selected"
-          :aria-label="retryAction ? '重试播放' : pauseAction ? '暂停' : '播放'"
+          :disabled="!selected || phase==='error'"
+          :aria-label="pauseAction ? '暂停' : '播放'"
           @click="transportAction"
         >
           <PauseIcon v-if="pauseAction" /><PlayIcon v-else />
@@ -154,19 +153,8 @@ function seek(event: Event) {
       </div>
     </div>
     <div v-if="!compactImmersive" class="player-tools">
-      <button
-        v-if="!compactMini && selected && (!immersive || ['error', 'network', 'blocked'].includes(phase))"
-        @click="player.retry"
-        aria-label="重试播放"
-      >
-        重试
-      </button>
-      <button
-        v-if="selected && !immersive && !compactMini"
-        @click="player.stop"
-        aria-label="关闭播放"
-      >
-        关闭
+      <button v-if="!immersive" aria-label="下载当前歌曲" title="下载当前歌曲" :disabled="!downloadable" @click="downloadable && downloads.create(downloadable)">
+        <DownloadStateIcon :identity="downloadIdentity" />
       </button>
       <template v-if="immersive">
         <PlayerLayoutSelector
@@ -180,9 +168,9 @@ function seek(event: Event) {
           @open-change="panel('style', $event)"
         />
       </template>
-      <button v-if="compactMini" class="mini-play-toggle" :disabled="!selected"
-        :title="retryAction ? '重试播放' : pauseAction ? '暂停' : '播放'"
-        :aria-label="retryAction ? '重试播放' : pauseAction ? '暂停' : '播放'"
+      <button v-if="compactMini" class="mini-play-toggle" :disabled="!selected || phase==='error'"
+        :title="pauseAction ? '暂停' : '播放'"
+        :aria-label="pauseAction ? '暂停' : '播放'"
         @click="transportAction">
         <PauseIcon v-if="pauseAction"/><PlayIcon v-else/>
       </button>

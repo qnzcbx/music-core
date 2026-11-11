@@ -111,7 +111,7 @@ onMounted(() => {
         还没有下载的歌曲
       </p>
       <p class="download-location">
-        文件保存在运行服务的电脑上；任务历史仅保留到服务重启。
+        任务历史仅为服务快照。
       </p>
     </template>
     <template v-else>

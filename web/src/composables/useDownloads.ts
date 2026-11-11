@@ -8,7 +8,7 @@ import type {DownloadTask,SavedDownloadFile} from '../types/core';
 export const activeDownload=(task:DownloadTask)=>['queued','resolving','downloading'].includes(task.status);
 export function useDownloads(){
  const tasks=shallowRef<DownloadTask[]>([]),files=shallowRef<SavedDownloadFile[]>([]),loading=ref(false),error=ref(''),fileError=ref('');
- const feedback=ref<{key:string;text:string}|null>(null),pending=ref(new Set<string>()),covers=ref<Record<string,string|null>>({}),retried=ref<Record<string,string>>({});
+ const feedback=ref<{key:string;text:string;error?:boolean;taskId?:string}|null>(null),pending=ref(new Set<string>()),covers=ref<Record<string,string|null>>({}),retried=ref<Record<string,string>>({});
  let revision=0,disposed=false,timer:ReturnType<typeof setTimeout>|undefined,inflight:Promise<void>|undefined,again=false,wantFiles=false;
  const queries=new Set<AbortController>(),operations=new Map<string,Promise<DownloadTask|undefined>>();
  const active=computed(()=>tasks.value.some(activeDownload));
@@ -32,8 +32,8 @@ export function useDownloads(){
  async function perform(key:string,action:()=>Promise<DownloadTask>,notice:string){
   const running=operations.get(key);if(running)return running;
   revision++;pending.value=new Set([...pending.value,key]);feedback.value=null;
-  const work=(async()=>{try{const task=await action();if(disposed)return;upsert(task);feedback.value={key,text:notice};return task;}
-   catch(reason){if(!disposed)feedback.value={key,text:reason instanceof ApiError&&reason.status===404?'任务不存在或已过期，请刷新':reason instanceof ApiError&&reason.status===429?'下载任务过多，请稍后重试':message(reason)};}
+  const work=(async()=>{try{const task=await action();if(disposed)return;upsert(task);feedback.value={key,taskId:task.id,text:task.status==='failed'?'下载失败':notice,error:task.status==='failed'};if(task.status==='failed')console.error('下载失败',{identity:task.identity,code:task.errorCode});return task;}
+   catch(reason){console.error("下载请求失败",reason);if(!disposed)feedback.value={key,error:true,text:reason instanceof ApiError&&reason.status===404?'任务不存在或已过期，请刷新':reason instanceof ApiError&&reason.status===429?'下载任务过多，请稍后重试':message(reason)};}
    finally{operations.delete(key);const next=new Set(pending.value);next.delete(key);pending.value=next;revision++;if(inflight)again=true;else void refresh();}
   })();operations.set(key,work);return work;
  }

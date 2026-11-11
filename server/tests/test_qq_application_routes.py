@@ -35,8 +35,8 @@ def test_development_normal_api_route_and_representation(monkeypatch,route,dev_p
         assert client.get(value['streamUrl']).content==BODY
         assert client.post(value['streamUrl'].replace('/stream','/close')).status_code==204
 
-def test_normal_non_development_does_not_unlock_external(monkeypatch):
-    monkeypatch.delenv('MUSIC_CORE_QQ_RESOLVER_ORDER',raising=False)
+def test_explicit_official_only_does_not_unlock_external(monkeypatch):
+    monkeypatch.setenv('MUSIC_CORE_QQ_RESOLVER_ORDER','official')
     calls=[]
     def upstream(r):
         calls.append(r.url.host)
@@ -52,3 +52,12 @@ def test_development_explicit_denial_does_not_fallback(monkeypatch):
     with TestClient(create_app(transport=httpx.MockTransport(upstream),dev_player=True)) as client:
         result=client.post('/api/playback/open',json={'identity':{'providerId':'qq','platformId':'ABC'}})
         assert result.status_code==403 and calls==['api.vkeys.cn']
+
+
+def test_application_default_fallback_orders(monkeypatch):
+    monkeypatch.delenv('MUSIC_CORE_QQ_RESOLVER_ORDER',raising=False)
+    monkeypatch.delenv('MUSIC_CORE_NETEASE_RESOLVER_ORDER',raising=False)
+    app=create_app()
+    with TestClient(app):
+        assert app.state.qq.route_order==('official','vkeys','tang','xunhuisi')
+        assert app.state.netease.route_order==('native','gdstudio-preview','jfjt')

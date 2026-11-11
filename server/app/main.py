@@ -111,9 +111,9 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.kuwo = KuwoProvider(client)
             # 线路配置独立于页面；沿用预览身份约束，不把配置启用视为正式授权。
             api.state.qq = QQProvider(client,cookie=os.environ.get('MUSIC_CORE_QQ_COOKIE',''),
-                route_order=tuple(os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official').split(',')),
-                allow_request_bound=any(route in ('vkeys','tang','xunhuisi') for route in os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official').split(',')))
-            api.state.netease = NeteaseProvider(client,route_order=tuple(os.environ.get('MUSIC_CORE_NETEASE_RESOLVER_ORDER','native').split(',')))
+                route_order=tuple(os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official,vkeys,tang,xunhuisi').split(',')),
+                allow_request_bound=any(route in ('vkeys','tang','xunhuisi') for route in os.environ.get('MUSIC_CORE_QQ_RESOLVER_ORDER','official,vkeys,tang,xunhuisi').split(',')))
+            api.state.netease = NeteaseProvider(client,route_order=tuple(os.environ.get('MUSIC_CORE_NETEASE_RESOLVER_ORDER','native,gdstudio-preview,jfjt').split(',')))
             api.state.migu = MiguProvider(client)
             api.state.http_client = client
             api.state.cover_reader = CoverReader(cover_transport)

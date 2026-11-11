@@ -3,6 +3,7 @@ import './style.css';
 import {RouterView} from 'vue-router';
 import AppShell from './app/layout/AppShell.vue';
 import SearchRouteSync from './app/router/SearchRouteSync.vue';
+import ClientNotice from './components/ClientNotice.vue';
 import BottomPlayer from './components/BottomPlayer.vue';
 import {provideCoreClient} from './composables/useCoreClient';
 import {providePlayerVisuals} from './composables/usePlayerTransition';
@@ -12,4 +13,4 @@ const {immersive}=providePlayerVisuals(player.selected,player.queue.current);
 const audioHost=ref<HTMLElement>();
 onMounted(()=>audioHost.value?.append(player.audio));
 </script>
-<template><div ref="audioHost" hidden data-audio-host/><SearchRouteSync/><AppShell :immersive="immersive" :search-query="query"><RouterView/><template #player><BottomPlayer/></template></AppShell></template>
+<template><div ref="audioHost" hidden data-audio-host/><SearchRouteSync/><ClientNotice/><AppShell :immersive="immersive" :search-query="query"><RouterView/><template #player><BottomPlayer/></template></AppShell></template>

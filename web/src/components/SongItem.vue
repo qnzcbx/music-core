@@ -5,7 +5,7 @@ const { player, downloads } = useCoreClient();
 import PauseIcon from "~icons/lucide/pause";
 import LoadingIcon from "~icons/lucide/loader-circle";
 import PlayIcon from "~icons/lucide/play";
-import DownloadIcon from "~icons/lucide/download";
+import DownloadStateIcon from "./DownloadStateIcon.vue";
 import NextIcon from "~icons/lucide/list-plus";
 import {
   DropdownMenu,
@@ -82,9 +82,6 @@ const album = computed(() =>
   props.song.album && props.song.album !== "NULL" ? props.song.album : "—",
 );
 const downloadKey = computed(() => (identityError.value ? "" : queueEntryFrom(props.song).key));
-const downloadNotice = computed(() =>
-  downloads.feedback.value?.key === downloadKey.value ? downloads.feedback.value.text : "",
-);
 function download() {
   void downloads.create(props.song);
 }
@@ -113,12 +110,6 @@ function download() {
       </div>
       <div class="song">
         <h3>{{ song.name }}</h3>
-        <small v-if="selected&&['error','network','blocked'].includes(player.phase.value)" role="status">{{ player.message.value }}</small>
-        <small v-if="downloadNotice" class="download-feedback" role="status">
-          {{
-            downloadNotice
-          }}
-        </small>
         <div class="song-subline">
           <span class="row-artist">{{ song.artist }}</span>
           <span class="row-source">{{ source }}</span>
@@ -156,7 +147,7 @@ function download() {
         :aria-label="'下载 ' + versionLabel"
         @click.stop="download"
       >
-        <DownloadIcon aria-hidden="true" />
+        <DownloadStateIcon :identity="identityError ? null : queueEntryFrom(song).track" />
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child
@@ -190,7 +181,7 @@ function download() {
     <span class="row-album">{{ album }}</span>
     <time class="row-duration">{{ durationText }}</time>
     <div class="row-versions"><slot /></div>
-    <DownloadProgress :job="job" />
+
   </article>
 </template>
 <style scoped>
@@ -454,4 +445,11 @@ function download() {
 
 <style scoped>
 .row-loading{animation:row-loading 1s linear infinite}@keyframes row-loading{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.row-loading{animation:none}}
+</style>
+
+<style scoped>
+.song-actions:has([data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])) { opacity:1; }
+@media(min-width:601px) and (hover:hover) {
+  .song-row:not(:hover):not(:focus-within) .song-actions:has([data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])) .action-play-next { opacity:0; }
+}
 </style>
