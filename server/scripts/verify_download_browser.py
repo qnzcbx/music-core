@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 import socket
 import tempfile
@@ -18,7 +19,7 @@ from recovery_fixture import FaultUpstream, allow_fixture_target
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--browser',required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--browser',default=os.environ.get('CHROMIUM_PATH'),help='Chromium 路径；默认使用 Playwright 自带浏览器');args=parser.parse_args()
     upstream=FaultUpstream();closed=[]
     async def resolve(identity,options=None):
         if options and options.purpose=='download':

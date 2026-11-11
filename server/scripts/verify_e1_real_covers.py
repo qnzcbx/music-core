@@ -3,6 +3,7 @@ import json
 import argparse
 import os
 from pathlib import Path
+import socket
 import subprocess
 import threading
 import time
@@ -13,8 +14,16 @@ from playwright.sync_api import sync_playwright
 from app.main import create_app
 
 ROOT=Path(__file__).resolve().parents[2]
-CHROME='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-e1-real-covers'))
+CHROME=os.environ.get('CHROMIUM_PATH')
 SAMPLES=[('kuwo','银临 东风志','东风志'),('netease','齐豫 飞鸟与鱼','飞鸟与鱼'),('qq','许嵩 幻听','幻听'),('qq','许嵩 灰色头像','灰色头像'),('migu','许嵩 庐州月','庐州月'),('migu','周杰伦 我落泪情绪零碎','我落泪情绪零碎')]
+
+def free_port(excluded=()):
+    for _ in range(20):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+        if port not in excluded:return port
+    raise RuntimeError('无法分配未占用的本地端口')
 
 
 def verify_overlay(page,shots):
@@ -115,20 +124,22 @@ def verify_overlay(page,shots):
     page.locator('.collapse-player').click();page.wait_for_timeout(700);page.locator('.player-cover').tap();page.wait_for_timeout(700)
     assert page.locator('audio').evaluate('a=>a===firstAudio&&!a.paused') and len(events)==count
     result={'realIdentity':{'providerId':'netease','platformId':'284617'},'visibleSurfaces':visible_styles,'hiddenSurfaces':hidden_styles,'expandFocusAndHover':True,'shrinkKeepsPlayback':True,'cardsAndSettingsSync':True,'fourTemplatesThreeWidths':True,'noVisualPlaybackOpen':True,'audioUnchanged':True,'menusHoldVisible':True,'idleAndTouchWake':True,'pauseSeek':True,'mobileCompactFiveButtons':True,'mobileProgressAbove':True,'styleScrollbarHiddenAndScrollable':True}
-    (ROOT/'.runtime/e1-overlay-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+    OUT.mkdir(parents=True,exist_ok=True)
+    (OUT/'overlay-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'overlay':result},ensure_ascii=True),flush=True)
 
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--overlay-only',action='store_true');parser.add_argument('--mobile-retry-only',action='store_true');args=parser.parse_args()
-    server=uvicorn.Server(uvicorn.Config(create_app(),host='127.0.0.1',port=8009,log_level='critical',access_log=False))
+    api_port=free_port();web_port=free_port({api_port})
+    server=uvicorn.Server(uvicorn.Config(create_app(),host='127.0.0.1',port=api_port,log_level='critical',access_log=False))
     thread=threading.Thread(target=server.run,daemon=True);thread.start()
     for _ in range(100):
         if server.started:break
         time.sleep(.05)
     assert server.started
-    vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5187 --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8009'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    url='http://127.0.0.1:5187';shots=ROOT/'docs/archive/17-沉浸视觉/screenshots';shots.mkdir(parents=True,exist_ok=True)
+    vite=subprocess.Popen(['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{api_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    url=f'http://127.0.0.1:{web_port}';shots=OUT/'screenshots';shots.mkdir(parents=True,exist_ok=True)
     results=[];errors=[]
     try:
         for _ in range(100):
@@ -197,14 +208,14 @@ def main():
                     observation['mobileCentralRetryRequested']=True
                     page.screenshot(path=str(shots/'visual-patch-mobile-retry.png'));page.set_viewport_size({'width':1440,'height':1000})
                 else:page.screenshot(path=str(shots/f'visual-real-{provider}-{song["identity"]["platformId"]}.png'))
-                results.append(observation);(ROOT/('.runtime/e1-mobile-retry-result.json' if args.mobile_retry_only else '.runtime/e1-real-results.json')).write_text(json.dumps({'samples':results,'pageErrors':errors},ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(observation,ensure_ascii=True),flush=True)
+                results.append(observation);(OUT/('mobile-retry-result.json' if args.mobile_retry_only else 'real-results.json')).write_text(json.dumps({'samples':results,'pageErrors':errors},ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(observation,ensure_ascii=True),flush=True)
             if args.overlay_only:verify_overlay(page,shots)
             if page.locator('.immersive-player').count():page.locator('.collapse-player').click();page.wait_for_timeout(700)
             stop=page.get_by_role('button',name='关闭播放',exact=True)
             if stop.count():stop.click()
             browser.close()
         if not args.overlay_only:
-            path=ROOT/('.runtime/e1-mobile-retry-result.json' if args.mobile_retry_only else '.runtime/e1-real-results.json');path.parent.mkdir(exist_ok=True);path.write_text(json.dumps({'samples':results,'pageErrors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
+            path=OUT/('mobile-retry-result.json' if args.mobile_retry_only else 'real-results.json');path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps({'samples':results,'pageErrors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
             assert len(results)==(1 if args.mobile_retry_only else 6) and all(row.get('status')=='success' and row.get('sameCover') and row.get('displayCover')==row.get('cover') and row.get('evidence')!='fallback' and row.get('background')!='none' for row in results),results
         assert not errors,errors
     finally:

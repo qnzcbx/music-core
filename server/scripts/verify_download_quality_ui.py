@@ -1,13 +1,19 @@
 """品质弹窗的受控 HTTP 验收，不将夹具记录当作真实下载。"""
+import argparse
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-OUT=Path(__file__).resolve().parents[2]/'docs/archive/19-品质选择/screenshots'
+ROOT=Path(__file__).resolve().parents[2]
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-download-quality-ui'))
 
 def main():
-    OUT.mkdir(parents=True,exist_ok=True)
+    parser=argparse.ArgumentParser(description='受控验证下载音质选择界面')
+    parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='已运行的 Vue 客户端地址')
+    args=parser.parse_args()
+    screenshots=OUT/'screenshots';screenshots.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as pw:
-        browser=pw.chromium.launch(headless=True,executable_path='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe')
+        browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'))
         page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
         state={'mode':'hold','posts':[]};held=[];tasks=[];files=[];options=[]
         def option(route):
@@ -22,7 +28,7 @@ def main():
             task={'id':'new-task','identity':body['identity'],'title':body['title'],'artist':body['artist'],'quality':body['quality'],'status':'queued','createdAt':1,'updatedAt':1};tasks.append(task);route.fulfill(status=202,json=task)
         page.route('**/api/search',lambda r:r.fulfill(json={'items':[{'identity':{'providerId':'kuwo','platformId':str(i)},'title':f'交互歌曲{i}','artists':['人工']} for i in (1,2)]}))
         page.route('**/api/downloads/options',option);page.route('**/api/downloads',downloads);page.route('**/api/downloads/files',lambda r:r.fulfill(json=files))
-        page.goto('http://127.0.0.1:5174/search?q=交互');page.wait_for_load_state('networkidle')
+        page.goto(args.url.rstrip('/')+'/search?q=交互');page.wait_for_load_state('networkidle')
         first=page.locator('.song-row[data-platform-id="1"]');second=page.locator('.song-row[data-platform-id="2"]')
         page.evaluate('window.firstAudio=document.querySelector("audio")')
         first.locator('.action-download').click();page.wait_for_timeout(100);assert '正在检测' in page.locator('.quality-dialog').inner_text()
@@ -40,7 +46,7 @@ def main():
             for theme in ('light','dark'):
                 page.evaluate('theme=>document.documentElement.dataset.theme=theme',theme);page.wait_for_timeout(150)
                 assert page.locator('.quality-dialog').evaluate('el=>el.scrollWidth<=el.clientWidth&&el.getBoundingClientRect().height<=innerHeight-30')
-                page.screenshot(path=str(OUT/f'preaudit-controlled-dialog-{width}-{theme}.png'))
+                page.screenshot(path=str(screenshots/f'preaudit-controlled-dialog-{width}-{theme}.png'))
         page.get_by_role('button',name='确认下载').evaluate('el=>{el.click();el.click()}');page.wait_for_timeout(250)
         assert len(state['posts'])==1 and state['posts'][0]['quality']=='high' and state['posts'][0]['identity']['platformId']=='2'
         assert page.locator('audio').evaluate('a=>a===window.firstAudio&&a.paused&&!a.getAttribute("src")')

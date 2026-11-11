@@ -1,0 +1,39 @@
+{
+  "samples": [
+    {
+      "status": "success",
+      "via": "relay",
+      "initialFailure": "canvas-cors-denied",
+      "evidence": "cover",
+      "colors": [
+        "#f6d6d5",
+        "#f7e3de",
+        "#f9f0e6"
+      ],
+      "background": "radial-gradient(60% 84% at 12% 82%, rgb(246, 214, 213) 0%, rgba(0, 0, 0, 0) 78%), radial-gradient(66% 78% at 91% 18%, rgb(249, 240, 230) 0%, rgba(0, 0, 0, 0) 76%), radial-gradient(45% 60% at 49% 43%, rgb(247, 227, 222) 0%, rgba(0, 0, 0, 0) 82%), linear-gradient(122deg, rgb(249, 228, 228), rgb(250, 243, 236))",
+      "sameCover": true,
+      "displayCover": "https://y.gtimg.cn/music/photo_new/T002R500x500M000004RbL3b0BDIe2.jpg",
+      "expectedCover": "https://y.gtimg.cn/music/photo_new/T002R500x500M000004RbL3b0BDIe2.jpg",
+      "playing": false,
+      "playbackErrors": [
+        {
+          "operation": "open",
+          "status": 409,
+          "code": "media_unavailable"
+        }
+      ],
+      "phase": "error",
+      "playbackMessage": "恢复失败，可手动重新打开",
+      "provider": "qq",
+      "identity": {
+        "providerId": "qq",
+        "platformId": "003MUDkf30pS5B"
+      },
+      "title": "幻听",
+      "cover": "https://y.gtimg.cn/music/photo_new/T002R500x500M000004RbL3b0BDIe2.jpg",
+      "coverHost": "y.gtimg.cn",
+      "mobileCentralRetryRequested": true
+    }
+  ],
+  "pageErrors": []
+}

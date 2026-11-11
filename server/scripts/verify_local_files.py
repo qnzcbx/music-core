@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
@@ -21,12 +22,21 @@ from app.core.media_store import MediaSettings
 from recovery_fixture import FaultUpstream, allow_fixture_target
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / 'docs/archive/16-下载界面'
-CHROME = 'C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+OUT = Path(os.environ.get('MUSIC_CORE_VERIFY_OUT', ROOT / '.runtime/verify-local-files'))
+CHROME = os.environ.get('CHROMIUM_PATH')
+
+
+def free_port(excluded=()):
+    for _ in range(20):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+        if port not in excluded: return port
+    raise RuntimeError('无法分配未占用的本地端口')
 
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True); (OUT / 'screenshots').mkdir(exist_ok=True)
+    api_port = free_port(); web_port = free_port({api_port})
     root = ROOT / 'downloads'
     before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.iterdir() if p.suffix in ('.mp3', '.m4a', '.flac')}
     upstream = FaultUpstream(); resolves = []
@@ -39,15 +49,15 @@ def main():
     async def lyrics(identity): return LyricDocument(identity=identity, status='unavailable')
     app = create_app(transport=httpx.MockTransport(upstream.handle), target_check=allow_fixture_target,
                      download_settings=DownloadSettings(directory=root), media_settings=MediaSettings(lease_ttl=2, media_ttl=.3, sweep_interval=.1))
-    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=8007, access_log=False, log_level='critical'))
+    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=api_port, access_log=False, log_level='critical'))
     thread = threading.Thread(target=server.run, daemon=True); thread.start()
     for _ in range(100):
         if server.started: break
         time.sleep(.05)
     assert server.started
     app.state.kuwo = SimpleNamespace(resolve=resolve, search=search, get_lyrics=lyrics)
-    vite = subprocess.Popen(['cmd', '/c', 'pnpm dev --port 5185 --strictPort'], cwd=ROOT / 'web', env={**os.environ, 'MUSIC_CORE_API_TARGET': 'http://127.0.0.1:8007'}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    url = 'http://127.0.0.1:5185'; result = {}; errors = []
+    vite = subprocess.Popen(['cmd', '/c', f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort'], cwd=ROOT / 'web', env={**os.environ, 'MUSIC_CORE_API_TARGET': f'http://127.0.0.1:{api_port}'}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f'http://127.0.0.1:{web_port}'; result = {}; errors = []
     try:
         for _ in range(100):
             try:
@@ -177,7 +187,7 @@ def main():
             page.get_by_role('button', name='关闭播放').click(); page.wait_for_timeout(200)
             server.should_exit = True; thread.join(timeout=5); assert not thread.is_alive()
             app = create_app(download_settings=DownloadSettings(directory=temporary))
-            server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=8007, access_log=False, log_level='critical'))
+            server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=api_port, access_log=False, log_level='critical'))
             thread = threading.Thread(target=server.run, daemon=True); thread.start()
             for _ in range(100):
                 if server.started: break

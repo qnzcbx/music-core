@@ -1,12 +1,18 @@
 """保存方式与处理阶段的浏览器HTTP夹具验收，不冒充真实转换。"""
+import argparse
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-OUT=Path(__file__).resolve().parents[2]/'docs/archive/20-音频转换/screenshots'
+ROOT=Path(__file__).resolve().parents[2]
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-download-saving-ui'))
 
 def main():
-    OUT.mkdir(parents=True,exist_ok=True)
+    parser=argparse.ArgumentParser(description='受控验证下载保存方式和转换界面')
+    parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='已运行的 Vue 客户端地址')
+    args=parser.parse_args()
+    screenshots=OUT/'screenshots';screenshots.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as pw:
-        browser=pw.chromium.launch(headless=True,executable_path='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe')
+        browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'))
         page=browser.new_page(viewport={'width':1440,'height':800});state={'available':False};tasks=[];files=[];posts=[]
         page.route('**/api/search',lambda r:r.fulfill(json={'items':[{'identity':{'providerId':'kuwo','platformId':'1'},'title':'保存方式验收','artists':['人工'],'durationSeconds':240}]}))
         def options(r):
@@ -18,7 +24,7 @@ def main():
             task={'id':'converting','identity':body['identity'],'quality':body['quality'],'outputMode':body['outputMode'],'expectedSourceCodec':body['expectedSourceCodec'],'title':'保存方式验收','artist':'人工','status':'downloading','phase':'transcoding','receivedBytes':50000000,'totalBytes':50000000,'createdAt':1,'updatedAt':1};tasks.append(task);r.fulfill(status=202,json=task)
         page.route('**/api/downloads/options',options);page.route('**/api/downloads',operations);page.route('**/api/downloads/files',lambda r:r.fulfill(json=files))
         page.route('**/api/downloads/converting/cancel',lambda r:(tasks[0].update(status='cancelled',updatedAt=2),r.fulfill(json=tasks[0])))
-        page.goto('http://127.0.0.1:5174/search?q=保存');page.wait_for_load_state('networkidle')
+        page.goto(args.url.rstrip('/')+'/search?q=保存');page.wait_for_load_state('networkidle')
         page.locator('.action-download').click();page.wait_for_timeout(150)
         assert page.locator('input[value="mp3_320"]').is_disabled() and page.locator('input[value="original"]').is_enabled()
         page.get_by_role('button',name='关闭音质选择').click();state['available']=True
@@ -33,7 +39,7 @@ def main():
                 page.evaluate('theme=>document.documentElement.dataset.theme=theme',theme);page.wait_for_timeout(150)
                 assert page.locator('.quality-dialog').evaluate('el=>el.scrollWidth<=el.clientWidth&&el.scrollHeight>el.clientHeight')
                 page.locator('.quality-dialog').evaluate('el=>el.scrollTop=el.scrollHeight')
-                page.screenshot(path=str(OUT/f'conversion-controlled-saving-{width}-{theme}.png'))
+                page.screenshot(path=str(screenshots/f'conversion-controlled-saving-{width}-{theme}.png'))
         page.get_by_role('button',name='确认下载').click();page.wait_for_timeout(200)
         assert posts[0]['outputMode']=='mp3_192' and posts[0]['expectedSourceCodec']=='flac'
         page.locator('.mobile-tabbar').get_by_role('link',name='下载',exact=True).click();page.wait_for_timeout(200)

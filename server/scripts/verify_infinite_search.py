@@ -1,17 +1,19 @@
 """真实酷我与人工四来源响应分别验收，不请求任何播放或解析接口。"""
 import argparse
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright,Error
 
-OUT=Path(__file__).resolve().parents[2]/'docs/archive/15-搜索分页'
-URL='http://127.0.0.1:5181'
+ROOT=Path(__file__).resolve().parents[2]
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-infinite-search'))
+URL=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5181')
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--url',default=URL);args=parser.parse_args()
     OUT.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as pw:
-        browser=pw.chromium.launch(headless=True,executable_path='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe')
+        browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'))
         page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];console=[];requests=[];responses=[];held=[];fail_qq=[True];hold_second=[args.controlled]
         page.on('pageerror',lambda e:errors.append(str(e)))
         page.on('console',lambda m:console.append(m.text) if m.type=='error' else None)

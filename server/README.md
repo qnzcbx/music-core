@@ -20,7 +20,23 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest
 ```
 
-`server/scripts/verify_*.py` 包含需要访问真实来源或浏览器的专项验证。运行前检查脚本参数；对应结果见 [已完成任务归档](../docs/archive/README.md)。专项有限样本只说明该次测试结果，不代表全曲库长期可用。
+长期专项工具按用途区分：
+
+- 来源在线冒烟：`verify_kuwo.py`、`verify_qq.py`、`verify_netease.py`、`verify_migu.py`。
+- 播放与恢复：`verify_playback_browser.py`、`verify_recovery_browser.py`、`verify_download_browser.py`、`verify_lyrics_browser.py`、`verify_vue_player.py`、`verify_vue_queue.py`。
+- 客户端回归：`verify_infinite_search.py`、`verify_vue_downloads.py`、`verify_local_files.py`、`verify_immersive_appearance.py`、`verify_download_quality_ui.py`、`verify_download_saving_ui.py`。
+- 真实下载与封面链路：`verify_download_online.py`、`verify_e1_real_covers.py`。
+
+这些是手动专项验证，不属于 pytest 默认集合。需要 Playwright 时，在 `server/` 安装并准备 Chromium：
+
+```bash
+.venv/Scripts/python.exe -m pip install -e ".[browser]"
+.venv/Scripts/python.exe -m playwright install chromium
+```
+
+若未设置 `CHROMIUM_PATH`，脚本使用 Playwright 安装的 Chromium。自行启动 Core/Vite 的脚本分配临时本机端口；连接现有服务的脚本支持 `--url`，也可使用 `MUSIC_CORE_API_URL` / `MUSIC_CORE_WEB_URL`。验证产物默认写入项目根目录下被忽略的 `.runtime/verify-*/`，可用 `MUSIC_CORE_VERIFY_OUT` 覆盖；真实下载写入被测 Core 配置的下载目录，`verify_download_online.py` 可用 `--downloads-dir` 指定该路径。
+
+运行前检查脚本参数；历史验收结果见[已完成任务归档](../docs/archive/README.md)。有限样本只说明该次测试结果，不代表全曲库长期可用。
 
 开发播放器可通过 `MUSIC_CORE_DEV_PLAYER=1` 启用 `/dev/player`。来源配置位于 `app/config/sources.json`，可用 `MUSIC_CORE_SOURCE_CONFIG` 指定替代 JSON 文件。配置不会热更新；错误配置采用内置默认值并将健康状态标记为 degraded。
 

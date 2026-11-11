@@ -19,3 +19,4 @@ downloads/
 htmlcov/
 docs/archive/**/screenshots/
 /docs/tasks/
+AGENTS.md

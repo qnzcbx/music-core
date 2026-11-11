@@ -1,6 +1,7 @@
 """真实网易云歌词与单audio同步，另以人工响应验证切歌竞争。"""
 import argparse
 import json
+import os
 import socket
 import threading
 import time
@@ -11,7 +12,7 @@ from app.main import create_app
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--browser',required=True);parser.add_argument('--provider',default='netease');parser.add_argument('--track',default='284617');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--browser',default=os.environ.get('CHROMIUM_PATH'),help='Chromium 路径；默认使用 Playwright 自带浏览器');parser.add_argument('--provider',default='netease');parser.add_argument('--track',default='284617');args=parser.parse_args()
     app=create_app(dev_player=True)
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=port,access_log=False,log_level='critical'))

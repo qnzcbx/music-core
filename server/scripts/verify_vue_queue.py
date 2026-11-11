@@ -8,6 +8,7 @@ import threading
 import time
 import wave
 from pathlib import Path
+import socket
 from types import SimpleNamespace
 import httpx
 import uvicorn
@@ -18,7 +19,14 @@ from app.models import SearchPage,SongCandidate,TrackIdentity
 from app.core.media_store import MediaSettings
 from app.lyrics import LyricDocument
 
-OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/archive/14-播放器与歌词/screenshots'))
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-vue-queue'))
+
+def free_port(excluded=()):
+    for _ in range(20):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+        if port not in excluded:return port
+    raise RuntimeError('无法分配未占用的本地端口')
 
 def mode(page,label):
     page.get_by_role('button',name='播放模式',exact=True).click()
@@ -38,8 +46,8 @@ def seek_end(page):
     page.get_by_label('播放进度',exact=True).evaluate('el=>{el.value=String(Number(el.max)-.25);el.dispatchEvent(new Event("change",{bubbles:true}));}')
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');args=parser.parse_args()
-    server=None;vite=None;thread=None;app=None;upstream=None;url='http://127.0.0.1:5174'
+    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='未启动受控客户端时使用的 Vue 地址');args=parser.parse_args()
+    server=None;vite=None;thread=None;app=None;upstream=None;url=args.url.rstrip('/')
     if args.controlled:
         upstream=FaultUpstream()
         output=io.BytesIO()
@@ -50,24 +58,25 @@ def main():
         async def search(*args):return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'人工测试{i}',artists=('人工',)) for i in (1,2,3)))
         async def get_lyrics(identity):return LyricDocument(identity=identity,status='unavailable')
         app=create_app(transport=httpx.MockTransport(upstream.handle),target_check=allow_fixture_target,media_settings=MediaSettings(media_ttl=.3,lease_ttl=30,sweep_interval=.1))
-        server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8002,log_level='critical',access_log=False))
+        api_port=free_port();web_port=free_port({api_port})
+        server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=api_port,log_level='critical',access_log=False))
         thread=threading.Thread(target=server.run,daemon=True);thread.start()
         for _ in range(100):
             if server.started or not thread.is_alive():break
             time.sleep(.05)
-        if not server.started:raise RuntimeError('受控服务8002启动失败；两个受控验收脚本应串行运行')
+        if not server.started:raise RuntimeError('队列受控服务启动失败')
         app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=get_lyrics)
-        vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5175'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8002'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        url='http://127.0.0.1:5175'
+        vite=subprocess.Popen(['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{api_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        url=f'http://127.0.0.1:{web_port}'
         for _ in range(100):
             try:
                 if httpx.get(url).status_code==200:break
             except httpx.HTTPError:pass
             time.sleep(.1)
-    OUT.mkdir(parents=True,exist_ok=True)
+    screenshots=OUT/'screenshots';screenshots.mkdir(parents=True,exist_ok=True)
     try:
         with sync_playwright() as pw:
-            browser=pw.chromium.launch(headless=True,executable_path='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe',args=['--autoplay-policy=no-user-gesture-required'])
+            browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'),args=['--autoplay-policy=no-user-gesture-required'])
             page=browser.new_page(viewport={'width':1440,'height':1000},has_touch=True);errors=[];console=[];opened=[];requests=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
             page.on('console',lambda m:console.append(m.text) if m.type=='error' else None)
@@ -95,7 +104,7 @@ def main():
             a.locator('.action-play').click();ready(page,titles[0]);assert len(requests)==count
             add(page,b);add(page,b);add(page,c);assert len(opened)==1
             queue(page);assert page.locator('.queue-list article').count()==3
-            if not args.controlled:page.screenshot(path=str(OUT/'queue-desktop-queue.png'))
+            if not args.controlled:page.screenshot(path=str(screenshots/'queue-desktop-queue.png'))
             page.locator('.queue-choose').nth(1).click();ready(page,titles[1]);page.keyboard.press('Escape')
             page.get_by_role('button',name='上一首',exact=True).click();ready(page,titles[0])
             page.get_by_role('button',name='下一首',exact=True).click();ready(page,titles[1])
@@ -103,13 +112,13 @@ def main():
             for label in ('随机播放','单曲循环','列表循环','顺序播放'):mode(page,label)
             assert len(requests)==count
             page.get_by_role('button',name='播放模式',exact=True).click()
-            if not args.controlled:page.screenshot(path=str(OUT/'queue-playback-mode-menu.png'))
+            if not args.controlled:page.screenshot(path=str(screenshots/'queue-playback-mode-menu.png'))
             page.keyboard.press('Escape');assert page.get_by_role('button',name='播放模式',exact=True).evaluate('el=>el===document.activeElement')
             page.get_by_role('button',name='音量设置',exact=True).click();slider=page.locator('.volume-layer [role=slider]');slider.press('Home')
             for _ in range(30):slider.press('ArrowUp')
             page.get_by_role('button',name='静音',exact=True).click();assert page.locator('audio').evaluate('a=>a.muted&&a.volume===.3')
             slider.press('ArrowUp');assert page.locator('audio').evaluate('a=>!a.muted&&a.volume===.31')
-            if not args.controlled:page.screenshot(path=str(OUT/'queue-volume-popover.png'))
+            if not args.controlled:page.screenshot(path=str(screenshots/'queue-volume-popover.png'))
             page.keyboard.press('Escape');assert page.locator('.volume-layer').count()==0
             page.get_by_role('button',name='音量设置',exact=True).click();page.locator('.track-title').click();assert page.locator('.volume-layer').count()==0
             for path in ('/','/settings','/search'):
@@ -118,7 +127,7 @@ def main():
                 if path=='/settings':
                     session=len(requests);page.get_by_role('radio',name='深色',exact=True).check();assert len(requests)==session
                     queue(page)
-                    if not args.controlled:page.screenshot(path=str(OUT/'queue-desktop-dark-queue.png'))
+                    if not args.controlled:page.screenshot(path=str(screenshots/'queue-desktop-dark-queue.png'))
                     page.keyboard.press('Escape');page.get_by_role('radio',name='浅色',exact=True).check()
             for width in (768,390):
                 page.set_viewport_size({'width':width,'height':844});queue(page)
@@ -126,7 +135,7 @@ def main():
                 assert page.locator('audio').count()==1
                 if width==390:
                     assert page.locator('.queue-drawer').is_visible()
-                    if not args.controlled:page.screenshot(path=str(OUT/'queue-mobile-queue-drawer.png'))
+                    if not args.controlled:page.screenshot(path=str(screenshots/'queue-mobile-queue-drawer.png'))
                 page.keyboard.press('Escape')
                 if width==390:
                     button=page.get_by_role('button',name='音量设置',exact=True).bounding_box();page.touchscreen.tap(button['x']+button['width']/2,button['y']+button['height']/2)
@@ -134,7 +143,7 @@ def main():
                     assert page.locator('audio').evaluate('a=>a.volume>.6&&a.volume<.9&&!a.muted')
                     page.keyboard.press('Escape')
             page.set_viewport_size({'width':1440,'height':1000})
-            if not args.controlled:page.screenshot(path=str(OUT/'queue-real-playing-footer.png'))
+            if not args.controlled:page.screenshot(path=str(screenshots/'queue-real-playing-footer.png'))
             if args.controlled:
                 # 顺序末尾真正ended后停止，不发新open。
                 queue(page);page.locator('.queue-choose').nth(2).click();ready(page,titles[2]);page.keyboard.press('Escape')
@@ -177,7 +186,7 @@ def main():
             assert not errors,errors
             if app:assert not app.state.media_store.records and not any(l.state=='active' for l in app.state.playback_leases.entries.values())
             result={'controlled':args.controlled,'titles':titles,'ids':ids,'opens':len(opened),'allClosed410':closed,'noAutoOpenAfterReload':True,'singleAudio':True,'naturalModes':args.controlled,'pageErrors':errors,'consoleErrors':console}
-            (OUT.parent/('queue-controlled-result.json' if args.controlled else 'queue-real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+            (OUT/('queue-controlled-result.json' if args.controlled else 'queue-real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
             print(json.dumps(result,ensure_ascii=False));browser.close()
     finally:
         if server:server.should_exit=True;thread.join(10)

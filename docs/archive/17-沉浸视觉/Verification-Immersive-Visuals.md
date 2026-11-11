@@ -137,6 +137,8 @@ QQ 与咪咕本轮确实同属跨域像素读取限制，但结论来自各自�
 - [手机经典](screenshots/visual-patch-390-classic.png)、[手机大唱片](screenshots/visual-patch-390-vinyl-wide.png)、[手机方形](screenshots/visual-patch-390-square-cover.png)、[手机歌词](screenshots/visual-patch-390-lyrics-only.png)
 - [隐藏后无底板](screenshots/visual-patch-transparent-hidden.png)、[手机中央重试](screenshots/visual-patch-mobile-retry.png)
 
+机器可读结果：[真实封面 CORS 探测](cover-cors-probes.json)、[超时修正前的复测记录](real-cover-timeout-investigation.json)、[最终六首真实封面结果](real-cover-browser-results.json)、[操作层验收](immersive-overlay-browser-results.json)、[移动端重试验收](mobile-retry-browser-result.json)。
+
 ### 回归、运行实例与明确限制
 
 前端 41 项通过，typecheck / build 通过；保留约 510KB 主包的既有 500KB 告警，未调阈值。后端 573 passed / 1 skipped，跳过仍为 Windows 符号链接创建权限；覆盖域名路径、恶意跳转、DNS 特殊地址/混合结果、连接 IP 与 peer、响应大小/格式/编码、并发及不转发 Cookie。原 Vue D1 恢复脚本隔离运行再次通过：renew 204/410、故障重开、暂停/Seek/音量静音、晚到隔离、同 Audio，关闭后四个能力均 410。页面异常为空。没有新增软件包，没有改 Provider、Lease、下载或队列算法，没有提交 Git。

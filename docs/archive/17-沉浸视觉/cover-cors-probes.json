@@ -1,0 +1,126 @@
+[
+  {
+    "provider": "kuwo",
+    "identity": {
+      "providerId": "kuwo",
+      "platformId": "9942644"
+    },
+    "probe": {
+      "normal": {
+        "stage": "SecurityError",
+        "dimensions": [
+          324,
+          182
+        ]
+      },
+      "anonymous": {
+        "stage": "sample-ok",
+        "dimensions": [
+          324,
+          182
+        ],
+        "pixels": 16384
+      }
+    }
+  },
+  {
+    "provider": "netease",
+    "identity": {
+      "providerId": "netease",
+      "platformId": "1342505153"
+    },
+    "probe": {
+      "normal": {
+        "stage": "SecurityError",
+        "dimensions": [
+          1000,
+          1000
+        ]
+      },
+      "anonymous": {
+        "stage": "sample-ok",
+        "dimensions": [
+          1000,
+          1000
+        ],
+        "pixels": 16384
+      }
+    }
+  },
+  {
+    "provider": "qq",
+    "identity": {
+      "providerId": "qq",
+      "platformId": "003MUDkf30pS5B"
+    },
+    "probe": {
+      "normal": {
+        "stage": "SecurityError",
+        "dimensions": [
+          500,
+          500
+        ]
+      },
+      "anonymous": {
+        "stage": "load-error"
+      }
+    }
+  },
+  {
+    "provider": "qq",
+    "identity": {
+      "providerId": "qq",
+      "platformId": "003cLs112yMAcW"
+    },
+    "probe": {
+      "normal": {
+        "stage": "SecurityError",
+        "dimensions": [
+          500,
+          500
+        ]
+      },
+      "anonymous": {
+        "stage": "load-error"
+      }
+    }
+  },
+  {
+    "provider": "migu",
+    "identity": {
+      "providerId": "migu",
+      "platformId": "600902000009209221"
+    },
+    "probe": {
+      "normal": {
+        "stage": "SecurityError",
+        "dimensions": [
+          800,
+          800
+        ]
+      },
+      "anonymous": {
+        "stage": "load-error"
+      }
+    }
+  },
+  {
+    "provider": "migu",
+    "identity": {
+      "providerId": "migu",
+      "platformId": "600902000003281410"
+    },
+    "probe": {
+      "normal": {
+        "stage": "SecurityError",
+        "dimensions": [
+          800,
+          800
+        ]
+      },
+      "anonymous": {
+        "stage": "load-error"
+      }
+    }
+  }
+]

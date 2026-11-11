@@ -1,0 +1,190 @@
+{
+  "realIdentity": {
+    "providerId": "netease",
+    "platformId": "284617"
+  },
+  "visibleSurfaces": [
+    {
+      "pseudo": null,
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "normal"
+    },
+    {
+      "pseudo": "::before",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    },
+    {
+      "pseudo": "::after",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    },
+    {
+      "pseudo": null,
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "normal"
+    },
+    {
+      "pseudo": "::before",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    },
+    {
+      "pseudo": "::after",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    }
+  ],
+  "hiddenSurfaces": [
+    {
+      "pseudo": null,
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "normal"
+    },
+    {
+      "pseudo": "::before",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    },
+    {
+      "pseudo": "::after",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    },
+    {
+      "pseudo": null,
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "normal"
+    },
+    {
+      "pseudo": "::before",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    },
+    {
+      "pseudo": "::after",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "border": [
+        "0px",
+        "0px",
+        "0px",
+        "0px"
+      ],
+      "shadow": "none",
+      "blur": "none",
+      "content": "none"
+    }
+  ],
+  "expandFocusAndHover": true,
+  "shrinkKeepsPlayback": true,
+  "cardsAndSettingsSync": true,
+  "fourTemplatesThreeWidths": true,
+  "noVisualPlaybackOpen": true,
+  "audioUnchanged": true,
+  "menusHoldVisible": true,
+  "idleAndTouchWake": true,
+  "pauseSeek": true,
+  "mobileCompactFiveButtons": true,
+  "mobileProgressAbove": true,
+  "styleScrollbarHiddenAndScrollable": true
+}

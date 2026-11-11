@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import threading
 import time
@@ -20,33 +21,41 @@ from app.core.media_store import MediaSettings
 from recovery_fixture import FaultUpstream, allow_fixture_target
 
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'docs/archive/17-沉浸视觉'
-CHROME='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-immersive-appearance'))
+CHROME=os.environ.get('CHROMIUM_PATH')
+
+def free_port(excluded=()):
+    for _ in range(20):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+        if port not in excluded:return port
+    raise RuntimeError('无法分配未占用的本地端口')
 
 
 def main():
+    api_port=free_port();web_port=free_port({api_port})
     upstream=FaultUpstream(); output=io.BytesIO()
     with wave.open(output,'wb') as audio:
         audio.setparams((1,2,8000,0,'NONE','not compressed'));audio.writeframes(upstream.audio[44:]*4)
     upstream.audio=output.getvalue()
     async def resolve(identity,options=None):return await upstream.resolve(identity)
     async def search(*args):
-        return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'取色验收{i}',artists=('人工',),cover=None if i==3 else f'http://127.0.0.1:8008/fixture/{"red" if i in (1,5) else "blue" if i==2 else "denied"}.svg') for i in range(1,6)))
+        return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'取色验收{i}',artists=('人工',),cover=None if i==3 else f'http://127.0.0.1:{api_port}/fixture/{"red" if i in (1,5) else "blue" if i==2 else "denied"}.svg') for i in range(1,6)))
     async def lyrics(identity):return LyricDocument(identity=identity,status='synced',lines=tuple(LyricLine(startMs=i*1000,endMs=(i+1)*1000,text=f'人工歌词 {i}') for i in range(190)))
     app=create_app(transport=httpx.MockTransport(upstream.handle),target_check=allow_fixture_target,media_settings=MediaSettings(lease_ttl=600,media_ttl=.3,sweep_interval=.1))
     @app.get('/fixture/{kind}.svg')
     async def cover(kind:str):
         colors=('#b84d40','#e4b359') if kind=='red' else ('#365cb0','#65c7d2')
         return Response(f'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="75" height="100" fill="{colors[0]}"/><rect x="75" width="25" height="100" fill="{colors[1]}"/></svg>',media_type='image/svg+xml',headers={} if kind=='denied' else {'Access-Control-Allow-Origin':'*'})
-    server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8008,access_log=False,log_level='critical'))
+    server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=api_port,access_log=False,log_level='critical'))
     thread=threading.Thread(target=server.run,daemon=True);thread.start()
     for _ in range(100):
         if server.started:break
         time.sleep(.05)
     assert server.started
     app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=lyrics)
-    vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5186 --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8008'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    url='http://127.0.0.1:5186';shots=OUT/'screenshots';shots.mkdir(parents=True,exist_ok=True);result={};errors=[]
+    vite=subprocess.Popen(['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{api_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    url=f'http://127.0.0.1:{web_port}';shots=OUT/'screenshots';shots.mkdir(parents=True,exist_ok=True);result={};errors=[]
     try:
         for _ in range(100):
             try:
@@ -145,6 +154,7 @@ def main():
             result.update({'paletteChanged':True,'sameCoverCached':True,'noCoverFallback':True,'corsFallback':True,'templates':4,'widths':[390,768,1440],'singleAudio':True,'noVisualReopen':True,'pageErrors':errors})
             assert not errors
             browser.close()
+        OUT.mkdir(parents=True,exist_ok=True)
         (OUT/'browser-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result,ensure_ascii=False))
     finally:
         server.should_exit=True;thread.join(timeout=5)

@@ -4,7 +4,7 @@
 
 - `server/app/`：FastAPI 服务、Provider、公共模型、媒体解析与传输、下载、品质检测、转码、歌词和本地文件能力。
 - `web/src/`：Vue 客户端，含搜索、单一播放器状态、播放队列、同步歌词、下载界面及本地音频播放。
-- `server/tests/` 与 `web` 测试目录：自动化测试；`server/scripts/verify_*.py` 保存可复用的专项验收脚本。
+- `server/tests/` 与 `web/tests/`：自动化测试。长期手动在线及浏览器验证工具按用途列在 [后端验证说明](../../server/README.md)。
 
 ## 关键数据流
 

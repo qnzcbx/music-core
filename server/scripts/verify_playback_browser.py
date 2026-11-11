@@ -1,6 +1,7 @@
 """真实Chromium验收，仅输出安全结果，不记录能力ID或上游URL。"""
 import argparse
 import json
+import os
 import socket
 import threading
 import time
@@ -13,7 +14,7 @@ from app.core.media_store import MediaSettings
 
 def main():
     parser=argparse.ArgumentParser(description='四来源真实原生audio播放验收')
-    parser.add_argument('--browser',help='已有Chrome/Chromium可执行文件路径')
+    parser.add_argument('--browser',default=os.environ.get('CHROMIUM_PATH'),help='已有Chrome/Chromium可执行文件路径；默认使用Playwright自带浏览器')
     parser.add_argument('--provider',choices=['kuwo','qq','netease','migu'],default='kuwo',help='本次验收平台')
     parser.add_argument('--track',help='稳定平台录音ID')
     parser.add_argument('--recover',action='store_true',help='增加已关闭旧会话后的手动稳定身份恢复验收')

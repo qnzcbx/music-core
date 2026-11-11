@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 import threading
@@ -23,12 +24,24 @@ from app.downloads import DownloadSettings
 from app.core.errors import CoreError,ErrorCode
 from app.core.media_store import MediaSettings
 
-OUT=ROOT/'docs/archive/16-下载界面'
-CHROME='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-vue-downloads'))
+CHROME=os.environ.get('CHROMIUM_PATH')
+
+def free_port(excluded=()):
+    for _ in range(20):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+        if port not in excluded:return port
+    raise RuntimeError('无法分配未占用的本地端口')
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--url',default='http://127.0.0.1:5181');args=parser.parse_args()
-    server=None;vite=None;thread=None;app=None;temporary=None;release=threading.Event();download_resolves=[];failed_once=set();url=args.url
+    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');args=parser.parse_args()
+    used_ports=set()
+    controlled_api=free_port(used_ports);used_ports.add(controlled_api)
+    controlled_web=free_port(used_ports);used_ports.add(controlled_web)
+    real_api=free_port(used_ports);used_ports.add(real_api)
+    real_web=free_port(used_ports)
+    server=None;vite=None;thread=None;app=None;temporary=None;release=threading.Event();download_resolves=[];failed_once=set();url=''
     if args.controlled:
         temporary=tempfile.TemporaryDirectory(prefix='music-core-download-ui-');directory=Path(temporary.name)
         upstream=FaultUpstream();output=io.BytesIO()
@@ -56,13 +69,13 @@ def main():
         async def search(*args):return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'人工歌曲{i}',artists=('人工',)) for i in range(1,7)))
         async def lyrics(identity):return LyricDocument(identity=identity,status='unavailable')
         app=create_app(transport=httpx.MockTransport(handle),target_check=allow_fixture_target,download_settings=DownloadSettings(directory=directory),media_settings=MediaSettings(media_ttl=.3,lease_ttl=60,sweep_interval=.1))
-        server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8004,log_level='critical',access_log=False));thread=threading.Thread(target=server.run,daemon=True);thread.start()
+        server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=controlled_api,log_level='critical',access_log=False));thread=threading.Thread(target=server.run,daemon=True);thread.start()
         for _ in range(100):
             if server.started or not thread.is_alive():break
             time.sleep(.05)
-        if not server.started:raise RuntimeError('8004受控服务启动失败')
+        if not server.started:raise RuntimeError('受控服务启动失败')
         app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=lyrics)
-        vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5182 --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8004'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);url='http://127.0.0.1:5182'
+        vite=subprocess.Popen(['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {controlled_web} --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{controlled_api}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);url=f'http://127.0.0.1:{controlled_web}'
         for _ in range(100):
             try:
                 if httpx.get(url).status_code==200:break
@@ -71,12 +84,12 @@ def main():
     else:
         # 真实Provider使用独立新Core，避免上次内存任务的防重复规则影响重跑。
         directory=ROOT/'downloads';app=create_app()
-        server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8005,log_level='critical',access_log=False));thread=threading.Thread(target=server.run,daemon=True);thread.start()
+        server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=real_api,log_level='critical',access_log=False));thread=threading.Thread(target=server.run,daemon=True);thread.start()
         for _ in range(100):
             if server.started or not thread.is_alive():break
             time.sleep(.05)
-        if not server.started:raise RuntimeError('8005真实验收Core启动失败')
-        vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5183 --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8005'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);url='http://127.0.0.1:5183'
+        if not server.started:raise RuntimeError('真实验收 Core 启动失败')
+        vite=subprocess.Popen(['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {real_web} --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{real_api}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);url=f'http://127.0.0.1:{real_web}'
         for _ in range(100):
             try:
                 if httpx.get(url).status_code==200:break
@@ -232,6 +245,7 @@ def main():
             page.reload();page.wait_for_load_state('networkidle');assert page.locator('.download-row[data-filename]').count()>0
             assert not errors,errors
             result={'controlled':args.controlled,'created':len(created),'progress':list(dict.fromkeys(progress)),'file':file_summary,'pageErrors':errors,'consoleErrors':console,'singleAudio':page.locator('audio').count()==1,'downloadResolveCount':download_resolves if args.controlled else None}
+            OUT.mkdir(parents=True,exist_ok=True)
             (OUT/('download-controlled-result.json' if args.controlled else 'download-real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result));browser.close()
     finally:
         release.set()

@@ -1,6 +1,7 @@
 """可控音频和真实Chromium故障验收，不访问酷我，不输出能力标识。"""
 import argparse
 import json
+import os
 import socket
 import threading
 import time
@@ -14,7 +15,7 @@ from recovery_fixture import FaultUpstream,allow_fixture_target
 
 def main():
     parser=argparse.ArgumentParser(description='受控媒体失效恢复浏览器验收')
-    parser.add_argument('--browser');args=parser.parse_args()
+    parser.add_argument('--browser',default=os.environ.get('CHROMIUM_PATH'),help='Chromium 路径；默认使用 Playwright 自带浏览器');args=parser.parse_args()
     upstream=FaultUpstream()
     app=create_app(transport=httpx.MockTransport(upstream.handle),target_check=allow_fixture_target,
         dev_player=True,media_settings=MediaSettings(media_ttl=.4,lease_ttl=5,sweep_interval=.1))
