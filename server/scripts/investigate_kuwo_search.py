@@ -1,11 +1,11 @@
-"""40-D.3.1：对照旧参数和新参数，仅保存公开搜索元数据。"""
+"""15 搜索分页：对照旧参数和新参数，仅保存公开搜索元数据。"""
 import asyncio
 import json
 from pathlib import Path
 import httpx
 from app.providers.kuwo import KuwoProvider,SEARCH_URL,decode_response,candidate_from
 
-OUT=Path(__file__).resolve().parents[2]/'docs/migration/40-D-3-1'
+OUT=Path(__file__).resolve().parents[2]/'docs/archive/15-搜索分页'
 BASE={'all':'洛神赋 银临','ft':'music','client':'kt','rformat':'json','encoding':'utf8','mobi':'1'}
 EXTRA={'vipver':'1','cluster':'0','strategy':'2012','issubtitle':'1','show_copyright_off':'1'}
 

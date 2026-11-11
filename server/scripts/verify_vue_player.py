@@ -17,7 +17,7 @@ from app.lyrics import LyricDocument
 from recovery_fixture import FaultUpstream,allow_fixture_target
 
 ROOT=Path(__file__).resolve().parents[2]
-OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/migration/40-D-1/screenshots'))
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/archive/14-播放器与歌词/screenshots'))
 
 
 def main():
@@ -61,7 +61,7 @@ def main():
             page.wait_for_function("document.querySelector('audio')?.currentTime>2",timeout=30000)
             page.evaluate("window.firstAudio=document.querySelector('audio')")
             assert page.locator('audio').count()==1
-            if not args.controlled:page.screenshot(path=str(OUT/'desktop-search-playing.png'))
+            if not args.controlled:page.screenshot(path=str(OUT/'player-desktop-search-playing.png'))
             page.get_by_role('button',name='暂停',exact=True).click();before=page.locator('audio').evaluate('a=>a.currentTime');page.wait_for_timeout(600)
             assert abs(page.locator('audio').evaluate('a=>a.currentTime')-before)<.1
             page.get_by_role('button',name='播放',exact=True).click()
@@ -79,7 +79,7 @@ def main():
                 page.evaluate("path=>history.pushState({},'',path)",path);page.evaluate("dispatchEvent(new PopStateEvent('popstate'))")
                 page.wait_for_timeout(150)
                 assert page.locator('audio').evaluate('a=>a===window.firstAudio&&!a.paused')
-                if path=='/' and not args.controlled:page.screenshot(path=str(OUT/'desktop-home-playing.png'))
+                if path=='/' and not args.controlled:page.screenshot(path=str(OUT/'player-desktop-home-playing.png'))
             if args.controlled:
                 for _ in range(250):
                     if 204 in renew_status:break
@@ -108,9 +108,9 @@ def main():
                 page.route('**/api/playback/open',lambda route:route.fulfill(status=503,json={'error':{'message':'人工受控失败'}}))
                 page.get_by_role('button',name='重试播放').click()
                 page.wait_for_function("document.querySelector('.player').dataset.phase==='error'")
-                page.screenshot(path=str(OUT/'controlled-error.png'))
+                page.screenshot(path=str(OUT/'player-controlled-error.png'))
             else:
-                page.set_viewport_size({'width':390,'height':844});page.screenshot(path=str(OUT/'mobile-player.png'))
+                page.set_viewport_size({'width':390,'height':844});page.screenshot(path=str(OUT/'player-mobile-player.png'))
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             page.get_by_role('button',name='关闭播放').click();page.wait_for_timeout(700)
             assert not page.locator('audio').get_attribute('src')

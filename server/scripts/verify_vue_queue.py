@@ -1,4 +1,4 @@
-"""40-D.2 浏览器验收：真实媒体与受控短音频分别执行。"""
+"""14 播放器与歌词 浏览器验收：真实媒体与受控短音频分别执行。"""
 import argparse
 import io
 import json
@@ -18,7 +18,7 @@ from app.models import SearchPage,SongCandidate,TrackIdentity
 from app.core.media_store import MediaSettings
 from app.lyrics import LyricDocument
 
-OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/migration/40-D-2/screenshots'))
+OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'docs/archive/14-播放器与歌词/screenshots'))
 
 def mode(page,label):
     page.get_by_role('button',name='播放模式',exact=True).click()
@@ -95,7 +95,7 @@ def main():
             a.locator('.action-play').click();ready(page,titles[0]);assert len(requests)==count
             add(page,b);add(page,b);add(page,c);assert len(opened)==1
             queue(page);assert page.locator('.queue-list article').count()==3
-            if not args.controlled:page.screenshot(path=str(OUT/'desktop-queue.png'))
+            if not args.controlled:page.screenshot(path=str(OUT/'queue-desktop-queue.png'))
             page.locator('.queue-choose').nth(1).click();ready(page,titles[1]);page.keyboard.press('Escape')
             page.get_by_role('button',name='上一首',exact=True).click();ready(page,titles[0])
             page.get_by_role('button',name='下一首',exact=True).click();ready(page,titles[1])
@@ -103,13 +103,13 @@ def main():
             for label in ('随机播放','单曲循环','列表循环','顺序播放'):mode(page,label)
             assert len(requests)==count
             page.get_by_role('button',name='播放模式',exact=True).click()
-            if not args.controlled:page.screenshot(path=str(OUT/'playback-mode-menu.png'))
+            if not args.controlled:page.screenshot(path=str(OUT/'queue-playback-mode-menu.png'))
             page.keyboard.press('Escape');assert page.get_by_role('button',name='播放模式',exact=True).evaluate('el=>el===document.activeElement')
             page.get_by_role('button',name='音量设置',exact=True).click();slider=page.locator('.volume-layer [role=slider]');slider.press('Home')
             for _ in range(30):slider.press('ArrowUp')
             page.get_by_role('button',name='静音',exact=True).click();assert page.locator('audio').evaluate('a=>a.muted&&a.volume===.3')
             slider.press('ArrowUp');assert page.locator('audio').evaluate('a=>!a.muted&&a.volume===.31')
-            if not args.controlled:page.screenshot(path=str(OUT/'volume-popover.png'))
+            if not args.controlled:page.screenshot(path=str(OUT/'queue-volume-popover.png'))
             page.keyboard.press('Escape');assert page.locator('.volume-layer').count()==0
             page.get_by_role('button',name='音量设置',exact=True).click();page.locator('.track-title').click();assert page.locator('.volume-layer').count()==0
             for path in ('/','/settings','/search'):
@@ -118,7 +118,7 @@ def main():
                 if path=='/settings':
                     session=len(requests);page.get_by_role('radio',name='深色',exact=True).check();assert len(requests)==session
                     queue(page)
-                    if not args.controlled:page.screenshot(path=str(OUT/'desktop-dark-queue.png'))
+                    if not args.controlled:page.screenshot(path=str(OUT/'queue-desktop-dark-queue.png'))
                     page.keyboard.press('Escape');page.get_by_role('radio',name='浅色',exact=True).check()
             for width in (768,390):
                 page.set_viewport_size({'width':width,'height':844});queue(page)
@@ -126,7 +126,7 @@ def main():
                 assert page.locator('audio').count()==1
                 if width==390:
                     assert page.locator('.queue-drawer').is_visible()
-                    if not args.controlled:page.screenshot(path=str(OUT/'mobile-queue-drawer.png'))
+                    if not args.controlled:page.screenshot(path=str(OUT/'queue-mobile-queue-drawer.png'))
                 page.keyboard.press('Escape')
                 if width==390:
                     button=page.get_by_role('button',name='音量设置',exact=True).bounding_box();page.touchscreen.tap(button['x']+button['width']/2,button['y']+button['height']/2)
@@ -134,7 +134,7 @@ def main():
                     assert page.locator('audio').evaluate('a=>a.volume>.6&&a.volume<.9&&!a.muted')
                     page.keyboard.press('Escape')
             page.set_viewport_size({'width':1440,'height':1000})
-            if not args.controlled:page.screenshot(path=str(OUT/'real-playing-footer.png'))
+            if not args.controlled:page.screenshot(path=str(OUT/'queue-real-playing-footer.png'))
             if args.controlled:
                 # 顺序末尾真正ended后停止，不发新open。
                 queue(page);page.locator('.queue-choose').nth(2).click();ready(page,titles[2]);page.keyboard.press('Escape')
@@ -177,7 +177,7 @@ def main():
             assert not errors,errors
             if app:assert not app.state.media_store.records and not any(l.state=='active' for l in app.state.playback_leases.entries.values())
             result={'controlled':args.controlled,'titles':titles,'ids':ids,'opens':len(opened),'allClosed410':closed,'noAutoOpenAfterReload':True,'singleAudio':True,'naturalModes':args.controlled,'pageErrors':errors,'consoleErrors':console}
-            (OUT.parent/('controlled-result.json' if args.controlled else 'real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+            (OUT.parent/('queue-controlled-result.json' if args.controlled else 'queue-real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
             print(json.dumps(result,ensure_ascii=False));browser.close()
     finally:
         if server:server.should_exit=True;thread.join(10)

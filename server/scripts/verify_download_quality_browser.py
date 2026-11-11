@@ -12,13 +12,13 @@ from app.main import create_app
 from app.downloads import DownloadSettings
 
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'docs/migration/40-E-2A'
+OUT=ROOT/'docs/archive/19-品质选择'
 QUALITIES=('auto','standard','high','lossless')
 SAMPLES=[('kuwo','银临 东风志','9942644'),('qq','周杰伦 蒲公英的约定','004Yi5BD3ksoAN'),('netease','许嵩 天龙八部之宿敌','167691'),('migu','许嵩 庐州月','600902000009209221')]
 
 def main():
     shots=OUT/'screenshots';shots.mkdir(parents=True,exist_ok=True)
-    app=create_app(download_settings=DownloadSettings(directory=ROOT/'downloads/40-E-2A'))
+    app=create_app(download_settings=DownloadSettings(directory=ROOT/'downloads/19-品质选择'))
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8012,log_level='critical',access_log=False))
     thread=threading.Thread(target=server.run,daemon=True);thread.start()
     for _ in range(100):
@@ -56,14 +56,14 @@ def main():
                             option=response.value.json()
                         item={'requested':quality,'preview':option};record['options'].append(item)
                         print(json.dumps({'provider':provider,'quality':quality,'preview':option},ensure_ascii=False),flush=True)
-                        page.screenshot(path=str(shots/f'{provider}-{quality}.png'))
+                        page.screenshot(path=str(shots/f'quality-{provider}-{quality}.png'))
                         if provider=='netease' and quality=='auto':
                             for width in (1440,768,390):
                                 page.set_viewport_size({'width':width,'height':844})
                                 for theme in ('light','dark'):
                                     page.evaluate('theme=>document.documentElement.dataset.theme=theme',theme);page.wait_for_timeout(200)
                                     assert page.locator('.quality-dialog').evaluate('el=>el.scrollWidth<=el.clientWidth')
-                                    page.screenshot(path=str(shots/f'dialog-{width}-{theme}.png'))
+                                    page.screenshot(path=str(shots/f'quality-dialog-{width}-{theme}.png'))
                             page.set_viewport_size({'width':1440,'height':1000})
                         if option['availability']!='available':
                             assert page.get_by_role('button',name='确认下载',exact=True).is_disabled();page.get_by_role('button',name='关闭音质选择').click();continue

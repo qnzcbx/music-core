@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 from app.main import create_app
 from app.downloads import DownloadSettings
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'docs/migration/40-E-2B'
+OUT=ROOT/'docs/archive/20-音频转换'
 
 def main():
     records=json.loads((OUT/'real-saving.json').read_text(encoding='utf-8'));results=[];processes=[]
@@ -22,7 +22,7 @@ def main():
         if Path(str(args[0])).name.lower() in ('ffmpeg.exe','ffprobe.exe','ffmpeg','ffprobe'):processes.append(process)
         return process
     asyncio.create_subprocess_exec=tracked
-    app=create_app(download_settings=DownloadSettings(directory=ROOT/'downloads/40-E-2B'))
+    app=create_app(download_settings=DownloadSettings(directory=ROOT/'downloads/20-音频转换'))
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8014,log_level='critical',access_log=False));thread=threading.Thread(target=server.run,daemon=True);thread.start()
     for _ in range(100):
         if server.started:break
@@ -70,7 +70,7 @@ def main():
             assert all(process.returncode is not None for process in processes)
             assert page.locator('audio').evaluate('a=>a===window.originalAudio&&!a.paused')
             results.append({'realOnlineCancel':True,'phaseAtCancel':'transcoding','temporaryFilesCleaned':True,'processesExited':len(processes),'sameAudioContinues':True})
-            page.screenshot(path=str(OUT/'screenshots/cancelled-conversion.png'));browser.close()
+            page.screenshot(path=str(OUT/'screenshots/conversion-cancelled-conversion.png'));browser.close()
     finally:
         asyncio.create_subprocess_exec=original;server.should_exit=True;thread.join(10);subprocess.run(['taskkill','/PID',str(vite.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         (OUT/'real-saving.json').write_text(json.dumps(records,ensure_ascii=False,indent=2),encoding='utf-8');(OUT/'followup.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(results),flush=True)

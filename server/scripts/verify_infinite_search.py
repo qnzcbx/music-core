@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright,Error
 
-OUT=Path(__file__).resolve().parents[2]/'docs/migration/40-D-3-1'
+OUT=Path(__file__).resolve().parents[2]/'docs/archive/15-搜索分页'
 URL='http://127.0.0.1:5181'
 
 def main():
@@ -70,7 +70,7 @@ def main():
             if not versions.count():versions=page.locator('.versions-toggle')
             assert versions.count()>0
             versions.first.click();assert page.locator('.version-row').count()>0;versions.first.click()
-            page.screenshot(path=str(OUT/'controlled-four-sources.png'))
+            page.screenshot(path=str(OUT/'search-controlled-four-sources.png'))
             submit('人工');settle();assert '60 首' in page.locator('.results-count').inner_text()
             submit('慢');settle();assert held
             submit('新');settle()
@@ -96,11 +96,11 @@ def main():
             # 搜索结果可能同曲折叠，按已加载稳定身份而非可见行数检查。
             ids=[(item['identity']['providerId'],item['identity']['platformId']) for response in responses for item in response['items']]
             assert f'{len(set(ids))} 首' in page.locator('.results-count').inner_text()
-            page.screenshot(path=str(OUT/'real-desktop-search.png'))
+            page.screenshot(path=str(OUT/'search-real-desktop-search.png'))
             count=len(requests);submit('洛神赋 银临');settle();assert len(requests)>count
         page.set_viewport_size({'width':390,'height':844});settle()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-        page.screenshot(path=str(OUT/('controlled-mobile.png' if args.controlled else 'real-mobile-search.png')))
+        page.screenshot(path=str(OUT/('search-controlled-mobile.png' if args.controlled else 'search-real-mobile-search.png')))
         assert page.locator('audio').count()==1
         assert not errors,errors
         result={'controlled':args.controlled,'requests':requests,'batches':[{'count':len(response['items']),'nextCursor':response.get('nextCursor')} for response in responses],'pageErrors':errors,'consoleErrors':console,'originalFirstPage':not args.controlled,'realScrollContainer':'#app-content'}

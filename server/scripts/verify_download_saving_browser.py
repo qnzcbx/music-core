@@ -12,11 +12,11 @@ from app.main import create_app
 from app.downloads import DownloadSettings
 
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'docs/migration/40-E-2B'
+OUT=ROOT/'docs/archive/20-音频转换'
 
 def main():
     shots=OUT/'screenshots';shots.mkdir(parents=True,exist_ok=True)
-    app=create_app(download_settings=DownloadSettings(directory=ROOT/'downloads/40-E-2B'))
+    app=create_app(download_settings=DownloadSettings(directory=ROOT/'downloads/20-音频转换'))
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=8014,log_level='critical',access_log=False));thread=threading.Thread(target=server.run,daemon=True);thread.start()
     for _ in range(100):
         if server.started:break
@@ -61,7 +61,7 @@ def main():
                         for theme in ('light','dark'):
                             page.evaluate('theme=>document.documentElement.dataset.theme=theme',theme);page.wait_for_timeout(150)
                             assert page.locator('.quality-dialog').evaluate('el=>el.scrollWidth<=el.clientWidth&&el.getBoundingClientRect().height<=innerHeight-30')
-                            page.screenshot(path=str(shots/f'save-options-{width}-{theme}.png'))
+                            page.screenshot(path=str(shots/f'conversion-save-options-{width}-{theme}.png'))
                     page.set_viewport_size({'width':1440,'height':1000})
                 with page.expect_response(lambda r:r.url.endswith('/api/downloads') and r.request.method=='POST') as created:page.get_by_role('button',name='确认下载').click()
                 task=created.value.json();record['id']=task['id'];phases=[]
@@ -72,7 +72,7 @@ def main():
                     if phase not in phases:phases.append(phase)
                     if phase=='transcoding' and not record.get('transcodingShot'):
                         assert task['status']=='downloading' and task['fileId'] is None and task['progress'] is None
-                        page.wait_for_timeout(150);page.screenshot(path=str(shots/f'transcoding-{mode}.png'));record['transcodingShot']=True
+                        page.wait_for_timeout(150);page.screenshot(path=str(shots/f'conversion-transcoding-{mode}.png'));record['transcodingShot']=True
                     if task['status'] in ('completed','failed','cancelled'):break
                     assert page.locator('audio').evaluate('a=>a===window.originalAudio&&!a.paused')
                     page.wait_for_timeout(200)
@@ -83,7 +83,7 @@ def main():
                 record['ffprobe']=json.loads(probe.stdout);assert probe.returncode==0
                 assert len(opens)==open_count and page.locator('audio').evaluate('a=>a===window.originalAudio&&!a.paused')
                 page.get_by_role('button',name='刷新下载列表').click();page.wait_for_timeout(200)
-                page.screenshot(path=str(shots/f'completed-{quality}-{mode}.png'))
+                page.screenshot(path=str(shots/f'conversion-completed-{quality}-{mode}.png'))
                 print(json.dumps(record,ensure_ascii=False),flush=True);(OUT/'real-saving.json').write_text(json.dumps(records,ensure_ascii=False,indent=2),encoding='utf-8')
                 page.evaluate("history.pushState({},'', '/search?q=许嵩%20天龙八部之宿敌');dispatchEvent(new PopStateEvent('popstate'))");page.wait_for_timeout(300)
             page.evaluate("history.pushState({},'', '/downloads');dispatchEvent(new PopStateEvent('popstate'))");page.wait_for_timeout(300)

@@ -21,7 +21,7 @@ from app.core.media_store import MediaSettings
 from recovery_fixture import FaultUpstream, allow_fixture_target
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / 'docs/migration/40-D-4-1'
+OUT = ROOT / 'docs/archive/16-下载界面'
 CHROME = 'C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 
 
@@ -100,7 +100,7 @@ def main():
             page.route(pattern,lambda route:held.append(route))
             row(mp3).locator('.download-identity').click(); page.wait_for_function('document.querySelector(".saved-row.is-current").dataset.playback==="loading"')
             assert row(mp3).locator('.download-cover-play').get_attribute('data-icon')=='loading'
-            page.screenshot(path=str(OUT/'screenshots/patch-loading.png'))
+            page.screenshot(path=str(OUT/'screenshots/feedbackPatch-patch-loading.png'))
             page.get_by_role('button',name='暂停',exact=True).click(); page.unroute(pattern)
             for pending_route in held: pending_route.continue_()
             page.wait_for_timeout(350); assert page.locator('audio').evaluate('(a)=>a.paused') and row(mp3).get_attribute('data-playback')=='paused'
@@ -123,7 +123,7 @@ def main():
                     page.evaluate('(theme)=>{document.documentElement.classList.toggle("dark",theme==="dark");document.documentElement.dataset.theme=theme}', theme)
                     page.wait_for_timeout(150)
                     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-                    page.screenshot(path=str(OUT / f'screenshots/files-{width}-{theme}.png'))
+                    page.screenshot(path=str(OUT / f'screenshots/feedbackPatch-files-{width}-{theme}.png'))
             page.set_viewport_size({'width': 1440, 'height': 1000})
             operation_x=page.locator('.download-columns span').last.bounding_box()['x']
             for icon in page.get_by_role('button',name='复制名称',exact=True).all(): assert abs(icon.bounding_box()['x']-operation_x)<2
@@ -162,7 +162,7 @@ def main():
             keep = page.locator('.saved-row[data-filename="保留.mp3"]')
             keep.locator('img.cover-loaded').wait_for(); keep.hover(); page.wait_for_timeout(180)
             assert keep.locator('.download-cover-play').evaluate('(el)=>getComputedStyle(el).opacity')=='1'
-            page.screenshot(path=str(OUT/'screenshots/patch-image-cover-hover.png'))
+            page.screenshot(path=str(OUT/'screenshots/feedbackPatch-patch-image-cover-hover.png'))
             result['feedbackPatch']['imageCoverOverlay']=True
             keep.get_by_role('button', name='复制名称').click(); assert page.evaluate('navigator.clipboard.readText()') == '真实任务标题'
             keep.get_by_role('button', name='删除下载记录').click(); dialog = page.get_by_role('alertdialog')
@@ -191,12 +191,12 @@ def main():
             page.route('**/api/downloads/files/*/remove', lambda route: route.fulfill(status=503, json={'error': {'message': '人工占用，删除失败'}}))
             dialog.get_by_role('button', name='确认删除').click(); dialog.get_by_role('alert').wait_for()
             assert failure.count() == 1 and (temporary / '失败.mp3').exists()
-            page.screenshot(path=str(OUT / 'screenshots/delete-failure.png')); dialog.get_by_role('button', name='取消', exact=True).click(); page.unroute('**/api/downloads/files/*/remove')
+            page.screenshot(path=str(OUT / 'screenshots/feedbackPatch-delete-failure.png')); dialog.get_by_role('button', name='取消', exact=True).click(); page.unroute('**/api/downloads/files/*/remove')
             # 当前本地文件必须先停止并清除队列，再真实删除。
             delete = page.locator('.saved-row[data-filename="删除.mp3"]')
             delete.locator('.download-identity').click(); page.wait_for_function('document.querySelector("audio").currentTime>0')
             delete.get_by_role('button', name='删除下载记录').click(); dialog.get_by_role('checkbox').check()
-            page.screenshot(path=str(OUT / 'screenshots/delete-confirm.png')); dialog.get_by_role('button', name='确认删除').click(); dialog.wait_for(state='hidden')
+            page.screenshot(path=str(OUT / 'screenshots/feedbackPatch-delete-confirm.png')); dialog.get_by_role('button', name='确认删除').click(); dialog.wait_for(state='hidden')
             assert not (temporary / '删除.mp3').exists() and delete.count() == 0
             assert page.locator('audio').evaluate('(a)=>a.paused&&!a.getAttribute("src")'); assert page.locator('.saved-row.is-current').count()==0
             page.get_by_role('button', name='播放队列').click(); assert page.locator('.queue-body').get_by_text('删除.mp3', exact=True).count() == 0
@@ -211,7 +211,7 @@ def main():
             def dispatch(kind, points): cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': points})
             dispatch('touchStart', [{'x': x, 'y': y}]); touch.wait_for_timeout(850); touch.get_by_role('menu').wait_for(); dispatch('touchEnd', [])
             assert touch.locator('audio').evaluate('(a)=>a.paused&&!a.getAttribute("src")')
-            touch.screenshot(path=str(OUT / 'screenshots/mobile-context-menu.png')); touch.get_by_role('menuitem',name='复制名称').click(); touch.get_by_role('menu').wait_for(state='hidden')
+            touch.screenshot(path=str(OUT / 'screenshots/feedbackPatch-mobile-context-menu.png')); touch.get_by_role('menuitem',name='复制名称').click(); touch.get_by_role('menu').wait_for(state='hidden')
             assert touch.evaluate('navigator.clipboard.readText()')=='其他.mp3'
             dispatch('touchStart', [{'x': x, 'y': y}]); dispatch('touchMove', [{'x': x, 'y': y - 60}]); touch.wait_for_timeout(850); dispatch('touchEnd', [])
             assert touch.get_by_role('menu').count() == 0 and touch.locator('audio').evaluate('(a)=>a.paused')
@@ -221,7 +221,7 @@ def main():
             assert target.locator('.local-playback-status').inner_text()=='正在播放' and not target.locator('.download-cover').is_visible()
             touch.touchscreen.tap(x,y); touch.wait_for_function('document.querySelector(".saved-row.is-current").dataset.playback==="paused"'); assert target.locator('.local-playback-status').inner_text()=='已暂停'
             assert target.get_attribute('class').find('is-current')>=0
-            touch.screenshot(path=str(OUT/'screenshots/patch-mobile-paused.png'))
+            touch.screenshot(path=str(OUT/'screenshots/feedbackPatch-patch-mobile-paused.png'))
             target.locator('.download-identity').focus(); touch.keyboard.press('Shift+F10'); touch.get_by_role('menu').wait_for(); touch.get_by_role('menuitem',name='删除',exact=True).click()
             assert not touch.get_by_role('alertdialog').get_by_role('checkbox').is_checked()
             touch.get_by_role('button',name='取消',exact=True).click()

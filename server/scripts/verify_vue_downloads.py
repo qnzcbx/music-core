@@ -1,4 +1,4 @@
-"""40-D.4 新Vue下载接线：真实文件与人工并发、故障分别验收。"""
+"""16 下载界面 新Vue下载接线：真实文件与人工并发、故障分别验收。"""
 import argparse
 import asyncio
 import hashlib
@@ -23,7 +23,7 @@ from app.downloads import DownloadSettings
 from app.core.errors import CoreError,ErrorCode
 from app.core.media_store import MediaSettings
 
-OUT=ROOT/'docs/migration/40-D-4'
+OUT=ROOT/'docs/archive/16-下载界面'
 CHROME='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 
 def main():
@@ -128,7 +128,7 @@ def main():
                 assert task(ids[0]).get_by_text('总大小未知',exact=False).count()==1
                 assert task(ids[0]).locator('progress').get_attribute('value') is None
                 progress.append(('downloading',app.state.downloads.get(ids[0]).public.receivedBytes))
-                page.screenshot(path=str(screenshots/'controlled-downloading.png'))
+                page.screenshot(path=str(screenshots/'download-controlled-downloading.png'))
                 # 挂起一个旧列表响应，在取消完成后放行，不能复活旧状态。
                 snapshot=page.request.get(url+'/api/downloads').json();held=[];hold=[True]
                 def old_list(route):
@@ -171,11 +171,11 @@ def main():
             while time.monotonic()<deadline:
                 state=page.request.get(url+'/api/downloads/'+identifier).json();progress.append((state['status'],state['receivedBytes']))
                 if state['status'] in ('completed','failed','cancelled'):break
-                if state['status']=='downloading' and state['receivedBytes']>0 and not args.controlled:page.screenshot(path=str(screenshots/'real-downloading.png'))
+                if state['status']=='downloading' and state['receivedBytes']>0 and not args.controlled:page.screenshot(path=str(screenshots/'download-real-downloading.png'))
                 page.wait_for_timeout(500)
             assert state['status']=='completed',state
             page.wait_for_timeout(1800);page.get_by_role('tab',name='下载歌曲',exact=True).click()
-            saved=page.locator('.download-row[data-filename="'+state['filename']+'"]');saved.wait_for();page.screenshot(path=str(screenshots/('controlled-completed.png' if args.controlled else 'real-completed.png')))
+            saved=page.locator('.download-row[data-filename="'+state['filename']+'"]');saved.wait_for();page.screenshot(path=str(screenshots/('download-controlled-completed.png' if args.controlled else 'download-real-completed.png')))
             path=directory/state['filename'];assert path.is_file() and path.stat().st_size==state['receivedBytes']
             file_summary={'filename':path.name,'bytes':path.stat().st_size,'format':state['format'],'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
             assert not list(directory.glob('.music-core-*.part'))
@@ -185,7 +185,7 @@ def main():
                 task(failed).get_by_role('button',name='重试',exact=True).click();page.wait_for_timeout(2500)
                 assert len([key for key in app.state.downloads.jobs if app.state.downloads.jobs[key].public.identity.platformId=='4'])==2
                 assert download_resolves.count('4')==2 and task(failed).get_by_text('已重试',exact=True).count()==1
-                page.screenshot(path=str(screenshots/'controlled-failed-cancelled.png'))
+                page.screenshot(path=str(screenshots/'download-controlled-failed-cancelled.png'))
                 # 模拟容量淘汰后重试404；当前任务视图不能冒充永久历史。
                 navigate('/search?q=人工');create('5');page.wait_for_timeout(1700);missing=created[-1]['id'];navigate('/downloads');page.get_by_role('tab',name='正在下载',exact=True).click()
                 app.state.downloads.jobs.pop(missing);task(missing).get_by_role('button',name='重试',exact=True).click();page.get_by_text('任务不存在或已过期，请刷新',exact=True).wait_for()
@@ -223,7 +223,7 @@ def main():
                 page.get_by_role('button',name='关闭播放',exact=True).click();page.wait_for_timeout(500);assert page.request.head(url+lease['streamUrl']).status==410
                 final=page.request.get(url+'/api/downloads/'+second).json();file_summary['secondDownloadFinal']=final['status'];file_summary['secondDownloadErrorCode']=final['errorCode'];file_summary['secondDownloadIdentity']=final['identity']
                 assert not list(directory.glob('.music-core-*.part'))
-            prefix='controlled-' if args.controlled else ''
+            prefix='download-controlled-' if args.controlled else 'download-'
             page.get_by_role('tab',name='下载歌曲',exact=True).click();page.screenshot(path=str(screenshots/(prefix+'desktop-download-list.png')))
             for width in (768,390):
                 page.set_viewport_size({'width':width,'height':844});assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
@@ -232,7 +232,7 @@ def main():
             page.reload();page.wait_for_load_state('networkidle');assert page.locator('.download-row[data-filename]').count()>0
             assert not errors,errors
             result={'controlled':args.controlled,'created':len(created),'progress':list(dict.fromkeys(progress)),'file':file_summary,'pageErrors':errors,'consoleErrors':console,'singleAudio':page.locator('audio').count()==1,'downloadResolveCount':download_resolves if args.controlled else None}
-            (OUT/('controlled-result.json' if args.controlled else 'real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result));browser.close()
+            (OUT/('download-controlled-result.json' if args.controlled else 'download-real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result));browser.close()
     finally:
         release.set()
         if server:server.should_exit=True;thread.join(10)

@@ -4,7 +4,7 @@ import json
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[2]
-OUTPUT=ROOT/'docs/migration/40-C/screenshots'
+OUTPUT=ROOT/'docs/archive/13-Vue客户端基础/screenshots'
 
 
 def main():

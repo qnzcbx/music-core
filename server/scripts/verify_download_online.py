@@ -1,4 +1,4 @@
-"""40-D.4 其余来源适度在线回归，只输出下载任务和本地文件摘要。"""
+"""16 下载界面 其余来源适度在线回归，只输出下载任务和本地文件摘要。"""
 import asyncio
 import hashlib
 import json
@@ -27,6 +27,6 @@ async def main():
                 result['file']={'filename':path.name,'bytes':path.stat().st_size,'prefixHex':prefix.hex(),'sha256':digest.hexdigest()}
                 assert path.stat().st_size==task['receivedBytes']
             results.append(result);print(json.dumps(result,ensure_ascii=False),flush=True)
-    output=ROOT/'docs/migration/40-D-4/online-other-sources.json';output.parent.mkdir(parents=True,exist_ok=True);output.write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
+    output=ROOT/'docs/archive/16-下载界面/download-other-sources.json';output.parent.mkdir(parents=True,exist_ok=True);output.write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
 
 if __name__=='__main__':asyncio.run(main())

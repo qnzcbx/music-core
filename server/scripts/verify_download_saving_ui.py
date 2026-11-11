@@ -1,7 +1,7 @@
 """保存方式与处理阶段的浏览器HTTP夹具验收，不冒充真实转换。"""
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-OUT=Path(__file__).resolve().parents[2]/'docs/migration/40-E-2B/screenshots'
+OUT=Path(__file__).resolve().parents[2]/'docs/archive/20-音频转换/screenshots'
 
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
@@ -33,7 +33,7 @@ def main():
                 page.evaluate('theme=>document.documentElement.dataset.theme=theme',theme);page.wait_for_timeout(150)
                 assert page.locator('.quality-dialog').evaluate('el=>el.scrollWidth<=el.clientWidth&&el.scrollHeight>el.clientHeight')
                 page.locator('.quality-dialog').evaluate('el=>el.scrollTop=el.scrollHeight')
-                page.screenshot(path=str(OUT/f'controlled-saving-{width}-{theme}.png'))
+                page.screenshot(path=str(OUT/f'conversion-controlled-saving-{width}-{theme}.png'))
         page.get_by_role('button',name='确认下载').click();page.wait_for_timeout(200)
         assert posts[0]['outputMode']=='mp3_192' and posts[0]['expectedSourceCodec']=='flac'
         page.locator('.mobile-tabbar').get_by_role('link',name='下载',exact=True).click();page.wait_for_timeout(200)

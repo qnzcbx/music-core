@@ -34,7 +34,7 @@ def verify_overlay(page,shots):
     assert mini.locator('.cover-expand').evaluate('el=>getComputedStyle(el).opacity')=='0'
     mini.hover();page.wait_for_timeout(180);assert mini.locator('.cover-expand').evaluate('el=>getComputedStyle(el).opacity')=='1'
     assert mini.locator('.cover-expand svg').evaluate('el=>getComputedStyle(el).width')=='24px'
-    page.screenshot(path=str(shots/'patch-expand-hover.png'))
+    page.screenshot(path=str(shots/'visual-patch-expand-hover.png'))
     page.mouse.move(10,10);mini.focus();page.keyboard.press('Tab');page.keyboard.press('Shift+Tab');page.wait_for_timeout(180)
     assert mini.locator('.cover-expand').evaluate('el=>getComputedStyle(el).opacity')=='1'
     count=len(events);before=page.locator('audio').evaluate('a=>a.currentTime');mini.click();page.locator('.immersive-player').wait_for();page.wait_for_timeout(900)
@@ -73,13 +73,13 @@ def verify_overlay(page,shots):
             layout(name);assert room.get_attribute('data-player-layout')==identifier
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth');transparent()
             assert page.locator('audio').evaluate('a=>a===firstAudio&&!a.paused') and len(events)==count
-            page.screenshot(path=str(shots/f'patch-{width}-{identifier}.png'))
+            page.screenshot(path=str(shots/f'visual-patch-{width}-{identifier}.png'))
         if width>600:
             wake();controls.get_by_label('播放器样式',exact=True).click();page.mouse.move(10,80);page.wait_for_timeout(4500)
             assert room.get_attribute('data-controls-hidden')=='false';transparent()
             panel=room.locator('.layout-panel').bounding_box();assert panel['y']>=0 and panel['y']+panel['height']<=page.viewport_size['height']
             assert room.locator('.layout-panel').evaluate('el=>getComputedStyle(el).scrollbarWidth')=='none'
-            page.screenshot(path=str(shots/f'patch-style-cards-{width}.png'));page.keyboard.press('Escape')
+            page.screenshot(path=str(shots/f'visual-patch-style-cards-{width}.png'));page.keyboard.press('Escape')
         else:
             assert controls.locator('.player-info,.player-tools,.immersive-back').count()==0
             assert controls.get_by_role('button',name='音量设置').count()==0 and controls.get_by_label('播放器样式',exact=True).count()==0
@@ -91,7 +91,7 @@ def verify_overlay(page,shots):
     scroll=room.locator('.layout-panel');assert scroll.evaluate('el=>getComputedStyle(el).scrollbarWidth')=='none'
     assert scroll.evaluate('el=>getComputedStyle(el,"::-webkit-scrollbar").display')=='none'
     assert scroll.evaluate('el=>{el.scrollTop=100;return el.scrollTop}')>0
-    page.screenshot(path=str(shots/'patch-style-scrollbar-hidden.png'));page.keyboard.press('Escape');page.set_viewport_size({'width':1440,'height':1000})
+    page.screenshot(path=str(shots/'visual-patch-style-scrollbar-hidden.png'));page.keyboard.press('Escape');page.set_viewport_size({'width':1440,'height':1000})
     # 设置页与弹层使用同一组件、同一选中状态和歌词对齐偏好。
     before=page.locator('audio').evaluate('a=>a.currentTime');controls.locator('.immersive-back').click();page.wait_for_timeout(700)
     assert page.locator('audio').evaluate('a=>a===firstAudio&&!a.paused&&a.currentTime>='+str(before)) and len(events)==count
@@ -104,7 +104,7 @@ def verify_overlay(page,shots):
     controls.get_by_role('slider',name='播放进度').evaluate('el=>{el.value=30;el.dispatchEvent(new Event("change",{bubbles:true}))}')
     page.wait_for_function('Math.abs(document.querySelector("audio").currentTime-30)<1')
     controls.get_by_role('button',name='播放',exact=True).click();idle();assert room.get_attribute('data-controls-hidden')=='true';hidden_styles=transparent()
-    page.screenshot(path=str(shots/'patch-transparent-hidden.png'));wake();assert room.get_attribute('data-controls-hidden')=='false'
+    page.screenshot(path=str(shots/'visual-patch-transparent-hidden.png'));wake();assert room.get_attribute('data-controls-hidden')=='false'
     controls.get_by_role('button',name='音量设置',exact=True).click();page.mouse.move(10,80);page.wait_for_timeout(4500);assert room.get_attribute('data-controls-hidden')=='false';page.keyboard.press('Escape')
     controls.get_by_role('button',name='播放队列',exact=True).click();page.mouse.move(10,80);page.wait_for_timeout(4500);assert room.get_attribute('data-controls-hidden')=='false';page.keyboard.press('Escape')
     page.set_viewport_size({'width':390,'height':844});page.wait_for_timeout(250)
@@ -128,7 +128,7 @@ def main():
         time.sleep(.05)
     assert server.started
     vite=subprocess.Popen(['cmd','/c','pnpm dev --port 5187 --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':'http://127.0.0.1:8009'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    url='http://127.0.0.1:5187';shots=ROOT/'docs/migration/40-E-1/screenshots';shots.mkdir(parents=True,exist_ok=True)
+    url='http://127.0.0.1:5187';shots=ROOT/'docs/archive/17-沉浸视觉/screenshots';shots.mkdir(parents=True,exist_ok=True)
     results=[];errors=[]
     try:
         for _ in range(100):
@@ -195,8 +195,8 @@ def main():
                     with page.expect_request(lambda request:request.url.endswith('/api/playback/open')):retry.tap()
                     page.wait_for_function('["ready","error","blocked"].includes(document.querySelector(".immersive-controls").dataset.phase)')
                     observation['mobileCentralRetryRequested']=True
-                    page.screenshot(path=str(shots/'patch-mobile-retry.png'));page.set_viewport_size({'width':1440,'height':1000})
-                else:page.screenshot(path=str(shots/f'real-{provider}-{song["identity"]["platformId"]}.png'))
+                    page.screenshot(path=str(shots/'visual-patch-mobile-retry.png'));page.set_viewport_size({'width':1440,'height':1000})
+                else:page.screenshot(path=str(shots/f'visual-real-{provider}-{song["identity"]["platformId"]}.png'))
                 results.append(observation);(ROOT/('.runtime/e1-mobile-retry-result.json' if args.mobile_retry_only else '.runtime/e1-real-results.json')).write_text(json.dumps({'samples':results,'pageErrors':errors},ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(observation,ensure_ascii=True),flush=True)
             if args.overlay_only:verify_overlay(page,shots)
             if page.locator('.immersive-player').count():page.locator('.collapse-player').click();page.wait_for_timeout(700)

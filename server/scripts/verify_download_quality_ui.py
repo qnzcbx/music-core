@@ -2,7 +2,7 @@
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-OUT=Path(__file__).resolve().parents[2]/'docs/migration/40-E-2A/screenshots'
+OUT=Path(__file__).resolve().parents[2]/'docs/archive/19-品质选择/screenshots'
 
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
@@ -40,7 +40,7 @@ def main():
             for theme in ('light','dark'):
                 page.evaluate('theme=>document.documentElement.dataset.theme=theme',theme);page.wait_for_timeout(150)
                 assert page.locator('.quality-dialog').evaluate('el=>el.scrollWidth<=el.clientWidth&&el.getBoundingClientRect().height<=innerHeight-30')
-                page.screenshot(path=str(OUT/f'controlled-dialog-{width}-{theme}.png'))
+                page.screenshot(path=str(OUT/f'preaudit-controlled-dialog-{width}-{theme}.png'))
         page.get_by_role('button',name='确认下载').evaluate('el=>{el.click();el.click()}');page.wait_for_timeout(250)
         assert len(state['posts'])==1 and state['posts'][0]['quality']=='high' and state['posts'][0]['identity']['platformId']=='2'
         assert page.locator('audio').evaluate('a=>a===window.firstAudio&&a.paused&&!a.getAttribute("src")')

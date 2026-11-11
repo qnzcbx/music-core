@@ -1,4 +1,4 @@
-"""40-D.3 真实沉浸播放器及受控歌词、清空竞争验收。"""
+"""14 播放器与歌词 真实沉浸播放器及受控歌词、清空竞争验收。"""
 import argparse
 import asyncio
 import json
@@ -18,7 +18,7 @@ from app.models import SearchPage,SongCandidate,TrackIdentity
 from app.lyrics import LyricDocument,LyricLine
 from app.core.media_store import MediaSettings
 
-OUT=ROOT/'docs/migration/40-D-3'
+OUT=ROOT/'docs/archive/14-播放器与歌词'
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');args=parser.parse_args()
@@ -78,7 +78,7 @@ def main():
             assert page.locator('.workspace-player').is_hidden()
             controls=room.locator('.player')
             def screenshot(name):
-                if not args.controlled:page.screenshot(path=str(screenshots/name))
+                if not args.controlled:page.screenshot(path=str(screenshots/('immersive-'+name)))
             def seek(value):
                 controls.get_by_label('播放进度',exact=True).evaluate('(el,value)=>{el.value=String(value);el.dispatchEvent(new Event("change",{bubbles:true}));}',value)
                 page.wait_for_function('target=>Math.abs(firstAudio.currentTime-target)<1&&!firstAudio.seeking',arg=value)
@@ -212,7 +212,7 @@ def main():
             assert room.get_attribute('data-player-layout')=='square-cover' and room.get_attribute('data-lyric-alignment')=='left'
             assert len(opened)==count and len(lyric_requests)==lyric_count and page.locator('audio').count()==1
             result={'controlled':args.controlled,'opens':len(opened),'lyricsRequests':len(lyric_requests),'renewStatuses':renew,'closedStatuses':statuses,'desktopHeight':height,'mobileHeight':mobile_height,'pageErrors':errors,'consoleErrors':console,'singleRootAudio':True,'templatesNoOpen':True,'sameIdentityLyricsRetained':True}
-            (OUT/('controlled-result.json' if args.controlled else 'real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result));browser.close()
+            (OUT/('immersive-controlled-result.json' if args.controlled else 'immersive-real-result.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result));browser.close()
     finally:
         if server:server.should_exit=True;thread.join(10)
         if vite:subprocess.run(['taskkill','/PID',str(vite.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

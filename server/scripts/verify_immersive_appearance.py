@@ -20,7 +20,7 @@ from app.core.media_store import MediaSettings
 from recovery_fixture import FaultUpstream, allow_fixture_target
 
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'docs/migration/40-E-1'
+OUT=ROOT/'docs/archive/17-沉浸视觉'
 CHROME='C:/Users/86151/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 
 
@@ -70,7 +70,7 @@ def main():
             page.get_by_role('button',name='打开沉浸式播放器',exact=True).click();page.wait_for_timeout(700)
             room=page.locator('.immersive-player');controls=room.locator('.immersive-controls')
             def fingerprint():return page.locator('.ambient-active').evaluate('(el)=>[getComputedStyle(el).backgroundImage,getComputedStyle(document.querySelector(".ambient-background")).filter,getComputedStyle(document.querySelector(".immersive-player")).color]')
-            def shot(name):page.screenshot(path=str(shots/name))
+            def shot(name):page.screenshot(path=str(shots/f'visual-{name}'))
             def away():
                 page.locator('.collapse-player').focus();page.mouse.move(700 if page.viewport_size['width']>760 else 10,80)
             assert page.locator('.ambient-background').get_attribute('data-palette-evidence')=='cover'
