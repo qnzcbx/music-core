@@ -50,7 +50,7 @@ def test_live_contract_and_openapi():
         schema = client.get('/openapi.json').json()
         assert {'/api/covers','/api/lyrics','/api/health','/api/providers','/api/search','/api/playback/open',
             '/api/playback/{key}/stream','/api/playback/{key}/close','/api/playback/{key}/renew',
-            '/api/downloads','/api/downloads/files','/api/downloads/{identifier}','/api/downloads/{identifier}/cancel',
+            '/api/downloads','/api/downloads/options','/api/downloads/files','/api/downloads/{identifier}','/api/downloads/{identifier}/cancel',
             '/api/downloads/{identifier}/retry','/api/downloads/files/{identifier}/stream',
             '/api/downloads/files/{identifier}/remove'} == set(schema['paths'])
         assert 'upstreamUrl' not in json.dumps(schema)

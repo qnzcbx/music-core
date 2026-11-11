@@ -23,3 +23,5 @@ export const removeDownloadFile = (fileId: string, deleteFile: boolean) =>
     `/api/downloads/files/${encodeURIComponent(fileId)}/remove`,
     { method: "POST", body: JSON.stringify({ deleteFile }) },
   );
+
+export const checkDownloadQuality=(body:DownloadRequest,signal?:AbortSignal)=>requestJson<import('../types/core').DownloadQualityOption>('/api/downloads/options',{timeoutMs:30000,method:'POST',body:JSON.stringify(body),signal});

@@ -43,6 +43,7 @@ export class RecoveryPlayer {
   }
   async setPlaying(value) {
     this.desiredPlaying=value;
+    if(value&&['error','network'].includes(this.phase))return this.recover(false);
     const generation=this.generation,session=this.session;
     if(!value){this.audio.pause();if(!this.operation&&session)this.state('ready','已暂停');}
     else if(this.session&&!this.binding) {

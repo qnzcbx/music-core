@@ -11,6 +11,7 @@ from uuid import uuid4
 import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
+from app.download_quality import requested, qualify
 from app.core.errors import CoreError,ErrorCode
 
 ENDPOINT='https://u.y.qq.com/cgi-bin/musicu.fcg'
@@ -145,13 +146,14 @@ class QQProvider:
         self.last_resolution=None
         if identity.providerId!='qq':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        quality=requested(options)
         async def execute():
             failure=None
             for route in self.route_order:
                 if route not in self.available_routes:continue
                 try:
                     result=await self._resolve_route(route,identity,options)
+                    result=await qualify(self.client,result,quality)
                     if result.identity!=identity:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
                     if route=='official':self.last_resolution={'resolver':'official','identity':'official_mid_matched','protocol':'success','media':'upstream_unprobed','scope':'normal'}
                     return result
@@ -166,11 +168,11 @@ class QQProvider:
         if route=='official':return await self._resolve_official(identity)
         from .qq_resolvers import vkeys,tang,xunhuisi
         adapter={'vkeys':vkeys,'tang':tang,'xunhuisi':xunhuisi}[route]
-        result=await adapter.resolve(self.client,identity.platformId)
+        result=await (adapter.resolve(self.client,identity.platformId,{'standard':4,'high':8,'lossless':10}[requested(options)]) if route=='vkeys' and requested(options) else adapter.resolve(self.client,identity.platformId))
         if result.response_mid is None and not self.allow_request_bound:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
         if result.response_mid is not None and result.response_mid!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         from .qq_resolvers.media import verify_media
-        representation=await verify_media(self.client,result.url.get_secret_value())
+        representation=await (verify_media(self.client,result.url.get_secret_value(),detail=True) if options.purpose=='download' else verify_media(self.client,result.url.get_secret_value()))
         self.last_resolution={'resolver':route,'identity':result.evidence,'protocol':'success','media':'prefix_verified',
             'scope':'configured_preview' if self.allow_request_bound else 'normal'}
         return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,

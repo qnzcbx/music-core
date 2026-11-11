@@ -1,0 +1,98 @@
+[
+  {
+    "provider": "kuwo",
+    "platformId": "9942644",
+    "qualityInputBefore": "CAPABILITY_UNSUPPORTED",
+    "resolved": true,
+    "declared": {
+      "container": null,
+      "codec": null,
+      "contentType": null,
+      "providerQualityId": null,
+      "sizeBytes": null,
+      "bitrateBps": null,
+      "lossless": null
+    },
+    "bytes": {
+      "container": "mpeg-audio",
+      "codec": "mp3",
+      "contentType": "audio/mpeg",
+      "providerQualityId": null,
+      "sizeBytes": 4346545,
+      "bitrateBps": null,
+      "lossless": null
+    }
+  },
+  {
+    "provider": "qq",
+    "platformId": "004Yi5BD3ksoAN",
+    "qualityInputBefore": "CAPABILITY_UNSUPPORTED",
+    "resolved": true,
+    "declared": {
+      "container": "mp4",
+      "codec": null,
+      "contentType": "audio/mp4",
+      "providerQualityId": null,
+      "sizeBytes": 5979794,
+      "bitrateBps": null,
+      "lossless": null
+    },
+    "bytes": {
+      "container": "mp4",
+      "codec": null,
+      "contentType": "audio/mp4",
+      "providerQualityId": null,
+      "sizeBytes": 5979794,
+      "bitrateBps": null,
+      "lossless": null
+    }
+  },
+  {
+    "provider": "netease",
+    "platformId": "167691",
+    "qualityInputBefore": "CAPABILITY_UNSUPPORTED",
+    "resolved": true,
+    "declared": {
+      "container": "mpeg-audio",
+      "codec": "mp3",
+      "contentType": "audio/mpeg",
+      "providerQualityId": null,
+      "sizeBytes": 4214326,
+      "bitrateBps": null,
+      "lossless": null
+    },
+    "bytes": {
+      "container": "mpeg-audio",
+      "codec": "mp3",
+      "contentType": "audio/mpeg",
+      "providerQualityId": null,
+      "sizeBytes": 4214326,
+      "bitrateBps": null,
+      "lossless": null
+    }
+  },
+  {
+    "provider": "migu",
+    "platformId": "600902000009209221",
+    "qualityInputBefore": "CAPABILITY_UNSUPPORTED",
+    "resolved": true,
+    "declared": {
+      "container": null,
+      "codec": null,
+      "contentType": null,
+      "providerQualityId": "PQ",
+      "sizeBytes": null,
+      "bitrateBps": null,
+      "lossless": null
+    },
+    "bytes": {
+      "container": "mpeg-audio",
+      "codec": "mp3",
+      "contentType": "audio/mpeg",
+      "providerQualityId": null,
+      "sizeBytes": 4089941,
+      "bitrateBps": null,
+      "lossless": null
+    }
+  }
+]

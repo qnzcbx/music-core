@@ -83,7 +83,7 @@ const album = computed(() =>
 );
 const downloadKey = computed(() => (identityError.value ? "" : queueEntryFrom(props.song).key));
 function download() {
-  void downloads.create(props.song);
+  void downloads.choose(props.song);
 }
 </script>
 <template>
@@ -95,10 +95,11 @@ function download() {
     :data-platform-id="'platformId' in song ? song.platformId : song.mid"
   >
     <button
-      title="播放此版本"
+      :title="selected ? player.actionLabel.value : '播放此版本'"
+      :disabled="selected && player.busy.value"
       type="button"
       class="row-play action-play"
-      :aria-label="playLabel + ' ' + versionLabel"
+      :aria-label="(selected ? player.actionLabel.value : playLabel) + ' ' + versionLabel"
       @click.stop="selected ? player.toggle() : emit('play', song)"
     ></button>
     <div class="row-identity">

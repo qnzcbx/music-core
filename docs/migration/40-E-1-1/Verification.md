@@ -44,3 +44,23 @@ Chromium 使用 HTTP 快照夹具验证：1440 / 390px、Light / Dark 的结果�
 ## 下载成功通知
 
 当前观察到的下载任务完成且 files 返回对应 fileId 后，统一轻量通知显示“下载成功：《歌名》”；多项同时完成合并显示数量。仅加入任务不提示成功，初次加载历史成品不补弹，轮询或手动刷新不重复通知。由现有 tasks / files 和操作反馈派生通知，未修改 DownloadManager。Chromium 390px HTTP 快照验证：历史完成无通知、当前 downloading→completed 但缺文件无通知、补齐文件后提示成功、关闭后重复刷新不重弹。类型检查及前端 41 项测试通过。[成功通知截图](download-success-390.png)。
+
+## 40-E.1.1 补丁：失败后中央 Play 主动重新尝试
+
+本节替代前文“error 禁用中央播放入口”的处理。检查真实协调器发现：首次 Open 失败后 session 为 null，原 setPlaying(true) 只尝试已有 session，因而解除按钮 disabled 仍不能重新打开。
+
+RecoveryPlayer.setPlaying(true) 在 error / network 时复用 recover(false)，按稳定 identity 新建 Open，不复用失效 URL。recover 原有 operation 合并、automaticUsed、generation、旧会话关闭与晚到清理继续有效。手动恢复不重置自动恢复额度；重复失败不会自动循环。blocked 仍尝试已有就绪媒体，opening / positioning 的全局 toggle 被忙碌状态保护。
+
+全局 usePlayer 派生 busy / failed / actionLabel，失败时 toggle 明确请求播放而非反转失败前仍为 true 的播放意图。搜索结果、队列、底栏、沉浸入口共享这一操作；中央按钮失败时 Play 图标、Tooltip / aria-label 为“重新尝试播放”，加载时显示转圈并禁用重复点击。无当前歌曲仍禁用，切歌入口保持可用。没有增加常驻重试按钮或文字行。
+
+当前歌曲、队列、封面不清空，在线播放书签仍由原恢复协调器持有。本地文件失败复用原本地选择 / 读取流程，不转成在线 Open；全局消息明确提示本地文件无法读取，应刷新列表确认文件存在。
+
+### 验证
+
+- 前端 44 项测试通过，vue-tsc / Vite build 通过（保留约 510KB 主包既有告警）。新增有界主动重试、重复操作合并、书签 / 自动预算及主动重试中的切歌 / 停止晚到关闭测试。
+- 真实 Chromium + 受控 Core / WAV：首次 Open 403 后中央按钮可用，点击发新 Open；挂起请求时按钮显示“正在加载”，连续触发不增加并行 Open。网络请求中断仍可主动再次尝试。快速切到 B 后 A 的晚到结果不覆盖 B，唯一 Audio、仅一条活动 Lease。
+- 独立从正常播放复现：Seek 到约 20 秒 → 媒体错误 / HEAD 410 → 自动恢复 Open 403 失败 → 已无活动 Lease → 用户中央 Play 新 Open 成功，播放位置恢复至 20 秒之后，同一个 Audio。再次媒体失败不触发后台 Open；用户仍可主动重试。最后通过清空队列触发实际 stop，Audio 暂停且无 src，活动 Lease 为零。
+- 桌面 1440 / 移动 390px 失败状态的中央按钮均可用；错误仍通过右上角轻量通知反馈。截图：[桌面失败后入口](retry-play-1440.png)、[移动失败后入口](retry-play-390.png)。
+- 浏览器本地文件 404 夹具：显示“本地文件无法读取”通知，主动重试再读一次本地文件，不循环请求，只有一个 Audio。blocked / 保留暂停 / 自动额度 / late-response 等原有回归由恢复测试继续覆盖。
+
+上述失败和恢复样本均为受控协议实验，不冒充新的真实平台播放成果。未修改 Provider、下载流程或媒体传输协议；未自动提交 Git。

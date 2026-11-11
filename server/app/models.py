@@ -53,6 +53,7 @@ class ResolveOptions(DTO):
 
 
 class MediaRepresentation(DTO):
+    sampleRateHz: int | None = Field(default=None, strict=True, gt=0)
     container: str | None = None
     codec: str | None = None
     contentType: str | None = None

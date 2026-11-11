@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from pydantic import ValidationError
+from app.download_quality import requested, qualify
 from app.core.errors import CoreError, ErrorCode
 from app.models import SongCandidate, TrackIdentity, SearchPage, ResolvedMedia, ResolveOptions, MediaRepresentation
 
@@ -138,13 +139,12 @@ class KuwoProvider:
         if identity.providerId != self.id:
             raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options = options or ResolveOptions()
-        if options.providerQualityId is not None:
-            raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        quality=requested(options)
         data = await self.request(RESOLVE_URL, {'mid':identity.platformId,'type':'music','httpsStatus':1})
         # 仅已实测的接口级请求拒绝可切到同平台mobi；权限码、超时、取消均不重试。
         if (data.get('success') is False and data.get('code') is None
                 and data.get('message') == 'The request is illegal!'):
-            return await self.resolve_mobi(identity)
+            return await qualify(self.client,await self.resolve_mobi(identity,quality),quality)
         if data.get('success') is False or data.get('code') in (401,403,'401','403'):
             raise CoreError(ErrorCode.ACCESS_DENIED)
         if data.get('code') not in (0,200,'0','200'):
@@ -152,17 +152,20 @@ class KuwoProvider:
         payload = data.get('data')
         if not isinstance(payload,dict):
             raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+        if quality:
+            return await qualify(self.client,await self.resolve_mobi(identity,quality),quality)
         url = payload.get('url')
         if not url:
             raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
         return self.media_from_url(identity, url)
 
-    async def resolve_mobi(self, identity: TrackIdentity) -> ResolvedMedia:
+    async def resolve_mobi(self, identity: TrackIdentity, quality=None) -> ResolvedMedia:
         if identity.providerId != self.id:
             raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         content = await self.request(MOBI_URL, {'user':'0','corp':'kuwo',
             'source':'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk','p2p':'1',
-            'type':'convert_url2','sig':'0','format':'mp3','rid':identity.platformId},
+            'type':'convert_url2','sig':'0','format':'flac' if quality=='lossless' else 'mp3','rid':identity.platformId,
+            **({'br':'320k' if quality=='high' else '128k'} if quality in ('standard','high') else {})},
             raw=True,headers={'User-Agent':'okhttp/3.10.0'})
         try:
             lines = content.decode('utf8').splitlines()

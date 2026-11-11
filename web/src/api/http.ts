@@ -9,16 +9,17 @@ export class ApiError extends Error {
 }
 export async function requestJson<T>(
   path: string,
-  options: RequestInit & { errorMessage?: string } = {},
+  options: RequestInit & { errorMessage?: string; timeoutMs?:number } = {},
 ): Promise<T> {
   const timeout = new AbortController(),
-    timer = setTimeout(() => timeout.abort(), 20000);
+    timer = setTimeout(() => timeout.abort(), options.timeoutMs??20000);
   const cancel = () => timeout.abort();
   if (options.signal?.aborted) timeout.abort();
   options.signal?.addEventListener("abort", cancel, { once: true });
   try {
+    const {timeoutMs, errorMessage, ...requestOptions}=options;
     const response = await fetch(path, {
-      ...options,
+      ...requestOptions,
       headers: { "Content-Type": "application/json", ...options.headers },
       signal: timeout.signal,
     });

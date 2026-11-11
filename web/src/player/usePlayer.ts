@@ -42,6 +42,9 @@ export function usePlayer(){
   else void queue.advance(true);
  });
  const selectedId=computed(()=>selected.value?.id);
+ const busy=computed(()=>['opening','positioning'].includes(phase.value));
+ const failed=computed(()=>['error','network'].includes(phase.value));
+ const actionLabel=computed(()=>busy.value?'正在加载':failed.value?'重新尝试播放':playing.value?'暂停':'播放');
  const intentRevision=ref(0);
  const playIntent=computed(()=>{void intentRevision.value;void phase.value;return local.value?localIntent.value:controller.desiredPlaying;});
  async function select(song:PlayableSong){
@@ -67,8 +70,8 @@ export function usePlayer(){
  function setVolume(value:number){audio.volume=Math.max(0,Math.min(1,value));audio.muted=false;volume.value=audio.volume;muted.value=audio.muted;}
  const pagehide=()=>{void stop();};window.addEventListener('pagehide',pagehide);
  onUnmounted(()=>{disposed=true;clearTimeout(timer);window.removeEventListener('pagehide',pagehide);for(const [event,handler] of listeners)audio.removeEventListener(event,handler);void controller.dispose();audio.remove();});
- return {audio,selected,selectedId,time,duration,playing,playIntent,muted,volume,message,phase,queue,select:queue.select,stop,setVolume,
+ return {audio,selected,selectedId,time,duration,playing,playIntent,busy,failed,actionLabel,muted,volume,message,phase,queue,select:queue.select,stop,setVolume,
   selectLocal:(file:SavedDownloadFile,task?:DownloadTask)=>queue.select({kind:'local',fileId:file.fileId,id:JSON.stringify(['local',file.fileId]),source:'local',name:task?.title||file.filename,title:task?.title||file.filename,artist:task?.artist||'',album:'',cover:null,duration:null}),
   removeLocal:(fileId:string)=>queue.remove(JSON.stringify(['local',fileId])),
-  toggle:()=>{const ended=audio.ended;if(ended)seek(0);const result=setPlaying(ended||!playIntent.value);intentRevision.value++;return result;},mute:()=>{audio.muted=!audio.muted;},seek,retry:()=>local.value&&selected.value?select(selected.value):controller.recover(false)};
+  toggle:()=>{if(!selected.value||busy.value)return;if(failed.value){intentRevision.value++;return local.value?select(selected.value):controller.setPlaying(true);}const ended=audio.ended;if(ended)seek(0);const result=setPlaying(ended||!playIntent.value);intentRevision.value++;return result;},mute:()=>{audio.muted=!audio.muted;},seek,retry:()=>local.value&&selected.value?select(selected.value):controller.recover(false)};
 }

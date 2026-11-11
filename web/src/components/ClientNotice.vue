@@ -5,7 +5,7 @@ import {useCoreClient} from '../composables/useCoreClient';
 const {player,downloads}=useCoreClient();
 const text=ref('');let timer:ReturnType<typeof setTimeout>;
 function show(message:string){text.value=message;clearTimeout(timer);timer=setTimeout(()=>text.value='',6000);}
-watch(()=>[player.phase.value,player.selectedId.value],()=>{if(['error','network','blocked'].includes(player.phase.value)){console.error('播放失败',{identity:player.selectedId.value,phase:player.phase.value,detail:player.message.value});show('歌曲播放失败，请稍后重试或选择其他歌曲');}});
+watch(()=>[player.phase.value,player.selectedId.value],()=>{if(['error','network','blocked'].includes(player.phase.value)){console.error('播放失败',{identity:player.selectedId.value,phase:player.phase.value,detail:player.message.value});show(player.selected.value&&'fileId' in player.selected.value?'本地文件无法读取，请刷新下载列表确认文件存在':'歌曲播放失败，请稍后重试或选择其他歌曲');}});
 watch(()=>downloads.feedback.value,value=>{if(value?.error)show('下载失败，请稍后重试');});
 watch(()=>downloads.tasks.value,(tasks,previous)=>{for(const task of tasks)if(task.status==='failed'&&previous?.some(t=>t.id===task.id&&t.status!=='failed')){console.error('下载失败',{identity:task.identity,code:task.errorCode});show('下载失败，请到下载页查看任务');}});
 // 只通知本次观察到的任务完成；首次加载的历史成品不重复弹出。

@@ -9,6 +9,7 @@ from uuid import uuid4
 import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
+from app.download_quality import requested, qualify
 from app.core.errors import CoreError,ErrorCode
 
 SEARCH_URL='https://c.musicapp.migu.cn/v1.0/content/search_all.do'
@@ -121,7 +122,8 @@ class MiguProvider:
     async def resolve(self,identity: TrackIdentity,options: ResolveOptions | None=None) -> ResolvedMedia:
         if identity.providerId!='migu':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        quality=requested(options)
+        if quality=='lossless':raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         # 先按精确资源ID重新取得双ID及格式目录，绝不按歌名猜测录音。
         metadata=await self.request_json(DETAIL_URL,{'resourceId':identity.platformId,'resourceType':'2'})
         rows=metadata.get('resource')
@@ -136,7 +138,7 @@ class MiguProvider:
         formats=[]
         for field in ('rateFormats','newRateFormats','audioFormats'):
             if isinstance(raw.get(field),list):formats.extend(raw[field])
-        chosen=next((f for tone in ('PQ','LQ','HQ') for f in formats if isinstance(f,dict) and f.get('formatType')==tone and identifier(f.get('resourceType'))),None)
+        chosen=next((f for tone in (('PQ','LQ','HQ') if quality is None else ('HQ',) if quality=='high' else ('PQ',)) for f in formats if isinstance(f,dict) and f.get('formatType')==tone and identifier(f.get('resourceType'))),None)
         if chosen is None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         data=await self.request_json(PLAYER_URL,{'contentId':identity.platformId,'copyrightId':copyright_id,
             'resourceType':str(chosen['resourceType']),'netType':'01','toneFlag':chosen['formatType'],
@@ -154,7 +156,8 @@ class MiguProvider:
         try:
             if not isinstance(url,str):raise ValueError()
             if urlsplit(url).path.lower().endswith(('.m3u8','.mpd')):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
-            return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
+            media=ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
                 upstreamUrl=url,headers={'User-Agent':'Mozilla/5.0','Referer':'https://h5.nf.migu.cn/'},
                 representation=MediaRepresentation(providerQualityId=actual_format))
+            return await qualify(self.client,media,quality)
         except (ValueError,ValidationError):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None

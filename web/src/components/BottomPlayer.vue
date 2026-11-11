@@ -11,6 +11,7 @@ import ExpandIcon from "~icons/lucide/expand";
 import BackIcon from "~icons/lucide/shrink";
 import PlayerLayoutSelector from "./PlayerLayoutSelector.vue";
 import CoverArt from "./CoverArt.vue";
+import LoadingIcon from "~icons/lucide/loader-circle";
 import PlayIcon from "~icons/lucide/play";
 import PauseIcon from "~icons/lucide/pause";
 import PreviousIcon from "~icons/lucide/skip-back";
@@ -45,7 +46,7 @@ const downloadable = computed(()=>selected.value&&!isLocalSong(selected.value)&&
 const downloadIdentity = computed(()=>downloadable.value?trackIdentity(downloadable.value):null);
 const progress = computed(() => preview.value ?? time.value);
 const pauseAction = computed(() =>
-  ["opening", "positioning"].includes(phase.value) ? player.playIntent.value : playing.value,
+  !player.failed.value && playing.value,
 );
 function transportAction(){return player.toggle();}
 const format = (value: number) =>
@@ -116,11 +117,12 @@ function seek(event: Event) {
         </button>
         <button
           class="play-toggle"
-          :disabled="!selected || phase==='error'"
-          :aria-label="pauseAction ? '暂停' : '播放'"
+          :disabled="!selected || player.busy.value"
+          :aria-label="player.actionLabel.value"
+          :title="player.actionLabel.value"
           @click="transportAction"
         >
-          <PauseIcon v-if="pauseAction" /><PlayIcon v-else />
+          <LoadingIcon v-if="player.busy.value" class="play-loading"/><PauseIcon v-else-if="pauseAction" /><PlayIcon v-else />
         </button>
         <button
           aria-label="下一首"
@@ -153,7 +155,7 @@ function seek(event: Event) {
       </div>
     </div>
     <div v-if="!compactImmersive" class="player-tools">
-      <button v-if="!immersive" aria-label="下载当前歌曲" title="下载当前歌曲" :disabled="!downloadable" @click="downloadable && downloads.create(downloadable)">
+      <button v-if="!immersive" aria-label="下载当前歌曲" title="下载当前歌曲" :disabled="!downloadable" @click="downloadable && downloads.choose(downloadable)">
         <DownloadStateIcon :identity="downloadIdentity" />
       </button>
       <template v-if="immersive">
@@ -168,11 +170,11 @@ function seek(event: Event) {
           @open-change="panel('style', $event)"
         />
       </template>
-      <button v-if="compactMini" class="mini-play-toggle" :disabled="!selected || phase==='error'"
-        :title="pauseAction ? '暂停' : '播放'"
-        :aria-label="pauseAction ? '暂停' : '播放'"
+      <button v-if="compactMini" class="mini-play-toggle" :disabled="!selected || player.busy.value"
+        :title="player.actionLabel.value"
+        :aria-label="player.actionLabel.value"
         @click="transportAction">
-        <PauseIcon v-if="pauseAction"/><PlayIcon v-else/>
+        <LoadingIcon v-if="player.busy.value" class="play-loading"/><PauseIcon v-else-if="pauseAction"/><PlayIcon v-else/>
       </button>
       <button v-else :disabled="!selected" title="查看歌词" aria-label="查看歌词" @click="visuals.open">
         词</button
@@ -500,4 +502,8 @@ function seek(event: Event) {
   .player:not(.immersive-controls) .player-meta .track-title { font-size:13px; color:var(--mini-text); }
   .player:not(.immersive-controls) .player-album { display:none; }
 }
+</style>
+
+<style scoped>
+.play-loading{animation:play-loading 1s linear infinite}@keyframes play-loading{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.play-loading{animation:none}}
 </style>

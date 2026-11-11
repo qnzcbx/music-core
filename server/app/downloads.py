@@ -21,7 +21,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import Field
-from app.models import DTO, TrackIdentity, ResolveOptions
+from app.models import DTO, TrackIdentity, ResolveOptions, MediaRepresentation
+from app.download_quality import inspect_audio, satisfies
 from app.providers import provider_for
 from app.core.errors import CoreError, ErrorCode
 from app.media_stream import validate_target, range_header, OwnedStream
@@ -30,7 +31,11 @@ TERMINAL = {'completed', 'failed', 'cancelled'}
 ROOT = Path(__file__).resolve().parents[2] / 'downloads'
 
 
+DownloadQuality=Literal['auto','standard','high','lossless']
+
+
 class DownloadRequest(DTO):
+    quality: DownloadQuality = 'auto'
     identity: TrackIdentity
     # 名称仅用于文件展示，不参与身份解析；缺省按稳定身份命名。
     title: str | None = Field(default=None, max_length=500)
@@ -38,6 +43,8 @@ class DownloadRequest(DTO):
 
 
 class DownloadTask(DTO):
+    quality: DownloadQuality = 'auto'
+    actualMedia: MediaRepresentation | None = None
     id: str
     identity: TrackIdentity
     title: str | None
@@ -346,7 +353,7 @@ class DownloadManager:
             del self.jobs[old]
         now = int(time()*1000)
         job = Job(DownloadTask(id=uuid4().hex, identity=body.identity, title=body.title, artist=body.artist,
-                              status='queued', createdAt=now, updatedAt=now))
+                              quality=body.quality, status='queued', createdAt=now, updatedAt=now))
         self.jobs[job.public.id] = job
         job.worker = asyncio.create_task(self.run(job))
         # queued阶段即取消时协程可能尚未启动，回调仍负责去除Task引用。
@@ -394,7 +401,7 @@ class DownloadManager:
         if job.public.status in TERMINAL: raise asyncio.CancelledError()
         self.update(job, status='resolving')
         media = await provider_for(self.state, job.public.identity.providerId).resolve(
-            job.public.identity, ResolveOptions(purpose='download'))
+            job.public.identity, ResolveOptions(purpose='download',providerQualityId=None if job.public.quality=='auto' else job.public.quality))
         if media.identity != job.public.identity: raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         if media.validUntil is not None and media.validUntil <= int(time()*1000):
             raise CoreError(ErrorCode.UPSTREAM_MEDIA_EXPIRED)
@@ -443,7 +450,7 @@ class DownloadManager:
                     received = job.public.receivedBytes + len(chunk)
                     if received > self.settings.max_bytes: raise CoreError(ErrorCode.MEDIA_CAPACITY)
                     if total is not None and received > total: raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-                    prefix.extend(chunk[:max(0,4096-len(prefix))])
+                    prefix.extend(chunk[:max(0,65536-len(prefix))])
                     output.write(chunk)
                     self.update(job, receivedBytes=received)
                     await asyncio.sleep(0)
@@ -454,6 +461,9 @@ class DownloadManager:
                 raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
             if media.representation.sizeBytes is not None and size != media.representation.sizeBytes:
                 raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+            actual=inspect_audio(bytes(prefix)).model_copy(update={'sizeBytes':size})
+            if not satisfies(actual,job.public.quality):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+            self.update(job,actualMedia=actual)
             kind = audio_format(bytes(prefix))
             expected = media.representation.container
             if expected in ('flac','mpeg-audio','mp4','ogg') and kind != {'mpeg-audio':'mp3','mp4':'m4a'}.get(expected,expected):
@@ -492,6 +502,46 @@ def download_router():
     async def listing(request: Request):
         m = manager(request)
         return [m.view(j) for j in m.jobs.values()]
+
+    @router.post('/options')
+    async def options(body: DownloadRequest, request: Request):
+        # 只缓存短期公开检测信息；确认下载必须重新解析，不保存签名媒体URL。
+        from collections import OrderedDict
+        from app.core.media_probe import verify_media
+        cache=getattr(request.app.state,'download_quality_cache',None)
+        if cache is None:cache=request.app.state.download_quality_cache=OrderedDict()
+        key=(body.identity.providerId,body.identity.platformId,body.quality)
+        cached=cache.get(key)
+        if cached and cached[0]>time():return cached[1]
+        cache_until=[time()+30]
+        async def detect():
+            media=await provider_for(request.app.state,body.identity.providerId).resolve(body.identity,
+                ResolveOptions(purpose='download',providerQualityId=None if body.quality=='auto' else body.quality))
+            if media.identity!=body.identity:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+            if media.validUntil is not None:
+                if media.validUntil<=int(time()*1000):raise CoreError(ErrorCode.UPSTREAM_MEDIA_EXPIRED)
+                cache_until[0]=min(cache_until[0],media.validUntil/1000)
+            rep=media.representation
+            if not (rep.codec and rep.sampleRateHz):
+                rep=await verify_media(request.app.state.http_client,media.upstreamUrl.get_secret_value(),body.identity.providerId,detail=True,
+                    headers={k:v.get_secret_value() for k,v in media.headers.items()})
+            if not satisfies(rep,body.quality):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+            return {'quality':body.quality,'availability':'available','representation':rep.model_dump(),'errorCode':None}
+        operation=asyncio.create_task(asyncio.wait_for(detect(),27))
+        async def disconnected():
+            while not operation.done():
+                if await request.is_disconnected():operation.cancel();return
+                await asyncio.sleep(.1)
+        monitor=asyncio.create_task(disconnected())
+        try:
+            try:value=await operation
+            except CoreError as error:value={'quality':body.quality,'availability':'unavailable','representation':None,'errorCode':error.code.value}
+            except (asyncio.TimeoutError,httpx.TimeoutException):value={'quality':body.quality,'availability':'unavailable','representation':None,'errorCode':'upstream_timeout'}
+            cache[key]=(cache_until[0],value);cache.move_to_end(key)
+            while len(cache)>32:cache.popitem(last=False)
+            return value
+        finally:
+            monitor.cancel();await asyncio.gather(monitor,return_exceptions=True)
 
     @router.get('/files', response_model=list[SavedDownloadFile])
     async def files(request: Request):
@@ -539,6 +589,6 @@ def download_router():
         m = manager(request)
         p = m.get(identifier).public
         if p.status not in ('failed','cancelled'): raise HTTPException(409)
-        return m.view(m.create(DownloadRequest(identity=p.identity,title=p.title,artist=p.artist)))
+        return m.view(m.create(DownloadRequest(identity=p.identity,title=p.title,artist=p.artist,quality=p.quality)))
 
     return router

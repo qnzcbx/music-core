@@ -10,8 +10,8 @@ defineEmits<{ toggle: [] }>()
 </script>
 <template>
   <aside class="app-sidebar" aria-label="应用导航" :data-expanded="expanded">
-    <RouterLink to="/" class="shell-brand" aria-label="media-lab 首页" title="media-lab 首页">
-      <DiscIcon aria-hidden="true" /><span class="sidebar-label wordmark">media-lab</span>
+    <RouterLink to="/" class="shell-brand" aria-label="随心听 首页" title="随心听 首页">
+      <DiscIcon aria-hidden="true" /><span class="sidebar-label wordmark">随心听</span>
     </RouterLink>
     <nav aria-label="主导航">
       <RouterLink v-for="item in navigation.filter(row => row.to !== '/settings')" :key="item.to"

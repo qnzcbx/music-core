@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
+from app.download_quality import requested, qualify
 from app.core.errors import CoreError,ErrorCode
 
 SEARCH_URL='https://music.163.com/api/cloudsearch/pc'
@@ -99,19 +100,19 @@ class NeteaseProvider:
         self.last_resolution=None
         if identity.providerId!='netease':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        quality=requested(options)
         async def execute():
             failure=None
             for route in self.route_order:
                 try:
                     if route=='native':
-                        value=await self._resolve_native(identity,options)
+                        value=await qualify(self.client,await self._resolve_native(identity,options),quality)
                         self.last_resolution={'resolver':'native','identity':'response_id_matched','scope':'normal'}
                         return value
                     from .netease_resolvers import gdstudio,jfjt
                     from app.core.media_probe import verify_media
                     adapter=gdstudio if route=='gdstudio-preview' else jfjt
-                    candidate=await adapter.resolve(self.client,identity.platformId)
+                    candidate=await (adapter.resolve(self.client,identity.platformId,quality=quality) if quality else adapter.resolve(self.client,identity.platformId))
                     if route=='jfjt':
                         detail=await self.request_json('https://music.163.com/api/v3/song/detail',
                             {'c':json.dumps([{'id':int(identity.platformId),'v':0}])})
@@ -125,10 +126,11 @@ class NeteaseProvider:
                         expected={a['name'].strip().casefold() for a in artists if isinstance(a,dict) and isinstance(a.get('name'),str)}
                         actual={a.strip().casefold() for a in re.split(r'[/,、，]',artist) if a.strip()} if isinstance(artist,str) else set()
                         if not actual or not actual<=expected:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-                    representation=await verify_media(self.client,candidate['url'].get_secret_value(),'netease')
+                    representation=await verify_media(self.client,candidate['url'].get_secret_value(),'netease',detail=options.purpose=='download')
                     self.last_resolution={'resolver':route,'identity':candidate['evidence'],'scope':'configured_preview'}
-                    return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
+                    media=ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
                         upstreamUrl=candidate['url'],headers={'User-Agent':'Mozilla/5.0'},representation=representation)
+                    return await qualify(self.client,media,quality)
                 except CoreError as error:
                     if error.code not in (ErrorCode.UPSTREAM_FAILURE,ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.MEDIA_UNAVAILABLE):raise
                     failure=error
@@ -139,9 +141,9 @@ class NeteaseProvider:
     async def _resolve_native(self,identity: TrackIdentity,options: ResolveOptions | None=None) -> ResolvedMedia:
         if identity.providerId!='netease':raise CoreError(ErrorCode.UNSUPPORTED_PROVIDER)
         options=options or ResolveOptions()
-        if options.providerQualityId is not None:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
-        # 普通128kbps原生取链，不尝试第三方账号、高品质解锁或DRM处理。
-        data=await self.request_json(PLAYER_URL,{'ids':json.dumps([int(identity.platformId)]),'br':'128000'})
+        quality=requested(options)
+        # 自动保持原生128kbps；下载显式档位仍遵守权限、试听与加密拒绝。
+        data=await self.request_json(PLAYER_URL,{'ids':json.dumps([int(identity.platformId)]),'br':{'standard':'128000','high':'320000','lossless':'999000'}.get(quality,'128000')})
         rows=data.get('data')
         if not isinstance(rows,list) or len(rows)!=1 or not isinstance(rows[0],dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         row=rows[0]

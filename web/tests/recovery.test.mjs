@@ -123,3 +123,24 @@ test('恢复到合法时长内，未完成seek不覆盖旧书签',async()=>{
   s.audio.seeking=true;s.audio.currentTime=80;s.player.capture();assert.equal(s.player.bookmark,140);
   s.audio.seeking=false;s.audio.currentTime=140;await s.player.recover(false);assert.equal(s.audio.currentTime,119.9);
 });
+
+
+test('首次打开失败后主动Play新建会话且合并重复请求',async()=>{
+ const s=setup();s.fail(true);await s.player.select(identity);assert.equal(s.player.phase,'error');
+ s.fail(false);const release=s.delay();const a=s.player.setPlaying(true),b=s.player.setPlaying(true);
+ assert.equal(s.opened.length,2);release();await Promise.all([a,b]);
+ assert.equal(s.player.phase,'ready');assert.equal(s.audio.paused,false);assert.equal(s.player.automaticUsed,true);
+});
+test('自动恢复失败后Play保留书签，手动失败与成功不重置自动预算',async()=>{
+ const s=setup();await s.player.select(identity);s.audio.currentTime=37;s.fail(true);await s.player.recover(true);
+ await s.player.setPlaying(true);assert.equal(s.player.phase,'error');s.fail(false);await s.player.setPlaying(true);
+ assert.equal(s.audio.currentTime,37);assert.equal(s.audio.paused,false);
+ const count=s.opened.length;await s.player.recover(true);assert.equal(s.opened.length,count);
+});
+test('主动Play重试晚到被切歌或停止隔离并关闭会话',async()=>{
+ for(const stop of [false,true]){const s=setup();s.fail(true);await s.player.select(identity);s.fail(false);
+ const release=s.delay();const pending=s.player.setPlaying(true);
+ if(stop)await s.player.stop();else await s.player.select({...identity,platformId:'2'});
+ release();await pending;assert.equal(s.player.identity?.platformId,stop?undefined:'2');assert(s.closed.includes('lease1'));
+ }
+});

@@ -8,13 +8,13 @@ from pydantic import SecretStr
 from app.core.errors import CoreError,ErrorCode
 
 
-async def resolve(client,song_id):
+async def resolve(client,song_id,*,quality=None):
     if not isinstance(song_id,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',song_id):raise CoreError(ErrorCode.INVALID_INPUT)
     async def execute():
         response=None
         try:
             request=httpx.Request('GET','https://music-api.gdstudio.xyz/api.php',
-                params={'types':'url','id':song_id,'source':'netease','br':999},headers={'User-Agent':'Mozilla/5.0'})
+                params={'types':'url','id':song_id,'source':'netease','br':{'standard':128,'high':320,'lossless':999}.get(quality,999)},headers={'User-Agent':'Mozilla/5.0'})
             response=await client.send(request,stream=True,follow_redirects=False,auth=None)
             if response.status_code in (401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
             if response.status_code!=200:raise CoreError(ErrorCode.UPSTREAM_FAILURE)
