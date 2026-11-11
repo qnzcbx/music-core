@@ -1,0 +1,486 @@
+[
+  {
+    "quality": "auto",
+    "outputMode": "original",
+    "preview": {
+      "quality": "auto",
+      "availability": "available",
+      "representation": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": "audio/mpeg",
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "errorCode": null,
+      "conversion": {
+        "available": true,
+        "reason": ""
+      }
+    },
+    "id": "c584f181ba754dcaa4ab6464006ba42b",
+    "task": {
+      "outputMode": "original",
+      "expectedSourceCodec": "flac",
+      "phase": "completed",
+      "sourceMedia": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "transcoded": false,
+      "finalSizeBytes": 50893686,
+      "quality": "auto",
+      "actualMedia": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "id": "c584f181ba754dcaa4ab6464006ba42b",
+      "identity": {
+        "providerId": "netease",
+        "platformId": "167691"
+      },
+      "title": "天龙八部之宿敌",
+      "artist": "许嵩",
+      "status": "completed",
+      "receivedBytes": 50893686,
+      "totalBytes": 50893686,
+      "progress": 1.0,
+      "filename": "许嵩 - 天龙八部之宿敌.flac",
+      "fileId": "8899fd8929fc2336cdb6d8166d64cedc581b101f413a26d4a40de0317b04cdf7",
+      "format": "flac",
+      "errorCode": null,
+      "createdAt": 1794410446463,
+      "updatedAt": 1794410459177
+    },
+    "phases": [
+      "resolving",
+      "downloading",
+      "completed"
+    ],
+    "resolution": {
+      "resolver": "gdstudio-preview",
+      "identity": "request_bound",
+      "scope": "configured_preview"
+    },
+    "diskBytes": 50893686,
+    "ffprobe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "flac",
+          "sample_rate": "44100",
+          "channels": 2
+        }
+      ],
+      "format": {
+        "duration": "263.340408",
+        "size": "50893686"
+      }
+    }
+  },
+  {
+    "quality": "auto",
+    "outputMode": "mp3_320",
+    "preview": {
+      "quality": "auto",
+      "availability": "available",
+      "representation": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": "audio/mpeg",
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "errorCode": null,
+      "conversion": {
+        "available": true,
+        "reason": ""
+      }
+    },
+    "id": "89ff3aafde1e41b2a11ec97148f6f5bd",
+    "transcodingShot": true,
+    "task": {
+      "outputMode": "mp3_320",
+      "expectedSourceCodec": "flac",
+      "phase": "completed",
+      "sourceMedia": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "transcoded": true,
+      "finalSizeBytes": 10535750,
+      "quality": "auto",
+      "actualMedia": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 10535750,
+        "bitrateBps": 320000,
+        "lossless": false
+      },
+      "id": "89ff3aafde1e41b2a11ec97148f6f5bd",
+      "identity": {
+        "providerId": "netease",
+        "platformId": "167691"
+      },
+      "title": "天龙八部之宿敌",
+      "artist": "许嵩",
+      "status": "completed",
+      "receivedBytes": 50893686,
+      "totalBytes": 50893686,
+      "progress": 1.0,
+      "filename": "许嵩 - 天龙八部之宿敌.mp3",
+      "fileId": "ca070cc4c94e084fb467e3d949574c82809886847398b938cdcbabf0b15bbf4f",
+      "format": "mp3",
+      "errorCode": null,
+      "createdAt": 1794410460205,
+      "updatedAt": 1794410476902
+    },
+    "phases": [
+      "resolving",
+      "downloading",
+      "transcoding",
+      "completed"
+    ],
+    "resolution": {
+      "resolver": "gdstudio-preview",
+      "identity": "request_bound",
+      "scope": "configured_preview"
+    },
+    "diskBytes": 10535750,
+    "ffprobe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "44100",
+          "channels": 2,
+          "bit_rate": "320000"
+        }
+      ],
+      "format": {
+        "duration": "263.340408",
+        "size": "10535750"
+      }
+    },
+    "localPlayPauseSeek": true
+  },
+  {
+    "quality": "auto",
+    "outputMode": "mp3_192",
+    "preview": {
+      "quality": "auto",
+      "availability": "available",
+      "representation": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": "audio/mpeg",
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "errorCode": null,
+      "conversion": {
+        "available": true,
+        "reason": ""
+      }
+    },
+    "id": "4910cd6a12a542b292bb6aa9eae811d1",
+    "transcodingShot": true,
+    "task": {
+      "outputMode": "mp3_192",
+      "expectedSourceCodec": "flac",
+      "phase": "completed",
+      "sourceMedia": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "transcoded": true,
+      "finalSizeBytes": 6321467,
+      "quality": "auto",
+      "actualMedia": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 6321467,
+        "bitrateBps": 192000,
+        "lossless": false
+      },
+      "id": "4910cd6a12a542b292bb6aa9eae811d1",
+      "identity": {
+        "providerId": "netease",
+        "platformId": "167691"
+      },
+      "title": "天龙八部之宿敌",
+      "artist": "许嵩",
+      "status": "completed",
+      "receivedBytes": 50893686,
+      "totalBytes": 50893686,
+      "progress": 1.0,
+      "filename": "许嵩 - 天龙八部之宿敌 (2).mp3",
+      "fileId": "287aac16b8d86596331d8ce22a46b6f89af477a8f5f3a595ab67a6e6b387f34f",
+      "format": "mp3",
+      "errorCode": null,
+      "createdAt": 1794410479879,
+      "updatedAt": 1794410497263
+    },
+    "phases": [
+      "resolving",
+      "downloading",
+      "transcoding",
+      "completed"
+    ],
+    "resolution": {
+      "resolver": "gdstudio-preview",
+      "identity": "request_bound",
+      "scope": "configured_preview"
+    },
+    "diskBytes": 6321467,
+    "ffprobe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "44100",
+          "channels": 2,
+          "bit_rate": "192000"
+        }
+      ],
+      "format": {
+        "duration": "263.340408",
+        "size": "6321467"
+      }
+    },
+    "localPlayPauseSeek": true
+  },
+  {
+    "quality": "high",
+    "outputMode": "original",
+    "preview": {
+      "quality": "high",
+      "availability": "available",
+      "representation": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": "audio/mpeg",
+        "providerQualityId": "high",
+        "sizeBytes": 10535750,
+        "bitrateBps": 320000,
+        "lossless": false
+      },
+      "errorCode": null,
+      "conversion": null
+    },
+    "id": "b853dc90269d4a2682165921e6dabc3e",
+    "task": {
+      "outputMode": "original",
+      "expectedSourceCodec": null,
+      "phase": "completed",
+      "sourceMedia": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 10535750,
+        "bitrateBps": 320000,
+        "lossless": false
+      },
+      "transcoded": false,
+      "finalSizeBytes": 10535750,
+      "quality": "high",
+      "actualMedia": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 10535750,
+        "bitrateBps": 320000,
+        "lossless": false
+      },
+      "id": "b853dc90269d4a2682165921e6dabc3e",
+      "identity": {
+        "providerId": "netease",
+        "platformId": "167691"
+      },
+      "title": "天龙八部之宿敌",
+      "artist": "许嵩",
+      "status": "completed",
+      "receivedBytes": 10535750,
+      "totalBytes": 10535750,
+      "progress": 1.0,
+      "filename": "许嵩 - 天龙八部之宿敌 (3).mp3",
+      "fileId": "10efcbab63cda582c80b9ea4fcfbf0c4580edb630a5e5d7614f712da29952c6f",
+      "format": "mp3",
+      "errorCode": null,
+      "createdAt": 1794410500424,
+      "updatedAt": 1794410504036
+    },
+    "phases": [
+      "resolving",
+      "downloading",
+      "completed"
+    ],
+    "resolution": {
+      "resolver": "gdstudio-preview",
+      "identity": "request_bound",
+      "scope": "configured_preview"
+    },
+    "diskBytes": 10535750,
+    "ffprobe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "44100",
+          "channels": 2,
+          "bit_rate": "320000"
+        }
+      ],
+      "format": {
+        "duration": "263.340408",
+        "size": "10535750"
+      }
+    },
+    "localPlayPauseSeek": true
+  },
+  {
+    "quality": "lossless",
+    "outputMode": "mp3_320",
+    "preview": {
+      "quality": "lossless",
+      "availability": "available",
+      "representation": {
+        "sampleRateHz": 44100,
+        "container": "flac",
+        "codec": "flac",
+        "contentType": "audio/mpeg",
+        "providerQualityId": "lossless",
+        "sizeBytes": 50893686,
+        "bitrateBps": null,
+        "lossless": true
+      },
+      "errorCode": null,
+      "conversion": {
+        "available": true,
+        "reason": ""
+      }
+    },
+    "id": "2243340c8b314c17a34b92ba0975a226",
+    "task": {
+      "outputMode": "mp3_320",
+      "expectedSourceCodec": "flac",
+      "phase": "completed",
+      "sourceMedia": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 10535750,
+        "bitrateBps": 320000,
+        "lossless": false
+      },
+      "transcoded": false,
+      "finalSizeBytes": 10535750,
+      "quality": "lossless",
+      "actualMedia": {
+        "sampleRateHz": 44100,
+        "container": "mpeg-audio",
+        "codec": "mp3",
+        "contentType": null,
+        "providerQualityId": null,
+        "sizeBytes": 10535750,
+        "bitrateBps": 320000,
+        "lossless": false
+      },
+      "id": "2243340c8b314c17a34b92ba0975a226",
+      "identity": {
+        "providerId": "netease",
+        "platformId": "167691"
+      },
+      "title": "天龙八部之宿敌",
+      "artist": "许嵩",
+      "status": "completed",
+      "receivedBytes": 10535750,
+      "totalBytes": 10535750,
+      "progress": 1.0,
+      "filename": "许嵩 - 天龙八部之宿敌 (4).mp3",
+      "fileId": "4972f26c7f6b600cd3bd2136ab1d1be6e147c0d9c9b4071db1347138ce27615c",
+      "format": "mp3",
+      "errorCode": null,
+      "createdAt": 1794410506838,
+      "updatedAt": 1794410510538
+    },
+    "phases": [
+      "resolving",
+      "downloading",
+      "completed"
+    ],
+    "resolution": {
+      "resolver": "gdstudio-preview",
+      "identity": "request_bound",
+      "scope": "configured_preview"
+    },
+    "diskBytes": 10535750,
+    "ffprobe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "44100",
+          "channels": 2,
+          "bit_rate": "320000"
+        }
+      ],
+      "format": {
+        "duration": "263.340408",
+        "size": "10535750"
+      }
+    },
+    "localPlayPauseSeek": true
+  }
+]

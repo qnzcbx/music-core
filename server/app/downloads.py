@@ -31,10 +31,15 @@ TERMINAL = {'completed', 'failed', 'cancelled'}
 ROOT = Path(__file__).resolve().parents[2] / 'downloads'
 
 
+OutputMode=Literal['original','mp3_320','mp3_192']
+
+
 DownloadQuality=Literal['auto','standard','high','lossless']
 
 
 class DownloadRequest(DTO):
+    outputMode: OutputMode = 'original'
+    expectedSourceCodec: Literal['flac'] | None = None
     quality: DownloadQuality = 'auto'
     identity: TrackIdentity
     # 名称仅用于文件展示，不参与身份解析；缺省按稳定身份命名。
@@ -43,6 +48,12 @@ class DownloadRequest(DTO):
 
 
 class DownloadTask(DTO):
+    outputMode: OutputMode = 'original'
+    expectedSourceCodec: Literal['flac'] | None = None
+    phase: Literal['downloading','transcoding','verifying','completed'] | None = None
+    sourceMedia: MediaRepresentation | None = None
+    transcoded: bool = False
+    finalSizeBytes: int | None = None
     quality: DownloadQuality = 'auto'
     actualMedia: MediaRepresentation | None = None
     id: str
@@ -100,9 +111,10 @@ class DownloadSettings:
     max_pending: int = 20
     max_bytes: int = 1024 * 1024 * 1024
     timeout: float = 1800
+    conversion_timeout: float = 300
 
     def __post_init__(self):
-        if min(self.concurrency, self.capacity, self.max_pending, self.max_bytes, self.timeout) <= 0:
+        if min(self.concurrency, self.capacity, self.max_pending, self.max_bytes, self.timeout, self.conversion_timeout) <= 0:
             raise ValueError('下载限制必须为正数')
 
 
@@ -156,6 +168,7 @@ class DownloadManager:
         self.root = Path(settings.directory).resolve()
         self.jobs = {}
         self.slots = asyncio.Semaphore(settings.concurrency)
+        self.conversion_slots = asyncio.Semaphore(1)
         self.closed = False
         self.file_lock = threading.RLock()
         self.readers = {}
@@ -165,7 +178,7 @@ class DownloadManager:
         try:
             if self.root.exists():
                 for path in self.root.glob('.music-core-*.part'):
-                    match = re.fullmatch(r'\.music-core-([1-9][0-9]{0,9})-[0-9a-f]{32}\.part', path.name)
+                    match = re.fullmatch(r'\.music-core-([1-9][0-9]{0,9})-[0-9a-f]{32}(?:-output)?\.part', path.name)
                     if match and not process_exists(int(match[1])):
                         with suppress(OSError): path.unlink()
         except OSError:
@@ -179,7 +192,7 @@ class DownloadManager:
 
     def view(self, job):
         p = job.public
-        return p.model_copy(update={'progress': p.receivedBytes / p.totalBytes if p.totalBytes else None})
+        return p.model_copy(update={'progress': p.receivedBytes / p.totalBytes if p.totalBytes and p.phase in (None,'downloading','completed') else None})
 
     def get(self, identifier):
         if identifier not in self.jobs: raise HTTPException(404)
@@ -353,7 +366,7 @@ class DownloadManager:
             del self.jobs[old]
         now = int(time()*1000)
         job = Job(DownloadTask(id=uuid4().hex, identity=body.identity, title=body.title, artist=body.artist,
-                              quality=body.quality, status='queued', createdAt=now, updatedAt=now))
+                              quality=body.quality, outputMode=body.outputMode, expectedSourceCodec=body.expectedSourceCodec, status='queued', createdAt=now, updatedAt=now))
         self.jobs[job.public.id] = job
         job.worker = asyncio.create_task(self.run(job))
         # queued阶段即取消时协程可能尚未启动，回调仍负责去除Task引用。
@@ -392,16 +405,40 @@ class DownloadManager:
         except Exception:
             if job.public.status not in TERMINAL: self.update(job, status='failed', errorCode='internal_error')
         finally:
-            try: part.unlink(missing_ok=True)
-            except OSError:
-                # 清理失败明确可见，下次启动仍只识别为未完成文件。
-                self.update(job, errorCode='temporary_cleanup_failed')
+            for owned in (part,part.with_name(part.stem+'-output.part')):
+                try:owned.unlink(missing_ok=True)
+                except OSError:
+                    # 每份任务文件独立清理，不因一个删除失败跳过另一份。
+                    self.update(job, errorCode='temporary_cleanup_failed')
 
     async def transfer(self, job, part):
         if job.public.status in TERMINAL: raise asyncio.CancelledError()
         self.update(job, status='resolving')
-        media = await provider_for(self.state, job.public.identity.providerId).resolve(
-            job.public.identity, ResolveOptions(purpose='download',providerQualityId=None if job.public.quality=='auto' else job.public.quality))
+        async def resolve_source():
+            provider=provider_for(self.state,job.public.identity.providerId)
+            if job.public.outputMode!='original':
+                bitrate=320000 if job.public.outputMode=='mp3_320' else 192000
+                cached=getattr(self.state,'download_quality_cache',{})
+                # 只利用同身份、仍有效的已确认MP3摘要，不扫描其他来源或所有路线。
+                for quality in ('high','standard','auto'):
+                    value=cached.get((job.public.identity.providerId,job.public.identity.platformId,quality))
+                    rep=value[1].get('representation') if value and value[0]>time() else None
+                    if not rep or rep.get('codec')!='mp3' or abs((rep.get('bitrateBps') or 0)-bitrate)>1000:continue
+                    try:
+                        candidate=await asyncio.wait_for(provider.resolve(job.public.identity,ResolveOptions(purpose='download',providerQualityId=None if quality=='auto' else quality)),8)
+                        if candidate.identity!=job.public.identity:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                        rep=candidate.representation
+                        if not (rep.codec and rep.bitrateBps):
+                            from app.core.media_probe import verify_media
+                            rep=await verify_media(self.state.http_client,candidate.upstreamUrl.get_secret_value(),candidate.identity.providerId,detail=True,
+                                headers={k:v.get_secret_value() for k,v in candidate.headers.items()})
+                        if rep.codec=='mp3' and abs((rep.bitrateBps or 0)-bitrate)<=1000:return candidate.model_copy(update={'representation':rep})
+                    except CoreError as error:
+                        if error.code not in (ErrorCode.MEDIA_UNAVAILABLE,ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.UPSTREAM_FAILURE):raise
+                    except asyncio.TimeoutError:pass
+                    break
+            return await provider.resolve(job.public.identity,ResolveOptions(purpose='download',providerQualityId=None if job.public.quality=='auto' else job.public.quality))
+        media=await asyncio.wait_for(resolve_source(),25) if job.public.outputMode!='original' else await resolve_source()
         if media.identity != job.public.identity: raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         if media.validUntil is not None and media.validUntil <= int(time()*1000):
             raise CoreError(ErrorCode.UPSTREAM_MEDIA_EXPIRED)
@@ -442,7 +479,7 @@ class DownloadManager:
                 total = int(match[2])
             if total is not None and total > self.settings.max_bytes: raise CoreError(ErrorCode.MEDIA_CAPACITY)
             self.root.mkdir(parents=True, exist_ok=True)
-            self.update(job, status='downloading', totalBytes=total)
+            self.update(job, status='downloading', phase='downloading', totalBytes=total)
             prefix = bytearray()
             # 同步有界文件写入不会留下取消后仍写盘的线程；每块让出事件循环。
             with part.open('xb') as output:
@@ -462,12 +499,26 @@ class DownloadManager:
             if media.representation.sizeBytes is not None and size != media.representation.sizeBytes:
                 raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
             actual=inspect_audio(bytes(prefix)).model_copy(update={'sizeBytes':size})
-            if not satisfies(actual,job.public.quality):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
-            self.update(job,actualMedia=actual)
+            direct=job.public.outputMode!='original' and actual.codec=='mp3' and abs((actual.bitrateBps or 0)-(320000 if job.public.outputMode=='mp3_320' else 192000))<=1000
+            if not direct and not satisfies(actual,job.public.quality):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
+            if job.public.expectedSourceCodec and job.public.outputMode=='original' and actual.codec!=job.public.expectedSourceCodec:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
             kind = audio_format(bytes(prefix))
             expected = media.representation.container
             if expected in ('flac','mpeg-audio','mp4','ogg') and kind != {'mpeg-audio':'mp3','mp4':'m4a'}.get(expected,expected):
                 raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+            self.update(job,sourceMedia=actual)
+            publish_part=part
+            if job.public.outputMode!='original' and not direct:
+                if actual.codec!='flac' or actual.lossless is not True:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                from app.transcode import convert_flac
+                publish_part=part.with_name(part.stem+'-output.part')
+                async with self.conversion_slots:
+                    self.update(job,phase='transcoding')
+                    actual=await asyncio.wait_for(convert_flac(part,publish_part,320000 if job.public.outputMode=='mp3_320' else 192000,
+                        timeout=self.settings.conversion_timeout,max_bytes=self.settings.max_bytes),self.settings.conversion_timeout)
+                self.update(job,phase='verifying',actualMedia=actual,transcoded=True)
+                kind='mp3'
+            self.update(job,phase='verifying',actualMedia=actual,finalSizeBytes=actual.sizeBytes)
             # 最后一次可取消点在发布前；原子发布与终态更新之间没有await。
             await asyncio.sleep(0)
             if job.public.status in TERMINAL: raise asyncio.CancelledError()
@@ -478,11 +529,11 @@ class DownloadManager:
                 target = self.root / (stem + (f' ({index})' if index > 1 else '') + '.' + kind)
                 try:
                     # 同文件系统硬链接是原子的“不存在才发布”，跨进程也绝不覆盖。
-                    os.link(part,target)
+                    os.link(publish_part,target)
                     break
                 except FileExistsError: continue
             else: raise OSError('无可用文件名')
-            self.update(job, status='completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind)
+            self.update(job, status='completed', phase='completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind)
         finally:
             if response is not None:
                 with anyio.CancelScope(shield=True): await response.aclose()
@@ -526,7 +577,9 @@ def download_router():
                 rep=await verify_media(request.app.state.http_client,media.upstreamUrl.get_secret_value(),body.identity.providerId,detail=True,
                     headers={k:v.get_secret_value() for k,v in media.headers.items()})
             if not satisfies(rep,body.quality):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
-            return {'quality':body.quality,'availability':'available','representation':rep.model_dump(),'errorCode':None}
+            from app.transcode import encoder_capability
+            conversion=await encoder_capability() if rep.codec=='flac' and rep.lossless is True else None
+            return {'quality':body.quality,'availability':'available','representation':rep.model_dump(),'errorCode':None,'conversion':conversion}
         operation=asyncio.create_task(asyncio.wait_for(detect(),27))
         async def disconnected():
             while not operation.done():
@@ -589,6 +642,6 @@ def download_router():
         m = manager(request)
         p = m.get(identifier).public
         if p.status not in ('failed','cancelled'): raise HTTPException(409)
-        return m.view(m.create(DownloadRequest(identity=p.identity,title=p.title,artist=p.artist,quality=p.quality)))
+        return m.view(m.create(DownloadRequest(identity=p.identity,title=p.title,artist=p.artist,quality=p.quality,outputMode=p.outputMode,expectedSourceCodec=p.expectedSourceCodec)))
 
     return router

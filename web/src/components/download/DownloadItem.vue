@@ -134,8 +134,8 @@ async function copy() {
           </div>
         </div>
         <span class="download-size">
-          {{ formatDownloadBytes(file?.sizeBytes ?? task?.receivedBytes) }}
-          <template v-if="!file && task?.totalBytes">
+          {{ formatDownloadBytes(file?.sizeBytes ?? (task?.status==='completed' ? task.finalSizeBytes ?? task.receivedBytes : task?.receivedBytes)) }}
+          <template v-if="!file && task?.totalBytes && task.status!=='completed'">
             / {{ formatDownloadBytes(task.totalBytes) }}
           </template
         ></span>
@@ -151,11 +151,11 @@ async function copy() {
             <template v-else-if="task?.status === 'completed'">
               · {{ task.format?.toUpperCase() }}
               <span class="compact-size">
-                · {{ formatDownloadBytes(task.receivedBytes) }}
+                · {{ formatDownloadBytes(task.finalSizeBytes ?? task.receivedBytes) }}
               </span>
             </template>
           </span>
-          <template v-if="!file && task?.status === 'downloading'">
+          <template v-if="!file && task?.status === 'downloading' && (!task.phase || task.phase==='downloading')">
             <progress
               v-if="task.totalBytes"
               :max="task.totalBytes"
@@ -165,13 +165,14 @@ async function copy() {
             <progress v-else aria-label="下载进度未知" />
             <small>
               {{ percent !== null ? percent + "% · " : "" }}
-              {{ formatDownloadBytes(task.receivedBytes) }}
+              {{ formatDownloadBytes(task.finalSizeBytes ?? task.receivedBytes) }}
               <template v-if="task.totalBytes">
                 / {{ formatDownloadBytes(task.totalBytes) }}
               </template>
               <template v-else> · 总大小未知</template>
             </small>
           </template>
+          <progress v-if="!file && task?.status==='downloading' && ['transcoding','verifying'].includes(task.phase||'')" aria-label="正在处理音频"/>
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
         <div class="download-actions">

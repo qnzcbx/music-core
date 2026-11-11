@@ -1,0 +1,9 @@
+[
+  {
+    "realOnlineCancel": true,
+    "phaseAtCancel": "transcoding",
+    "temporaryFilesCleaned": true,
+    "processesExited": 3,
+    "sameAudioContinues": true
+  }
+]

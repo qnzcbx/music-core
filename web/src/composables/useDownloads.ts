@@ -3,7 +3,7 @@ import {createDownload,listDownloads,listDownloadFiles,updateDownload,removeDown
 import {ApiError} from '../api/http';
 import {trackIdentity,queueKey} from '../utils/player-queue';
 import type {SearchEntry} from '../types/music';
-import type {DownloadTask,SavedDownloadFile,DownloadQuality} from '../types/core';
+import type {DownloadTask,SavedDownloadFile,DownloadQuality,OutputMode} from '../types/core';
 
 export const activeDownload=(task:DownloadTask)=>['queued','resolving','downloading'].includes(task.status);
 export function useDownloads(){
@@ -40,12 +40,12 @@ export function useDownloads(){
    finally{operations.delete(key);const next=new Set(pending.value);next.delete(key);pending.value=next;revision++;if(inflight)again=true;else void refresh();}
   })();operations.set(key,work);return work;
  }
- async function create(song:SearchEntry,quality:DownloadQuality='auto'){
+ async function create(song:SearchEntry,quality:DownloadQuality='auto',outputMode:OutputMode='original',expectedSourceCodec:'flac'|null=null){
   const identity=trackIdentity(song),key=queueKey(identity);
-  const existing=[...tasks.value].reverse().find(task=>queueKey(task.identity)===key&&(task.quality??'auto')===quality&&(task.status!=='completed'||files.value.some(f=>f.fileId===task.fileId)));
+  const existing=[...tasks.value].reverse().find(task=>queueKey(task.identity)===key&&(task.quality??'auto')===quality&&(task.outputMode??'original')===outputMode&&(task.status!=='completed'||files.value.some(f=>f.fileId===task.fileId)));
   if(existing){feedback.value={key,text:existing.status==='completed'?'该版本已有完成记录，可在下载页查看':activeDownload(existing)?'该歌曲已在下载任务中':'该版本已有任务，可在下载页重试'};return existing;}
   covers.value[key]=song.cover??null;
-  return perform(key,()=>createDownload({identity,quality,title:song.title||song.name,artist:song.artist}),'已加入下载任务');
+  return perform(key,()=>createDownload({identity,quality,outputMode,expectedSourceCodec,title:song.title||song.name,artist:song.artist}),'已加入下载任务');
  }
  async function operate(task:DownloadTask,operation:'cancel'|'retry'){
   if(operation==='retry'&&retried.value[task.id])return;
