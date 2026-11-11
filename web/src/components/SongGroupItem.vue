@@ -55,7 +55,7 @@ watch(
       (entries) => {
         for (const entry of entries) {
           const bounds = root?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
-          // Only the main row is observed; expanded versions have no new observer/budget.
+          // 仅观测主行；展开版本没有新的 observer/budget。
           emit(
             "eligible",
             props.group.key,

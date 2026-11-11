@@ -155,7 +155,9 @@ async function copy() {
               </span>
             </template>
           </span>
-          <template v-if="!file && task?.status === 'downloading' && (!task.phase || task.phase==='downloading')">
+          <template 
+            v-if="!file && task?.status === 'downloading' && (!task.phase || task.phase==='downloading')"
+          >
             <progress
               v-if="task.totalBytes"
               :max="task.totalBytes"
@@ -172,7 +174,10 @@ async function copy() {
               <template v-else> · 总大小未知</template>
             </small>
           </template>
-          <progress v-if="!file && task?.status==='downloading' && ['transcoding','verifying'].includes(task.phase||'')" aria-label="正在处理音频"/>
+          <progress 
+            v-if="!file && task?.status==='downloading' && ['transcoding','verifying'].includes(task.phase||'')" 
+            aria-label="正在处理音频"
+          />
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
         <div class="download-actions">

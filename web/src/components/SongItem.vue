@@ -14,7 +14,6 @@ import {
   DropdownMenuItem,
 } from "./ui/dropdown-menu";
 import CoverArt from "./CoverArt.vue";
-import DownloadProgress from "./DownloadProgress.vue";
 import { providerName, providerFor } from "../composables/useProviders";
 import { availabilityOf, availabilityLabels } from "../utils/candidate-availability";
 import type { SearchEntry as Song, DownloadJob } from "../types/music";
@@ -101,12 +100,27 @@ function download() {
       class="row-play action-play"
       :aria-label="(selected ? player.actionLabel.value : playLabel) + ' ' + versionLabel"
       @click.stop="selected ? player.toggle() : emit('play', song)"
-    ></button>
+    />
     <div class="row-identity">
       <div class="cover">
         <CoverArt :src="song.cover" loading="lazy" />
-        <span class="cover-play" :data-icon="selected&&['opening','positioning'].includes(player.phase.value)?'loading':selected&&player.playing.value?'pause':'play'" aria-hidden="true">
-          <LoadingIcon v-if="selected&&['opening','positioning'].includes(player.phase.value)" class="row-loading"/><PauseIcon v-else-if="selected&&player.playing.value"/><PlayIcon v-else/>
+        <span
+          class="cover-play"
+          :data-icon="
+            selected && ['opening', 'positioning'].includes(player.phase.value)
+              ? 'loading'
+              : selected && player.playing.value
+                ? 'pause'
+                : 'play'
+          "
+          aria-hidden="true"
+        >
+          <LoadingIcon
+            v-if="selected && ['opening', 'positioning'].includes(player.phase.value)"
+            class="row-loading"
+          />
+          <PauseIcon v-else-if="selected && player.playing.value" />
+          <PlayIcon v-else />
         </span>
       </div>
       <div class="song">
@@ -126,14 +140,12 @@ function download() {
         </div>
         <small class="mobile-metadata">{{ album }} · {{ durationText }}</small>
         <small v-if="song.license?.id" class="license">{{ song.license.id }}</small>
-        <small 
-          v-if="song.credits?.some((c) => c.role === 'uploader')" 
-          class="license"
-        >
+        <small v-if="song.credits?.some((c) => c.role === 'uploader')" class="license">
           上传者署名
         </small>
       </div>
     </div>
+
     <div class="song-actions" aria-label="版本操作">
       <button
         :disabled="
@@ -151,38 +163,44 @@ function download() {
         <DownloadStateIcon :identity="identityError ? null : queueEntryFrom(song).track" />
       </button>
       <DropdownMenu>
-        <DropdownMenuTrigger as-child
-          ><button
+        <DropdownMenuTrigger as-child>
+          <button
             title="歌曲操作"
             type="button"
             class="song-action action-play-next"
             :aria-label="'歌曲操作 ' + versionLabel"
             @click.stop
           >
-            <NextIcon aria-hidden="true" /></button
-        ></DropdownMenuTrigger>
+            <NextIcon aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
         <DropdownMenuContent class="music-layer" align="end">
           <DropdownMenuItem
             class="mode-option"
             @select="selected ? player.toggle() : emit('play', song)"
-            >立即播放</DropdownMenuItem
           >
-          <DropdownMenuItem class="mode-option" @select="player.queue.add(song)"
-            >添加到播放队列</DropdownMenuItem
+            立即播放
+          </DropdownMenuItem>
+          <DropdownMenuItem 
+            class="mode-option" 
+            @select="player.queue.add(song)"
           >
+            添加到播放队列
+          </DropdownMenuItem>
           <DropdownMenuItem
             class="mode-option"
             :disabled="!player.queue.entries.value.some((e) => e.key === player.queue.key(song))"
             @select="player.queue.remove(player.queue.key(song))"
-            >从队列移除</DropdownMenuItem
           >
+            从队列移除
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+    
     <span class="row-album">{{ album }}</span>
     <time class="row-duration">{{ durationText }}</time>
     <div class="row-versions"><slot /></div>
-
   </article>
 </template>
 <style scoped>
@@ -397,7 +415,9 @@ function download() {
   }
 }
 @media (max-width: 600px) {
-  .mobile-metadata { display: none; }
+  .mobile-metadata {
+    display: none;
+  }
   .song-row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
@@ -445,12 +465,34 @@ function download() {
 </style>
 
 <style scoped>
-.row-loading{animation:row-loading 1s linear infinite}@keyframes row-loading{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.row-loading{animation:none}}
+.row-loading {
+  animation: row-loading 1s linear infinite;
+}
+@keyframes row-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-loading {
+    animation: none;
+  }
+}
 </style>
 
 <style scoped>
-.song-actions:has([data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])) { opacity:1; }
-@media(min-width:601px) and (hover:hover) {
-  .song-row:not(:hover):not(:focus-within) .song-actions:has([data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])) .action-play-next { opacity:0; }
+.song-actions:has(
+  [data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])
+) {
+  opacity: 1;
+}
+@media (min-width: 601px) and (hover: hover) {
+  .song-row:not(:hover):not(:focus-within)
+    .song-actions:has(
+      [data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])
+    )
+    .action-play-next {
+    opacity: 0;
+  }
 }
 </style>

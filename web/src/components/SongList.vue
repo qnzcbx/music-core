@@ -28,9 +28,11 @@ const emit = defineEmits<{
       <span class="duration-heading">时长</span>
       <span class="version-heading">版本</span>
     </div>
+
     <p v-if="!songs.length" class="empty">
       {{ busy ? "正在等待首个来源的候选…" : "搜索后，歌曲会出现在这里。" }}
     </p>
+    
     <TransitionGroup name="result-row" tag="div">
       <SongGroupItem
         v-for="(group, index) in groups"

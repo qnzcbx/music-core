@@ -37,7 +37,8 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
   const layoutMotion = createPlayerLayoutTransition(panel, reduced, phase);
   function selectLayout(value: unknown) {
     if (!isPlayerLayout(value) || value === layout.value) return false;
-    // One geometry owner at a time. Rapid input settles the prior final CSS.
+    // 快速换模板先交接当前代理几何，再清理上一轮动画。
+    layoutMotion.preserve();
     reset();
     const first = immersive.value ? layoutMotion.capture(value) : undefined;
     selection.selectLayout(value);

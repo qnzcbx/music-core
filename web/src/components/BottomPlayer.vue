@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useCoreClient } from "../composables/useCoreClient";
 import { usePlayerVisuals } from "../composables/usePlayerTransition";
-import {useMediaQuery} from "@vueuse/core";
+import { useMediaQuery } from "@vueuse/core";
 import DownloadStateIcon from "./DownloadStateIcon.vue";
 import { isLocalSong } from "../types/music";
 import { trackIdentity } from "../utils/player-queue";
@@ -23,16 +23,19 @@ import "../styles/player-layers.css";
 const { player, downloads } = useCoreClient();
 const props = defineProps<{ immersive?: boolean }>();
 const visuals = usePlayerVisuals();
-const mobile=useMediaQuery("(max-width:600px)");
-const compactMini=computed(()=>!props.immersive&&mobile.value);
-const compactImmersive=computed(()=>!!props.immersive&&mobile.value);
+const mobile = useMediaQuery("(max-width:600px)");
+const compactMini = computed(() => !props.immersive && mobile.value);
+const compactImmersive = computed(() => !!props.immersive && mobile.value);
 const emit = defineEmits<{ lockChange: [locked: boolean] }>();
 const panels: Record<string, boolean> = {};
 function panel(name: string, open: boolean) {
   panels[name] = open;
   emit("lockChange", Object.values(panels).some(Boolean));
 }
-watch(compactImmersive,()=>{for(const key of ['volume','style','queue'])delete panels[key];emit('lockChange',Object.values(panels).some(Boolean));});
+watch(compactImmersive, () => {
+  for (const key of ["volume", "style", "queue"]) delete panels[key];
+  emit("lockChange", Object.values(panels).some(Boolean));
+});
 const { selected, time, duration, playing, message, phase } = player;
 const host = ref<HTMLElement>(),
   preview = ref<number | null>(null);
@@ -42,13 +45,19 @@ onMounted(() => {
     visuals.setMiniCover(host.value.querySelector(".mini-cover-art"));
   }
 });
-const downloadable = computed(()=>selected.value&&!isLocalSong(selected.value)&&!downloadBlockReason(selected.value)?selected.value:null);
-const downloadIdentity = computed(()=>downloadable.value?trackIdentity(downloadable.value):null);
-const progress = computed(() => preview.value ?? time.value);
-const pauseAction = computed(() =>
-  !player.failed.value && playing.value,
+const downloadable = computed(() =>
+  selected.value && !isLocalSong(selected.value) && !downloadBlockReason(selected.value)
+    ? selected.value
+    : null,
 );
-function transportAction(){return player.toggle();}
+const downloadIdentity = computed(() =>
+  downloadable.value ? trackIdentity(downloadable.value) : null,
+);
+const progress = computed(() => preview.value ?? time.value);
+const pauseAction = computed(() => !player.failed.value && playing.value);
+function transportAction() {
+  return player.toggle();
+}
 const format = (value: number) =>
   `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
 function seek(event: Event) {
@@ -85,29 +94,22 @@ function seek(event: Event) {
           <CoverArt :src="selected?.cover" />
         </span>
         <span v-if="selected" class="cover-expand" aria-hidden="true">
-          <ExpandIcon/>
+          <ExpandIcon />
         </span>
       </button>
       <div class="player-meta">
         <span class="track-title">
-          {{
-            selected?.title || selected?.name || "随心听"
-          }}
+          {{ selected?.title || selected?.name || "随心听" }}
         </span>
         <span class="player-artist">
-          {{
-            selected?.artist || (selected ? "" : "听我想听")
-          }}
+          {{ selected?.artist || (selected ? "" : "听我想听") }}
         </span>
         <span class="player-album">{{ selected?.album }}</span>
       </div>
     </div>
     <div v-if="!compactMini" class="transport">
       <div class="transport-buttons">
-        <PlaybackModeMenu
-          :immersive="immersive"
-          @open-change="panel('mode', $event)"
-        />
+        <PlaybackModeMenu :immersive="immersive" @open-change="panel('mode', $event)" />
         <button
           aria-label="上一首"
           :disabled="!player.queue.hasPrevious.value"
@@ -122,7 +124,9 @@ function seek(event: Event) {
           :title="player.actionLabel.value"
           @click="transportAction"
         >
-          <LoadingIcon v-if="player.busy.value" class="play-loading"/><PauseIcon v-else-if="pauseAction" /><PlayIcon v-else />
+          <LoadingIcon v-if="player.busy.value" class="play-loading" />
+          <PauseIcon v-else-if="pauseAction" />
+          <PlayIcon v-else />
         </button>
         <button
           aria-label="下一首"
@@ -131,11 +135,13 @@ function seek(event: Event) {
         >
           <NextIcon />
         </button>
-        <QueuePanel v-if="compactImmersive" immersive compact @open-change="panel('queue',$event)"/>
-        <VolumePopover v-else
-          :immersive="immersive"
-          @open-change="panel('volume', $event)"
+        <QueuePanel
+          v-if="compactImmersive"
+          immersive
+          compact
+          @open-change="panel('queue', $event)"
         />
+        <VolumePopover v-else :immersive="immersive" @open-change="panel('volume', $event)" />
       </div>
       <div class="progress-row">
         <time>{{ format(progress) }}</time>
@@ -155,7 +161,13 @@ function seek(event: Event) {
       </div>
     </div>
     <div v-if="!compactImmersive" class="player-tools">
-      <button v-if="!immersive" aria-label="下载当前歌曲" title="下载当前歌曲" :disabled="!downloadable" @click="downloadable && downloads.choose(downloadable)">
+      <button
+        v-if="!immersive"
+        aria-label="下载当前歌曲"
+        title="下载当前歌曲"
+        :disabled="!downloadable"
+        @click="downloadable && downloads.choose(downloadable)"
+      >
         <DownloadStateIcon :identity="downloadIdentity" />
       </button>
       <template v-if="immersive">
@@ -170,15 +182,27 @@ function seek(event: Event) {
           @open-change="panel('style', $event)"
         />
       </template>
-      <button v-if="compactMini" class="mini-play-toggle" :disabled="!selected || player.busy.value"
+      <button
+        v-if="compactMini"
+        class="mini-play-toggle"
+        :disabled="!selected || player.busy.value"
         :title="player.actionLabel.value"
         :aria-label="player.actionLabel.value"
-        @click="transportAction">
-        <LoadingIcon v-if="player.busy.value" class="play-loading"/><PauseIcon v-else-if="pauseAction"/><PlayIcon v-else/>
-      </button>
-      <button v-else :disabled="!selected" title="查看歌词" aria-label="查看歌词" @click="visuals.open">
-        词</button
+        @click="transportAction"
       >
+        <LoadingIcon v-if="player.busy.value" class="play-loading" />
+        <PauseIcon v-else-if="pauseAction" />
+        <PlayIcon v-else />
+      </button>
+      <button
+        v-else
+        :disabled="!selected"
+        title="查看歌词"
+        aria-label="查看歌词"
+        @click="visuals.open"
+      >
+        词
+      </button>
       <QueuePanel
         :compact="compactMini"
         :immersive="immersive"
@@ -474,36 +498,157 @@ function seek(event: Event) {
 </style>
 
 <style scoped>
-.cover-expand{position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:#18252b80;color:#fff;opacity:0;transition:opacity .12s ease}.player .cover-expand svg{width:24px;height:24px}.player-cover:hover:not(:disabled) .cover-expand,.player-cover:focus-visible .cover-expand{opacity:1}.player .immersive-back svg{width:24px;height:24px}.immersive-controls::before,.immersive-controls::after{content:none;display:none}.immersive-controls :deep(.layout-card){display:block;height:auto;min-height:0;min-width:0;padding:6px;border:1px solid transparent;color:var(--player-control)}.immersive-controls :deep(.layout-card[aria-pressed=true]){border-color:var(--player-focus)}
-@media(prefers-reduced-motion:reduce){.cover-expand{transition:none}}
-</style>
-
-<style scoped>
-@media(max-width:600px){
- .immersive-controls{display:block;padding:12px 22px max(20px,env(safe-area-inset-bottom));-webkit-tap-highlight-color:transparent}
- .immersive-controls .transport{display:flex;flex-direction:column;gap:14px}
- .immersive-controls .progress-row{order:0;display:grid;grid-template-columns:1fr 1fr;gap:0;margin:0}
- .immersive-controls .progress-row input{grid-column:1/-1;grid-row:1;width:100%;height:22px;margin:0}
- .immersive-controls .progress-row time{grid-row:2;line-height:1.2;font-size:10px;opacity:.8}
- .immersive-controls .transport-buttons{order:1;justify-content:space-between;gap:10px;padding:0 4px}
- .immersive-controls .transport-buttons :deep(button){width:44px;min-width:44px;height:44px;padding:8px}
- .immersive-controls .transport-buttons :deep(svg){width:24px;height:24px}
- .immersive-controls .transport-buttons .play-toggle{width:56px;min-width:56px;height:56px;border:1.5px solid var(--mini-text);background:transparent}
- .immersive-controls .transport-buttons .play-toggle svg{width:28px;height:28px}
+.cover-expand {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: #18252b80;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.player .cover-expand svg {
+  width: 24px;
+  height: 24px;
+}
+.player-cover:hover:not(:disabled) .cover-expand,
+.player-cover:focus-visible .cover-expand {
+  opacity: 1;
+}
+.player .immersive-back svg {
+  width: 24px;
+  height: 24px;
+}
+.immersive-controls::before,
+.immersive-controls::after {
+  content: none;
+  display: none;
+}
+.immersive-controls :deep(.layout-card) {
+  display: block;
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid transparent;
+  color: var(--player-control);
+}
+.immersive-controls :deep(.layout-card[aria-pressed="true"]) {
+  border-color: var(--player-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cover-expand {
+    transition: none;
+  }
 }
 </style>
 
 <style scoped>
-@media(max-width:600px) {
-  .player:not(.immersive-controls) { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
-  .player:not(.immersive-controls) .player-tools { grid-column:2; grid-row:1; gap:4px; }
-  .player:not(.immersive-controls) .player-tools > :deep(button) { width:44px; height:44px; padding:10px; }
-  .player:not(.immersive-controls) .player-tools :deep(svg) { width:24px; height:24px; }
-  .player:not(.immersive-controls) .player-meta .track-title { font-size:13px; color:var(--mini-text); }
-  .player:not(.immersive-controls) .player-album { display:none; }
+@media (max-width: 600px) {
+  .immersive-controls {
+    display: block;
+    padding: 12px 22px max(20px, env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  .immersive-controls .transport {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .immersive-controls .progress-row {
+    order: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin: 0;
+  }
+  .immersive-controls .progress-row input {
+    grid-column: 1/-1;
+    grid-row: 1;
+    width: 100%;
+    height: 22px;
+    margin: 0;
+  }
+  .immersive-controls .progress-row time {
+    grid-row: 2;
+    line-height: 1.2;
+    font-size: 10px;
+    opacity: 0.8;
+  }
+  .immersive-controls .transport-buttons {
+    order: 1;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 4px;
+  }
+  .immersive-controls .transport-buttons :deep(button) {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 8px;
+  }
+  .immersive-controls .transport-buttons :deep(svg) {
+    width: 24px;
+    height: 24px;
+  }
+  .immersive-controls .transport-buttons .play-toggle {
+    width: 56px;
+    min-width: 56px;
+    height: 56px;
+    border: 1.5px solid var(--mini-text);
+    background: transparent;
+  }
+  .immersive-controls .transport-buttons .play-toggle svg {
+    width: 28px;
+    height: 28px;
+  }
 }
 </style>
 
 <style scoped>
-.play-loading{animation:play-loading 1s linear infinite}@keyframes play-loading{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.play-loading{animation:none}}
+@media (max-width: 600px) {
+  .player:not(.immersive-controls) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .player:not(.immersive-controls) .player-tools {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 4px;
+  }
+  .player:not(.immersive-controls) .player-tools > :deep(button) {
+    width: 44px;
+    height: 44px;
+    padding: 10px;
+  }
+  .player:not(.immersive-controls) .player-tools :deep(svg) {
+    width: 24px;
+    height: 24px;
+  }
+  .player:not(.immersive-controls) .player-meta .track-title {
+    font-size: 13px;
+    color: var(--mini-text);
+  }
+  .player:not(.immersive-controls) .player-album {
+    display: none;
+  }
+}
+</style>
+
+<style scoped>
+.play-loading {
+  animation: play-loading 1s linear infinite;
+}
+@keyframes play-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .play-loading {
+    animation: none;
+  }
+}
 </style>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import SearchBar from '../SearchBar.vue';
-import { useCoreClient } from '../../composables/useCoreClient';
-const { searchState: { sources, providers } } = useCoreClient();
+import SearchBar from "../SearchBar.vue";
+import { useCoreClient } from "../../composables/useCoreClient";
+const {
+  searchState: { sources, providers },
+} = useCoreClient();
 </script>
 <template>
   <div class="source-selector">
@@ -9,6 +11,10 @@ const { searchState: { sources, providers } } = useCoreClient();
   </div>
 </template>
 <style scoped>
-.source-selector { min-width:0; }
-.source-selector :deep(.primary-sources) { flex-wrap:wrap; }
+.source-selector {
+  min-width: 0;
+}
+.source-selector :deep(.primary-sources) {
+  flex-wrap: wrap;
+}
 </style>

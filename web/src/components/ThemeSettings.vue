@@ -11,8 +11,8 @@ const unsubscribe = appearance.subscribe(() => {
 const panel = ref<HTMLDetailsElement>();
 const groupName = `appearance-${useId()}`;
 const choices: { value: ThemeMode; label: string; hint: string }[] = [
-  { value: "light", label: "浅色", hint: "温暖的米色与柔绿" },
-  { value: "dark", label: "深色", hint: "低亮度的墨绿与暖灰" },
+  { value: "light", label: "浅色", hint: "灰与白" },
+  { value: "dark", label: "深色", hint: "绿与黑" },
   { value: "system", label: "跟随系统", hint: "随设备外观自动切换" },
 ];
 function close(restore = false) {

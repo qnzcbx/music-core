@@ -22,18 +22,29 @@ onMounted(() => document.addEventListener("pointerdown", outside));
 onUnmounted(() => document.removeEventListener("pointerdown", outside));
 </script>
 <template>
-  <component :is="inline ? 'section' : 'details'" ref="panel" class="layout-selector relative" :class="{'layout-inline':inline,'layout-above':above}" @toggle="emit('openChange',!!panel?.open)" :aria-busy="transitioning" @keydown.esc.stop.prevent="close(true)">
+  <component 
+    :is="inline ? 'section' : 'details'" 
+    ref="panel" 
+    class="layout-selector relative" 
+    :class="{'layout-inline':inline,'layout-above':above}" 
+    @toggle="emit('openChange',!!panel?.open)" 
+    :aria-busy="transitioning" 
+    @keydown.esc.stop.prevent="close(true)"
+  >
     <summary
       v-if="!inline"
       class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-solid border-app-border bg-transparent px-3 py-2 text-xs text-app-muted hover:bg-app-surface focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-app-focus"
       aria-label="播放器样式" title="播放器样式"
     >
-      <StyleIcon aria-hidden="true"/><span v-if="!iconOnly">样式</span>
+      <StyleIcon aria-hidden="true"/>
+      <span v-if="!iconOnly">样式</span>
     </summary>
     <div
       class="layout-panel absolute right-0 z-50 mt-2 rounded-xl border border-solid border-app-border bg-app-raised p-4 shadow-app-panel"
     >
-      <p v-if="!inline" class="layout-heading">播放器样式 <span>让音乐换一种呈现</span></p>
+      <p v-if="!inline" class="layout-heading">
+        播放器样式 <span>让音乐换一种呈现</span>
+      </p>
       <div 
         class="layout-grid grid grid-cols-2 gap-3" 
         role="group" 
@@ -48,24 +59,48 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
           :aria-pressed="layout === item.id"
           @click="select(item.id)"
         >
-          <span class="layout-preview" :class="`preview-${item.id}`" aria-hidden="true">
-            <span class="preview-machine"
-              ><span class="preview-disc"><i /></span><span class="preview-arm"
-            /></span>
-            <span class="preview-copy"><i /><i /><i /><i /></span>
+          <span 
+            class="layout-preview" 
+            :class="`preview-${item.id}`" 
+            aria-hidden="true"
+          >
+            <span class="preview-machine">
+              <span class="preview-disc"><i /></span>
+              <span class="preview-arm"/>
+            </span>
+            <span class="preview-copy">
+              <i /><i /><i /><i />
+            </span>
             <span v-if="layout === item.id" class="preview-check">✓</span>
           </span>
-          <span class="layout-name"
-            >{{ item.name }}<span v-if="layout === item.id" class="layout-current">当前</span></span
-          >
+          <span class="layout-name">
+            {{ item.name }}
+            <span 
+              v-if="layout === item.id" 
+              class="layout-current"
+            >
+              当前
+            </span>
+          </span>
           <span class="layout-description">{{ item.description }}</span>
         </button>
       </div>
       <fieldset class="alignment-settings">
         <legend>歌词对齐 <span>仅用于当前样式</span></legend>
         <div class="grid grid-cols-2 gap-3">
-          <label v-for="choice in ([{id:'left',label:'居左',icon:'☰'}, {id:'center',label:'居中',icon:'≡'}] as const)" :key="choice.id" class="alignment-choice" :class="{'alignment-selected': alignment === choice.id}">
-            <input type="radio" :name="alignmentGroup" :value="choice.id" :checked="alignment === choice.id" @change="emit('align', choice.id)" />
+          <label 
+            v-for="choice in ([{id:'left',label:'居左',icon:'☰'}, {id:'center',label:'居中',icon:'≡'}] as const)" 
+            :key="choice.id" 
+            class="alignment-choice" 
+            :class="{'alignment-selected': alignment === choice.id}"
+          >
+            <input 
+              type="radio" 
+              :name="alignmentGroup" 
+              :value="choice.id" 
+              :checked="alignment === choice.id" 
+              @change="emit('align', choice.id)" 
+            />
             <span aria-hidden="true">{{ choice.icon }}</span>{{ choice.label }}
           </label>
         </div>

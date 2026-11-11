@@ -12,14 +12,21 @@ const primary = computed(() => primarySources(props.providers));
   <div class="source-options">
     <fieldset class="primary-sources" aria-label="主要音乐来源">
       <legend class="sr-only">音乐来源</legend>
-      <label v-for="provider in primary" :key="provider.id" :title="provider.reason || undefined">
+      <label 
+        v-for="provider in primary" 
+        :key="provider.id" 
+        :title="provider.reason || undefined"
+      >
         <input
           v-model="sources"
           type="checkbox"
           :disabled="!provider.enabled || (sources.length === 1 && sources.includes(provider.id))"
           :value="provider.id"
         />
-        <span>{{ provider.name }}<small v-if="!provider.enabled"> · 暂未开放</small></span>
+        <span>
+          {{ provider.name }}
+          <small v-if="!provider.enabled"> · 暂未开放</small>
+        </span>
       </label>
     </fieldset>
 
