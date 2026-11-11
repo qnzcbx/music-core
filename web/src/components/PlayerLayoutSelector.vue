@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import StyleIcon from '~icons/lucide/shirt';
 import { onMounted, onUnmounted, ref, useId } from "vue";
 import { PLAYER_LAYOUTS, type PlayerLayout, type LyricAlignment } from "../appearance/player-layout";
-defineProps<{ layout: PlayerLayout; alignment: LyricAlignment; transitioning?: boolean; inline?: boolean }>();
-const emit = defineEmits<{ select: [layout: PlayerLayout]; align: [alignment: LyricAlignment] }>();
+defineProps<{ layout: PlayerLayout; alignment: LyricAlignment; transitioning?: boolean; inline?: boolean; iconOnly?:boolean; above?:boolean }>();
+const emit = defineEmits<{ select: [layout: PlayerLayout]; align: [alignment: LyricAlignment]; openChange:[open:boolean] }>();
 const alignmentGroup = `player-lyric-alignment-${useId()}`;
 const panel = ref<HTMLDetailsElement>();
 function close(restore = false) {
@@ -21,19 +22,23 @@ onMounted(() => document.addEventListener("pointerdown", outside));
 onUnmounted(() => document.removeEventListener("pointerdown", outside));
 </script>
 <template>
-  <component :is="inline ? 'section' : 'details'" ref="panel" class="layout-selector relative" :class="{'layout-inline':inline}" :aria-busy="transitioning" @keydown.esc.stop.prevent="close(true)">
+  <component :is="inline ? 'section' : 'details'" ref="panel" class="layout-selector relative" :class="{'layout-inline':inline,'layout-above':above}" @toggle="emit('openChange',!!panel?.open)" :aria-busy="transitioning" @keydown.esc.stop.prevent="close(true)">
     <summary
       v-if="!inline"
       class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-solid border-app-border bg-transparent px-3 py-2 text-xs text-app-muted hover:bg-app-surface focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-app-focus"
-      aria-label="播放器样式"
+      aria-label="播放器样式" title="播放器样式"
     >
-      <span aria-hidden="true">▤</span> 样式
+      <StyleIcon aria-hidden="true"/><span v-if="!iconOnly">样式</span>
     </summary>
     <div
       class="layout-panel absolute right-0 z-50 mt-2 rounded-xl border border-solid border-app-border bg-app-raised p-4 shadow-app-panel"
     >
       <p v-if="!inline" class="layout-heading">播放器样式 <span>让音乐换一种呈现</span></p>
-      <div class="layout-grid grid grid-cols-2 gap-3" role="group" aria-label="选择播放器样式">
+      <div 
+        class="layout-grid grid grid-cols-2 gap-3" 
+        role="group" 
+        aria-label="选择播放器样式"
+      >
         <button
           v-for="item in PLAYER_LAYOUTS"
           :key="item.id"
@@ -82,10 +87,13 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
   display: none;
 }
 .layout-panel {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   width: min(540px, calc(100vw - 36px));
   max-height: calc(100dvh - var(--mini-player-height, 116px) - 90px);
   overflow: auto;
 }
+.layout-panel::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .layout-heading {
   display: flex;
   flex-wrap: wrap;
@@ -264,6 +272,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
     display: none;
   }
 }
+.layout-selector summary svg{width:19px;height:19px}.layout-above .layout-panel{top:auto;bottom:calc(100% + 16px);margin:0;max-height:calc(100dvh - 220px)}@media(max-width:600px){.layout-above .layout-panel{top:auto;bottom:190px;max-height:calc(100dvh - 240px)}}
 </style>
 <style scoped>
 .layout-inline{color:var(--app-text);--player-text-muted:var(--app-text-muted);--player-focus:var(--app-focus);--player-border:var(--app-border);}

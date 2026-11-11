@@ -1,41 +1,212 @@
 <script setup lang="ts">
-import {computed,onMounted,ref} from 'vue';
-import {useCoreClient} from '../composables/useCoreClient';
-import {usePlayerVisuals} from '../composables/usePlayerTransition';
-import CoverArt from './CoverArt.vue';
-import PlayIcon from '~icons/lucide/play';
-import PauseIcon from '~icons/lucide/pause';
-import PreviousIcon from '~icons/lucide/skip-back';
-import NextIcon from '~icons/lucide/skip-forward';
-import PlaybackModeMenu from './player/PlaybackModeMenu.vue';
-import VolumePopover from './player/VolumePopover.vue';
-import QueuePanel from './player/QueuePanel.vue';
-import '../styles/player-layers.css';
-const {player}=useCoreClient();
-const props=defineProps<{immersive?:boolean}>();
-const visuals=usePlayerVisuals();
-const {selected,time,duration,playing,message,phase}=player;
-const host=ref<HTMLElement>(),preview=ref<number|null>(null);
-onMounted(()=>{if(!props.immersive&&host.value){visuals.setMiniFooter(host.value);visuals.setMiniCover(host.value.querySelector('.mini-cover-art'));}});
-const progress=computed(()=>preview.value??time.value);
-const pauseAction=computed(()=>['opening','positioning'].includes(phase.value)?player.playIntent.value:playing.value);
-const format=(value:number)=>`${Math.floor(value/60)}:${String(Math.floor(value%60)).padStart(2,'0')}`;
-function seek(event:Event){player.seek(Number((event.target as HTMLInputElement).value));preview.value=null;}
+import { computed, onMounted, ref, watch } from "vue";
+import { useCoreClient } from "../composables/useCoreClient";
+import { usePlayerVisuals } from "../composables/usePlayerTransition";
+import {useMediaQuery} from "@vueuse/core";
+import ExpandIcon from "~icons/lucide/expand";
+import BackIcon from "~icons/lucide/shrink";
+import PlayerLayoutSelector from "./PlayerLayoutSelector.vue";
+import CoverArt from "./CoverArt.vue";
+import PlayIcon from "~icons/lucide/play";
+import PauseIcon from "~icons/lucide/pause";
+import PreviousIcon from "~icons/lucide/skip-back";
+import NextIcon from "~icons/lucide/skip-forward";
+import PlaybackModeMenu from "./player/PlaybackModeMenu.vue";
+import VolumePopover from "./player/VolumePopover.vue";
+import QueuePanel from "./player/QueuePanel.vue";
+import "../styles/player-layers.css";
+const { player } = useCoreClient();
+const props = defineProps<{ immersive?: boolean }>();
+const visuals = usePlayerVisuals();
+const mobile=useMediaQuery("(max-width:600px)");
+const compactMini=computed(()=>!props.immersive&&mobile.value);
+const compactImmersive=computed(()=>!!props.immersive&&mobile.value);
+const emit = defineEmits<{ lockChange: [locked: boolean] }>();
+const panels: Record<string, boolean> = {};
+function panel(name: string, open: boolean) {
+  panels[name] = open;
+  emit("lockChange", Object.values(panels).some(Boolean));
+}
+watch(compactImmersive,()=>{for(const key of ['volume','style','queue'])delete panels[key];emit('lockChange',Object.values(panels).some(Boolean));});
+const { selected, time, duration, playing, message, phase } = player;
+const host = ref<HTMLElement>(),
+  preview = ref<number | null>(null);
+onMounted(() => {
+  if (!props.immersive && host.value) {
+    visuals.setMiniFooter(host.value);
+    visuals.setMiniCover(host.value.querySelector(".mini-cover-art"));
+  }
+});
+const progress = computed(() => preview.value ?? time.value);
+const pauseAction = computed(() =>
+  ["opening", "positioning"].includes(phase.value) ? player.playIntent.value : playing.value,
+);
+const retryAction=computed(()=>mobile.value&&!playing.value&&['error','network','blocked'].includes(phase.value));
+function transportAction(){return retryAction.value?player.retry():player.toggle();}
+const format = (value: number) =>
+  `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
+function seek(event: Event) {
+  player.seek(Number((event.target as HTMLInputElement).value));
+  preview.value = null;
+}
 </script>
 <template>
-<footer ref="host" class="player" :class="{'immersive-controls':immersive}" :data-phase="phase">
- <div class="player-info"><button class="player-cover" :disabled="!selected" title="打开沉浸式播放器" aria-label="打开沉浸式播放器" @click="visuals.open"><span class="mini-cover-art"><CoverArt :src="selected?.cover"/></span></button>
- <div class="player-meta"><span class="track-title">{{selected?.title||selected?.name||'选择歌曲开始播放'}}</span><span class="player-artist">{{selected?.artist||(selected?'':'从搜索结果选择具体版本')}}</span><span class="player-album">{{selected?.album}}</span><span class="playback-status" :class="{'notice-visible':['opening','positioning','error','blocked','network'].includes(phase)}" role="status">{{message}}</span></div></div>
- <div class="transport"><div class="transport-buttons">
-  <PlaybackModeMenu/><button aria-label="上一首" :disabled="!player.queue.hasPrevious.value" @click="player.queue.previous"><PreviousIcon/></button>
-  <button class="play-toggle" :disabled="!selected" :aria-label="pauseAction?'暂停':'播放'" @click="player.toggle"><PauseIcon v-if="pauseAction"/><PlayIcon v-else/></button>
-  <button aria-label="下一首" :disabled="!player.queue.hasNext.value" @click="player.queue.next"><NextIcon/></button><VolumePopover/>
- </div><div class="progress-row"><time>{{format(progress)}}</time><input aria-label="播放进度" type="range" min="0" :max="duration" step="0.1" :value="progress" :disabled="!selected||duration<=0" @input="preview=Number(($event.target as HTMLInputElement).value)" @change="seek" @blur="preview=null"/><time>{{duration?format(duration):'—:—'}}</time></div></div>
- <div class="player-tools"><button v-if="selected" @click="player.retry" aria-label="重试播放">重试</button><button v-if="selected" @click="player.stop" aria-label="关闭播放">关闭</button><button v-if="!immersive" :disabled="!selected" title="查看歌词" aria-label="查看歌词" @click="visuals.open">词</button><QueuePanel/></div>
-</footer>
+  <footer
+    ref="host"
+    class="player"
+    :class="{ 'immersive-controls': immersive }"
+    :data-phase="phase"
+  >
+    <div v-if="!compactImmersive" class="player-info">
+      <button
+        v-if="immersive"
+        class="immersive-back"
+        aria-label="收起歌曲详情页"
+        title="收起歌曲详情页"
+        @click="visuals.close"
+      >
+        <BackIcon />
+      </button>
+      <button
+        v-if="!immersive"
+        class="player-cover"
+        :disabled="!selected"
+        title="打开沉浸式播放器"
+        aria-label="打开沉浸式播放器"
+        @click="visuals.open"
+      >
+        <span class="mini-cover-art"><CoverArt :src="selected?.cover" /></span><span v-if="selected" class="cover-expand" aria-hidden="true"><ExpandIcon/></span>
+      </button>
+      <div class="player-meta">
+        <span class="track-title">
+          {{
+            selected?.title || selected?.name || "选择歌曲开始播放"
+          }}
+        </span>
+        <span class="player-artist">
+          {{
+            selected?.artist || (selected ? "" : "从搜索结果选择具体版本")
+          }}
+        </span>
+        <span class="player-album">{{ selected?.album }}</span>
+        <span
+          class="playback-status"
+          :class="{
+            'notice-visible': ['opening', 'positioning', 'error', 'blocked', 'network'].includes(
+              phase,
+            ),
+          }"
+          role="status"
+        >
+          {{ message }}
+        </span>
+      </div>
+    </div>
+    <div v-if="!compactMini" class="transport">
+      <div class="transport-buttons">
+        <PlaybackModeMenu
+          :immersive="immersive"
+          @open-change="panel('mode', $event)"
+        />
+        <button
+          aria-label="上一首"
+          :disabled="!player.queue.hasPrevious.value"
+          @click="player.queue.previous"
+        >
+          <PreviousIcon />
+        </button>
+        <button
+          class="play-toggle"
+          :disabled="!selected"
+          :aria-label="retryAction ? '重试播放' : pauseAction ? '暂停' : '播放'"
+          @click="transportAction"
+        >
+          <PauseIcon v-if="pauseAction" /><PlayIcon v-else />
+        </button>
+        <button
+          aria-label="下一首"
+          :disabled="!player.queue.hasNext.value"
+          @click="player.queue.next"
+        >
+          <NextIcon />
+        </button>
+        <QueuePanel v-if="compactImmersive" immersive compact @open-change="panel('queue',$event)"/>
+        <VolumePopover v-else
+          :immersive="immersive"
+          @open-change="panel('volume', $event)"
+        />
+      </div>
+      <div class="progress-row">
+        <time>{{ format(progress) }}</time>
+        <input
+          aria-label="播放进度"
+          type="range"
+          min="0"
+          :max="duration"
+          step="0.1"
+          :value="progress"
+          :disabled="!selected || duration <= 0"
+          @input="preview = Number(($event.target as HTMLInputElement).value)"
+          @change="seek"
+          @blur="preview = null"
+        />
+        <time>{{ duration ? format(duration) : "—:—" }}</time>
+      </div>
+    </div>
+    <div v-if="!compactImmersive" class="player-tools">
+      <button
+        v-if="!compactMini && selected && (!immersive || ['error', 'network', 'blocked'].includes(phase))"
+        @click="player.retry"
+        aria-label="重试播放"
+      >
+        重试
+      </button>
+      <button
+        v-if="selected && !immersive && !compactMini"
+        @click="player.stop"
+        aria-label="关闭播放"
+      >
+        关闭
+      </button>
+      <template v-if="immersive">
+        <PlayerLayoutSelector
+          icon-only
+          above
+          :layout="visuals.layout.value"
+          :alignment="visuals.lyricAlignment.value"
+          :transitioning="visuals.phase.value === 'layout'"
+          @select="visuals.selectLayout"
+          @align="visuals.selectLyricAlignment"
+          @open-change="panel('style', $event)"
+        />
+      </template>
+      <button v-if="compactMini" class="mini-play-toggle" :disabled="!selected"
+        :title="retryAction ? '重试播放' : pauseAction ? '暂停' : '播放'"
+        :aria-label="retryAction ? '重试播放' : pauseAction ? '暂停' : '播放'"
+        @click="transportAction">
+        <PauseIcon v-if="pauseAction"/><PlayIcon v-else/>
+      </button>
+      <button v-else :disabled="!selected" title="查看歌词" aria-label="查看歌词" @click="visuals.open">
+        词</button
+      >
+      <QueuePanel
+        :compact="compactMini"
+        :immersive="immersive"
+        @open-change="panel('queue', $event)"
+      />
+    </div>
+  </footer>
 </template>
 <style scoped>
-.player-meta .playback-status.notice-visible{position:static;display:block;width:auto;height:auto;clip-path:none;font-size:11px;color:var(--app-text-muted);}
+.player-meta .playback-status.notice-visible {
+  position: static;
+  display: block;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  font-size: 11px;
+  color: var(--app-text-muted);
+}
 .player {
   z-index: 20;
   display: grid;
@@ -124,7 +295,7 @@ function seek(event:Event){player.seek(Number((event.target as HTMLInputElement)
   align-items: center;
 }
 .transport-buttons :deep(button),
-.player-tools :deep(button) {
+.player-tools > :deep(button) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -134,7 +305,7 @@ function seek(event:Event){player.seek(Number((event.target as HTMLInputElement)
   height: 36px;
 }
 .transport-buttons :deep(button):hover:not(:disabled),
-.player-tools :deep(button):hover:not(:disabled),
+.player-tools > :deep(button):hover:not(:disabled),
 .player :deep(button)[aria-expanded="true"] {
   background: color-mix(in srgb, var(--mini-text) 12%, transparent);
 }
@@ -178,7 +349,7 @@ function seek(event:Event){player.seek(Number((event.target as HTMLInputElement)
   align-items: center;
   gap: 8px;
 }
-.player-tools :deep(button) {
+.player-tools > :deep(button) {
   gap: 5px;
   font: inherit;
   font-size: 14px;
@@ -236,7 +407,7 @@ function seek(event:Event){player.seek(Number((event.target as HTMLInputElement)
   .player-tools {
     gap: 0;
   }
-  .player-tools :deep(button) {
+  .player-tools > :deep(button) {
     padding: 6px;
   }
   .transport-buttons :deep(button) {
@@ -249,7 +420,96 @@ function seek(event:Event){player.seek(Number((event.target as HTMLInputElement)
 }
 </style>
 <style scoped>
-.immersive-controls{position:fixed;inset:auto 0 0;z-index:25;grid-template-columns:minmax(0,1fr) minmax(280px,540px) minmax(0,1fr);padding:14px 28px max(14px,env(safe-area-inset-bottom));background:var(--mini-bg-immersive);color:var(--mini-text);backdrop-filter:blur(16px);--mini-text:#f0f2e5;--mini-muted:#c3cfc0;--mini-accent:#bbd2a8;--mini-button:#e4ecd8;--mini-button-text:#24432f;--mini-surface:#365644}
-.immersive-controls .player-cover{display:none}
-@media(max-width:760px){.immersive-controls{grid-template-columns:minmax(0,1fr) auto;padding:10px 12px max(10px,env(safe-area-inset-bottom))}.immersive-controls .player-info{grid-column:1;grid-row:1}.immersive-controls .transport{grid-column:1/-1;grid-row:2}.immersive-controls .player-tools{grid-column:2;grid-row:1}}
+.immersive-controls {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 25;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 540px) minmax(0, 1fr);
+  padding: 14px 28px max(14px, env(safe-area-inset-bottom));
+  background: transparent;
+  background-image: none;
+  border: 0;
+  box-shadow: none;
+  color: var(--mini-text);
+  backdrop-filter: none;
+  --mini-text: #293238;
+  --mini-muted: #515c62;
+  --mini-accent: #52646b;
+  --mini-button: #d6dcdb;
+  --mini-button-text: #263337;
+  --mini-surface: #ecece8;
+}
+.immersive-controls .player-cover,
+.immersive-controls .player-album {
+  display: none;
+}
+.immersive-back {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+.immersive-back:hover {
+  background: #ffffff70;
+}
+.immersive-controls :deep(.layout-selector summary) {
+  border: 0;
+  padding: 8px;
+  color: var(--mini-text);
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 760px) {
+  .immersive-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  }
+  .immersive-controls .player-info {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .immersive-controls .transport {
+    grid-column: 1/-1;
+    grid-row: 2;
+  }
+  .immersive-controls .player-tools {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+</style>
+
+<style scoped>
+.cover-expand{position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:#18252b80;color:#fff;opacity:0;transition:opacity .12s ease}.player .cover-expand svg{width:24px;height:24px}.player-cover:hover:not(:disabled) .cover-expand,.player-cover:focus-visible .cover-expand{opacity:1}.player .immersive-back svg{width:24px;height:24px}.immersive-controls::before,.immersive-controls::after{content:none;display:none}.immersive-controls :deep(.layout-card){display:block;height:auto;min-height:0;min-width:0;padding:6px;border:1px solid transparent;color:var(--player-control)}.immersive-controls :deep(.layout-card[aria-pressed=true]){border-color:var(--player-focus)}
+@media(prefers-reduced-motion:reduce){.cover-expand{transition:none}}
+</style>
+
+<style scoped>
+@media(max-width:600px){
+ .immersive-controls{display:block;padding:12px 22px max(20px,env(safe-area-inset-bottom));-webkit-tap-highlight-color:transparent}
+ .immersive-controls .transport{display:flex;flex-direction:column;gap:14px}
+ .immersive-controls .progress-row{order:0;display:grid;grid-template-columns:1fr 1fr;gap:0;margin:0}
+ .immersive-controls .progress-row input{grid-column:1/-1;grid-row:1;width:100%;height:22px;margin:0}
+ .immersive-controls .progress-row time{grid-row:2;line-height:1.2;font-size:10px;opacity:.8}
+ .immersive-controls .transport-buttons{order:1;justify-content:space-between;gap:10px;padding:0 4px}
+ .immersive-controls .transport-buttons :deep(button){width:44px;min-width:44px;height:44px;padding:8px}
+ .immersive-controls .transport-buttons :deep(svg){width:24px;height:24px}
+ .immersive-controls .transport-buttons .play-toggle{width:56px;min-width:56px;height:56px;border:1.5px solid var(--mini-text);background:transparent}
+ .immersive-controls .transport-buttons .play-toggle svg{width:28px;height:28px}
+}
+</style>
+
+<style scoped>
+@media(max-width:600px) {
+  .player:not(.immersive-controls) { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+  .player:not(.immersive-controls) .player-tools { grid-column:2; grid-row:1; gap:4px; }
+  .player:not(.immersive-controls) .player-tools > :deep(button) { width:44px; height:44px; padding:10px; }
+  .player:not(.immersive-controls) .player-tools :deep(svg) { width:24px; height:24px; }
+  .player:not(.immersive-controls) .player-meta .track-title { font-size:13px; color:var(--mini-text); }
+  .player:not(.immersive-controls) .player-album { display:none; }
+}
 </style>

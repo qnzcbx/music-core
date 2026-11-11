@@ -115,7 +115,7 @@ def main():
             assert not page.locator('audio').evaluate('(a)=>a.paused')
             page.get_by_role('button', name='打开沉浸式播放器').first.click(); page.get_by_role('region', name='沉浸式播放器').wait_for()
             assert page.evaluate('document.querySelector("audio")===window.originalAudio&&document.querySelectorAll("audio").length===1')
-            page.get_by_role('button', name='收起播放器，返回原页面').click(); page.wait_for_timeout(500)
+            page.get_by_role('button', name='收起歌曲详情页').click(); page.wait_for_timeout(500)
             page.locator('a[href="/downloads"]').first.click(); page.wait_for_timeout(300)
             for width in (1440, 768, 390):
                 page.set_viewport_size({'width': width, 'height': 1000})

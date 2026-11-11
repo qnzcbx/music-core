@@ -54,7 +54,12 @@ onUnmounted(clearClick);
       @scroll.passive="onScroll"
     >
       <p v-if="loading" role="status">正在获取歌词…</p>
-      <p v-else-if="error" class="error" role="alert">歌词加载失败：{{ error }} <button @click="emit('retry')">重试歌词</button></p>
+      <div v-else-if="error">
+        <p class="error" role="alert">
+          歌词加载失败：{{ error }} 
+        </p>
+        <button @click="emit('retry')">重试歌词</button>
+      </div>
       <template v-else-if="!lines.length && plainText">
         <p>歌词无时间戳，暂不支持同步</p>
         <pre>{{ plainText }}</pre>

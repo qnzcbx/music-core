@@ -23,6 +23,7 @@ from app.core.media_store import MediaStore,PlaybackLeases,MediaSettings
 from app.media_stream import validate_target
 from app.lyrics import LyricsCache, lyrics_router
 from app.playback import playback_router
+from app.covers import CoverReader, cover_router
 from app.downloads import DownloadManager, DownloadSettings, download_router
 
 
@@ -100,7 +101,7 @@ def error_response(code):
         code=code.value, message=message, retryable=retryable)).model_dump())
 
 
-def create_app(config_path=None, *, transport=None, target_check=validate_target, media_settings=MediaSettings(), dev_player=False, download_settings=None) -> FastAPI:
+def create_app(config_path=None, *, transport=None, target_check=validate_target, media_settings=MediaSettings(), dev_player=False, download_settings=None, cover_transport=None) -> FastAPI:
     policy, fallback = load_policy(config_path)
     @asynccontextmanager
     async def lifespan(api):
@@ -115,6 +116,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.netease = NeteaseProvider(client,route_order=tuple(os.environ.get('MUSIC_CORE_NETEASE_RESOLVER_ORDER','native').split(',')))
             api.state.migu = MiguProvider(client)
             api.state.http_client = client
+            api.state.cover_reader = CoverReader(cover_transport)
             settings = download_settings or DownloadSettings(directory=os.environ.get('MUSIC_CORE_DOWNLOAD_DIR', DownloadSettings().directory))
             api.state.downloads = DownloadManager(api.state, settings)
             api.state.downloads.prepare()
@@ -126,6 +128,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             try:
                 yield
             finally:
+                await api.state.cover_reader.close()
                 await api.state.downloads.close()
                 task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -141,6 +144,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
     api.state.target_check = target_check
     api.include_router(playback_router(dev_player=dev_player))
     api.include_router(download_router())
+    api.include_router(cover_router())
     api.state.lyrics_cache = LyricsCache()
     api.include_router(lyrics_router())
 

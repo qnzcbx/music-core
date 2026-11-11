@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useCoreClient } from "../../composables/useCoreClient";
+import PlayIcon from "~icons/lucide/play";
+import PauseIcon from "~icons/lucide/pause";
+import LoadingIcon from "~icons/lucide/loader-circle";
 import CoverArt from "../CoverArt.vue";
 import TrashIcon from "~icons/lucide/trash-2";
 import OrderIcon from "~icons/lucide/list-ordered";
@@ -55,8 +58,8 @@ function cycle() {
     >
       <p v-if="!entries.length" class="queue-empty">空空如也</p>
       <div v-else class="queue-list">
-        <article v-for="entry in entries" :key="entry.key" :data-current="entry.key === current">
-          <div class="queue-cover"><CoverArt :src="entry.metadata.cover" /></div>
+        <article v-for="entry in entries" :key="entry.key" :data-current="entry.key === current" :data-queue-key="entry.key">
+          <div class="queue-cover"><CoverArt :src="entry.metadata.cover"/><span class="queue-cover-play" :data-icon="entry.key===player.selectedId.value&&player.playing.value?'pause':'play'" aria-hidden="true"><LoadingIcon v-if="entry.key===player.selectedId.value&&['opening','positioning'].includes(player.phase.value)" class="row-loading"/><PauseIcon v-else-if="entry.key===player.selectedId.value&&player.playing.value"/><PlayIcon v-else/></span></div>
           <button
             class="queue-choose"
             :aria-current="entry.key === current ? 'true' : undefined"
@@ -66,11 +69,11 @@ function cycle() {
                 : player.queue.choose(entry)
             "
           >
-            <strong>{{ entry.metadata.title }}</strong
-            ><small>{{ entry.metadata.artist }}</small></button
+            <span class="sr-only">{{entry.key===player.selectedId.value&&player.playing.value?'暂停':'播放'}} {{entry.metadata.title}}</span><strong aria-hidden="true">{{ entry.metadata.title }}</strong
+            ><small aria-hidden="true">{{ entry.metadata.artist }}</small></button
           ><button
-            :aria-label="`移除 ${entry.metadata.title}`"
-            @click="player.queue.remove(entry.key)"
+            class="queue-remove" :aria-label="`移除 ${entry.metadata.title}`"
+            @click.stop="player.queue.remove(entry.key)"
           >
             ×
           </button>
@@ -79,3 +82,7 @@ function cycle() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.queue-list article{position:relative;isolation:isolate;padding:10px 8px;transition:background-color .12s}.queue-list article:hover,.queue-list article:focus-within{background:var(--app-hover,var(--app-selected))}.queue-list article[data-current=true]{background:var(--app-selected)}.queue-cover{position:relative;pointer-events:none}.queue-cover-play{position:absolute;inset:0;display:grid;place-items:center;background:#17352d70;color:white;opacity:0;transition:opacity .12s}.queue-cover-play svg{width:20px;height:20px}.queue-list article:hover .queue-cover-play,.queue-list article:focus-within .queue-cover-play,.queue-list article[data-current=true] .queue-cover-play{opacity:1}.queue-choose::before{content:'';position:absolute;inset:0;z-index:1}.music-layer .queue-choose{padding:0;border-radius:0;background:transparent}.music-layer .queue-choose:hover{background:transparent}.queue-choose:focus-visible{outline:none}.queue-choose:focus-visible::before{outline:2px solid var(--app-focus);outline-offset:-2px}.queue-remove{position:relative;z-index:2;margin-left:auto;flex-shrink:0}.row-loading{animation:queue-loading 1s linear infinite}@keyframes queue-loading{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.queue-list article,.queue-cover-play{transition:none}.row-loading{animation:none}}
+</style>

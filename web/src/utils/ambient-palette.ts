@@ -9,9 +9,10 @@ export interface AmbientPalette {
   right: string;
   accent: string;
   evidence: 'cover' | 'neutral' | 'fallback';
+  diagnostic?: {status:string;via:'direct'|'relay'|'none';initialFailure?:string};
 }
 export const defaultAmbientPalette: AmbientPalette = Object.freeze({
-  key: 'media-lab-default', base: '#f3f2e9', baseLeft: '#e7eedc', baseRight: '#f4f2dd', left: '#dce9cb', center: '#edf0dd', right: '#f5efcf', accent: '#34533d', evidence: 'fallback',
+  key: 'media-lab-default', base: '#eeedeb', baseLeft: '#e5e3df', baseRight: '#f3f1ee', left: '#dedbd6', center: '#eeece9', right: '#e5e4e1', accent: '#414b50', evidence: 'fallback',
 });
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
 export function rgbToHsl([r, g, b]: RGB): RGB {
@@ -77,48 +78,74 @@ export function makeAmbientPalette(colors: readonly RGB[], key: string): Ambient
 }
 
 type CacheEntry = { promise: Promise<AmbientPalette>; expires: number };
-export function createPaletteLoader(extract: (url: string) => Promise<RGB[]>, now = Date.now, capacity=48) {
+export function createPaletteLoader(extract: (url: string) => Promise<RGB[]|{colors:RGB[];diagnostic:NonNullable<AmbientPalette['diagnostic']>}>, now = Date.now, capacity=48) {
   const cache=new Map<string,CacheEntry>();
   return async (url?: string|null): Promise<AmbientPalette> => {
-    if(!url)return defaultAmbientPalette;
+    if(!url)return {...defaultAmbientPalette,diagnostic:{status:'no-cover',via:'none'}};
     const existing=cache.get(url);
     if(existing&&existing.expires>now()) {cache.delete(url);cache.set(url,existing);return existing.promise;}
     cache.delete(url);
     const entry:CacheEntry={expires:Infinity,promise:Promise.resolve(defaultAmbientPalette)};
-    entry.promise=Promise.resolve().then(()=>extract(url)).then(colors=>{
-      const palette=makeAmbientPalette(colors,url);
+    entry.promise=Promise.resolve().then(()=>extract(url)).then(result=>{
+      const colors=Array.isArray(result)?result:result.colors;
+      const generated=makeAmbientPalette(colors,url);
+      const palette:AmbientPalette={...generated,diagnostic:generated.evidence==='fallback'?{status:'palette-failed',via:'none'}:Array.isArray(result)?{status:'success',via:'direct'}:result.diagnostic};
       if(palette.evidence==='fallback')entry.expires=now()+30000;
       return palette;
-    }).catch(()=>{entry.expires=now()+30000;return defaultAmbientPalette;});
+    }).catch(error=>{entry.expires=now()+30000;return {...defaultAmbientPalette,diagnostic:{status:error instanceof CoverPaletteError?error.stage:'palette-failed',via:'none' as const}};});
     cache.set(url,entry);
     while(cache.size>capacity)cache.delete(cache.keys().next().value!);
     return entry.promise;
   };
 }
 
-export function extractCoverColors(url: string): Promise<RGB[]> {
+/** 开发诊断只描述失败环节，不保存图片内容或平台凭据。 */
+export class CoverPaletteError extends Error {
+  stage:string;
+  constructor(stage:string){super(stage);this.stage=stage;}
+}
+export function coverReadUrl(value:string):string|null {
+  try{const url=new URL(value);if(url.protocol==='https:'&&['y.gtimg.cn','d.musicapp.migu.cn'].includes(url.hostname))return '/api/covers?url='+encodeURIComponent(value);}catch{/* 无效地址由图片加载器报告。 */}
+  return null;
+}
+function readPixels(url:string,anonymous=true,timeoutMs=4500):Promise<RGB[]> {
   return new Promise((resolve,reject)=>{
-    const image=new Image();image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';image.decoding='async';
-    let timer:ReturnType<typeof setTimeout>;
-    function done(error?: Error, colors?: RGB[]) {
-      clearTimeout(timer);image.onload=null;image.onerror=null;
-      error?reject(error):resolve(colors??[]);
-    }
-    image.onload=()=>{
-      try {
-        if(!image.naturalWidth||!image.naturalHeight)throw new Error('empty cover');
-        const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;
-        const context=canvas.getContext('2d',{willReadFrequently:true});if(!context)throw new Error('canvas unavailable');
-        context.drawImage(image,0,0,64,64);done(undefined,representativeColors(context.getImageData(0,0,64,64).data));
-        canvas.width=canvas.height=0;
-      } catch(error) {done(error instanceof Error?error:new Error('cover unreadable'));}
+    const image=new Image();if(anonymous)image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';image.decoding='async';
+    let timer:ReturnType<typeof setTimeout>,settled=false;
+    function done(error?:CoverPaletteError,colors?:RGB[]){if(settled)return;settled=true;clearTimeout(timer);image.onload=null;image.onerror=null;error?reject(error):resolve(colors??[]);}
+    image.onload=async()=>{
+      try{await image.decode();}catch{done(new CoverPaletteError('image-decode-failed'));return;}
+      if(settled)return;
+      if(!image.naturalWidth||!image.naturalHeight){done(new CoverPaletteError('image-decode-failed'));return;}
+      const canvas=document.createElement('canvas');canvas.width=canvas.height=64;
+      try{
+        const context=canvas.getContext('2d',{willReadFrequently:true});if(!context)throw new CoverPaletteError('pixel-sampling-failed');
+        context.drawImage(image,0,0,64,64);const colors=representativeColors(context.getImageData(0,0,64,64).data);
+        if(!colors.length)throw new CoverPaletteError('pixel-sampling-failed');done(undefined,colors);
+      }catch(error){done(error instanceof CoverPaletteError?error:new CoverPaletteError(error instanceof DOMException&&error.name==='SecurityError'?'canvas-cors-denied':'pixel-sampling-failed'));}
+      finally{canvas.width=canvas.height=0;}
     };
-    image.onerror=()=>done(new Error('cover CORS or network failure'));
-    timer=setTimeout(()=>{done(new Error('cover timeout'));image.src='';},4500);
+    image.onerror=()=>done(new CoverPaletteError('image-request-failed'));
+    timer=setTimeout(()=>{done(new CoverPaletteError('image-timeout'));image.src='';},timeoutMs);
     image.src=url;
   });
 }
-export const loadCoverPalette=createPaletteLoader(extractCoverColors);
+export const extractCoverColors=(url:string)=>readPixels(url);
+async function extractWithDiagnostic(url:string){
+  try{return {colors:await readPixels(url),diagnostic:{status:'success',via:'direct' as const}};}
+  catch(first){
+    let failure=first;
+    const relay=coverReadUrl(url);
+    // 匿名加载失败时，区分“展示也失败”和“可展示但像素被跨域保护”。
+    if(relay&&first instanceof CoverPaletteError&&first.stage==='image-request-failed'){
+      try{return {colors:await readPixels(url,false),diagnostic:{status:'success',via:'direct' as const}};}catch(probe){failure=probe;}
+    }
+    if(!relay)throw failure;
+    try{return {colors:await readPixels(relay,true,10000),diagnostic:{status:'success',via:'relay' as const,initialFailure:failure instanceof CoverPaletteError?failure.stage:'image-request-failed'}};}
+    catch(error){throw new CoverPaletteError('relay-'+(error instanceof CoverPaletteError?error.stage:'image-request-failed'));}
+  }
+}
+export const loadCoverPalette=createPaletteLoader(extractWithDiagnostic);
 
 /** Only the latest consumer selection may commit; shared extraction is not cancelled. */
 export function createPaletteSelection(load: typeof loadCoverPalette, commit: (palette:AmbientPalette)=>void) {

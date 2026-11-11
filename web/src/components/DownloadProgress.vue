@@ -14,9 +14,15 @@ function sizeLabel(bytes = 0) {
         <template v-if="job.total_bytes"> / {{ sizeLabel(job.total_bytes) }} </template>
       </span>
     </template>
-    <span v-else :class="{ error: job.state === 'failed' }">{{ job.message }}</span>
-    <small v-if="job.selection">选择：{{ job.selection.label }} · {{ job.selection.origin === 'current_resolved_media' ? '当前试听表示' : job.source === 'soundcloud' ? '来源原生 Progressive 路线' : '官方指定 ' + job.selection.requestedProviderQualityId }} · 实际档位 {{ job.selection.providerQualityId }}</small>
-    <small v-if="job.actualMedia">成品验证：{{ job.actualMedia.container.toUpperCase() }} · {{ job.actualMedia.codec }} · {{ job.actualMedia.lossless ? '无损编码' : '有损编码' }} · {{ sizeLabel(job.size) }}</small>
+    <span v-else :class="{ error: job.state === 'failed' }">
+      {{ job.message }}
+    </span>
+    <small v-if="job.selection">
+      选择：{{ job.selection.label }} · {{ job.selection.origin === 'current_resolved_media' ? '当前试听表示' : job.source === 'soundcloud' ? '来源原生 Progressive 路线' : '官方指定 ' + job.selection.requestedProviderQualityId }} · 实际档位 {{ job.selection.providerQualityId }}
+    </small>
+    <small v-if="job.actualMedia">
+      成品验证：{{ job.actualMedia.container.toUpperCase() }} · {{ job.actualMedia.codec }} · {{ job.actualMedia.lossless ? '无损编码' : '有损编码' }} · {{ sizeLabel(job.size) }}
+    </small>
     <small v-if="job.variant">
       {{ job.variant.container?.toUpperCase() || '容器未知' }}
       <template v-if="job.variant.codec"> · {{ job.variant.codec }}</template>

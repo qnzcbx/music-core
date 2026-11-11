@@ -7,8 +7,14 @@ const { searchState: { sources, providers, providerError, loadProviders } } = us
 <template>
   <div class="home-search">
     <GlobalSearch hero />
-    <SearchBar v-model:sources="sources" :providers="providers" primary-only />
-    <p v-if="providerError" class="home-source-error" role="status">{{ providerError }} <button @click="loadProviders">重新加载</button></p>
+    <SearchBar v-model:sources="sources" :providers="providers" />
+    <p 
+      v-if="providerError" 
+      class="home-source-error" 
+      role="status"
+    >
+      {{ providerError }} <button @click="loadProviders">重新加载</button>
+    </p>
   </div>
 </template>
 <style scoped>

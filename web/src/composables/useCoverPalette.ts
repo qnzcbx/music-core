@@ -9,7 +9,7 @@ export function useCoverPalette(cover: Readonly<Ref<string | null | undefined>>)
   const selection = createPaletteSelection(loadCoverPalette, (value) => {
     palette.value = value;
   });
-  // Do not replace the previous palette while the next cover is still being prepared.
+  // 新封面尚未取色完成时保留上一层，避免闪烁。
   watch(
     cover,
     (url) => {

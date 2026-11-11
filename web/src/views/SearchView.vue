@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick,ref,watch } from "vue";
-import {useEventListener,useInfiniteScroll} from '@vueuse/core';
+import { computed, nextTick, ref, watch } from "vue";
+import { useEventListener, useInfiniteScroll } from "@vueuse/core";
 import SongList from "../components/SongList.vue";
 import { useCoreClient } from "../composables/useCoreClient";
 import { useSongGroups } from "../composables/useSongGroups";
@@ -10,30 +10,90 @@ const { query, songs, busy, error, perSourceStatus, loadingMore, cursors } = sea
 const groupsState = useSongGroups(songs, searchState.providers, ref<Song | null>(null));
 const { groups, now } = groupsState;
 const hasMore = computed(() => Object.values(cursors.value).some(Boolean));
-const pending = computed(() => Object.values(perSourceStatus.value).some(state=>state.status==='running'));
-const host=ref<HTMLElement>();
-const container=computed(()=>host.value?.closest<HTMLElement>('#app-content'));
-const autoFill=ref(2),gesture=ref(false);
-const infinite=useInfiniteScroll(container,async()=>{
- if(gesture.value)gesture.value=false;else autoFill.value--;
- groupsState.lockRepresentatives();await searchState.loadMore();
-},{distance:320,interval:180,canLoadMore:()=>searchState.canLoadMore.value&&(autoFill.value>0||gesture.value)});
-function permit(){gesture.value=true;infinite.reset();}
-useEventListener(container,'wheel',event=>{if(event.deltaY>0)permit();},{passive:true});
-let touchY=0;
-useEventListener(container,'touchstart',event=>{touchY=event.touches[0]?.clientY??0;},{passive:true});
-useEventListener(container,'touchmove',event=>{if((event.touches[0]?.clientY??touchY)<touchY)permit();},{passive:true});
-useEventListener(container,'keydown',event=>{if(['ArrowDown','PageDown','End',' '].includes(event.key))permit();});
-watch(searchState.searchRevision,()=>{autoFill.value=2;gesture.value=false;void nextTick(()=>{if(container.value)container.value.scrollTop=0;infinite.reset();});});
+const pending = computed(() =>
+  Object.values(perSourceStatus.value).some((state) => state.status === "running"),
+);
+const host = ref<HTMLElement>();
+const container = computed(() => host.value?.closest<HTMLElement>("#app-content"));
+const autoFill = ref(2),
+  gesture = ref(false);
+const infinite = useInfiniteScroll(
+  container,
+  async () => {
+    if (gesture.value) gesture.value = false;
+    else autoFill.value--;
+    groupsState.lockRepresentatives();
+    await searchState.loadMore();
+  },
+  {
+    distance: 320,
+    interval: 180,
+    canLoadMore: () => searchState.canLoadMore.value && (autoFill.value > 0 || gesture.value),
+  },
+);
+function permit() {
+  gesture.value = true;
+  infinite.reset();
+}
+useEventListener(
+  container,
+  "wheel",
+  (event) => {
+    if (event.deltaY > 0) permit();
+  },
+  { passive: true },
+);
+let touchY = 0;
+useEventListener(
+  container,
+  "touchstart",
+  (event) => {
+    touchY = event.touches[0]?.clientY ?? 0;
+  },
+  { passive: true },
+);
+useEventListener(
+  container,
+  "touchmove",
+  (event) => {
+    if ((event.touches[0]?.clientY ?? touchY) < touchY) permit();
+  },
+  { passive: true },
+);
+useEventListener(container, "keydown", (event) => {
+  if (["ArrowDown", "PageDown", "End", " "].includes(event.key)) permit();
+});
+watch(searchState.searchRevision, () => {
+  autoFill.value = 2;
+  gesture.value = false;
+  void nextTick(() => {
+    if (container.value) container.value.scrollTop = 0;
+    infinite.reset();
+  });
+});
 // 在响应落入DOM前记录可见歌曲；展开组内插入版本也保留阅读位置。
-watch(()=>songs.value.length,(length,previous)=>{
- if(length<=previous||!container.value)return;
- const box=container.value,top=box.getBoundingClientRect().top;
- const anchor=Array.from(host.value?.querySelectorAll<HTMLElement>('.song-row')??[]).find(row=>row.getBoundingClientRect().bottom>top+8);
- if(!anchor)return;const before=anchor.getBoundingClientRect().top;
- void nextTick(()=>{if(anchor.isConnected&&container.value===box)box.scrollTop+=anchor.getBoundingClientRect().top-before;});
-},{flush:'pre'});
-function retrySource(source:string){groupsState.lockRepresentatives();void searchState.retry(source);}
+watch(
+  () => songs.value.length,
+  (length, previous) => {
+    if (length <= previous || !container.value) return;
+    const box = container.value,
+      top = box.getBoundingClientRect().top;
+    const anchor = Array.from(host.value?.querySelectorAll<HTMLElement>(".song-row") ?? []).find(
+      (row) => row.getBoundingClientRect().bottom > top + 8,
+    );
+    if (!anchor) return;
+    const before = anchor.getBoundingClientRect().top;
+    void nextTick(() => {
+      if (anchor.isConnected && container.value === box)
+        box.scrollTop += anchor.getBoundingClientRect().top - before;
+    });
+  },
+  { flush: "pre" },
+);
+function retrySource(source: string) {
+  groupsState.lockRepresentatives();
+  void searchState.retry(source);
+}
 </script>
 <template>
   <section ref="host" class="search-view">
@@ -41,7 +101,8 @@ function retrySource(source:string){groupsState.lockRepresentatives();void searc
       <div>
         <h1 class="page-title">{{ query ? "“" + query + "”" : "搜索音乐" }}</h1>
         <p class="results-count">
-          {{pending||hasMore||error?'已加载':'共'}} {{songs.length}} 首 · {{groups.length}} 组结果
+          {{ pending || hasMore || error ? "已加载" : "共" }} {{ songs.length }} 首 ·
+          {{ groups.length }} 组结果
         </p>
       </div>
     </header>
@@ -62,9 +123,19 @@ function retrySource(source:string){groupsState.lockRepresentatives();void searc
     />
     <div class="search-pagination" aria-live="polite">
       <p v-if="pending">正在加载…</p>
-      <p v-for="(state,source) in perSourceStatus" :key="source" v-show="state.status==='failed'" role="alert">{{source}}：{{state.message}} <button @click="retrySource(source)">重试此来源</button></p>
-      <p v-if="!pending&&!hasMore&&!error&&searchState.resultSources.value.length">已全部加载</p>
-      <p v-else-if="hasMore&&!loadingMore&&!busy">继续向下滚动</p>
+      <p
+        v-for="(state, source) in perSourceStatus"
+        :key="source"
+        v-show="state.status === 'failed'"
+        role="alert"
+      >
+        {{ source }}：{{ state.message }}
+        <button @click="retrySource(source)">重试此来源</button>
+      </p>
+      <p v-if="!pending && !hasMore && !error && searchState.resultSources.value.length">
+        已全部加载
+      </p>
+      <p v-else-if="hasMore && !loadingMore && !busy">继续向下滚动</p>
     </div>
   </section>
 </template>
@@ -75,7 +146,21 @@ function retrySource(source:string){groupsState.lockRepresentatives();void searc
   max-width: 1500px;
   margin-inline: auto;
 }
-.search-pagination{min-height:48px;text-align:center;padding:18px 0;color:var(--app-text-muted);font-size:12px}.search-pagination button{border:0;background:transparent;color:var(--app-link);cursor:pointer;padding:6px 10px;font:inherit}
+.search-pagination {
+  min-height: 48px;
+  text-align: center;
+  padding: 18px 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+.search-pagination button {
+  border: 0;
+  background: transparent;
+  color: var(--app-link);
+  cursor: pointer;
+  padding: 6px 10px;
+  font: inherit;
+}
 .search-results-header {
   position: relative;
   display: flex;

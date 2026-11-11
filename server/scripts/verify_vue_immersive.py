@@ -122,7 +122,7 @@ def main():
             page.emulate_media(color_scheme='light');page.wait_for_function("document.documentElement.dataset.theme==='light'")
             page.emulate_media(reduced_motion='reduce');assert page.locator('audio').evaluate('a=>!a.paused');page.emulate_media(reduced_motion='no-preference')
             assert len(opened)==open_count and len(lyric_requests)==lyric_count
-            room.get_by_role('button',name='收起播放器，返回原页面',exact=True).click();page.wait_for_url('**/search?*');page.wait_for_timeout(800)
+            room.get_by_role('button',name='收起歌曲详情页',exact=True).click();page.wait_for_url('**/search?*');page.wait_for_timeout(800)
             assert page.locator('audio').evaluate('a=>a===firstAudio&&!a.paused')
             assert page.locator('.immersive-player').count()==0 and page.locator('.shared-cover-flight').count()==0
             # 固定面板在同窗口下0/1/多曲保持一致，列表独立滚动。
@@ -162,7 +162,7 @@ def main():
                 upstream.held.clear();held_lyrics.clear();page.wait_for_timeout(700)
                 assert '人工歌曲3' in page.locator('.track-title').inner_text()
                 page.get_by_role('button',name='打开沉浸式播放器',exact=True).click();page.locator('.lyric-line').first.wait_for();assert '人工3' in page.locator('.lyric-line').first.inner_text()
-                page.get_by_role('button',name='收起播放器，返回原页面',exact=True).click();page.wait_for_timeout(800)
+                page.get_by_role('button',name='收起歌曲详情页',exact=True).click();page.wait_for_timeout(800)
             for width in (390,):
                 page.set_viewport_size({'width':width,'height':844});page.get_by_role('button',name='播放队列',exact=True).click();drawer=page.locator('.queue-drawer');drawer.wait_for();mobile_height=drawer.bounding_box()['height'];assert abs(mobile_height-mobile_one_height)<1;screenshot('mobile-queue-fixed.png')
                 cdp=page.context.new_cdp_session(page)
@@ -193,7 +193,7 @@ def main():
                     page.locator(f'.song-row[data-platform-id="{pid}"] .action-play').click();page.wait_for_function('document.querySelector("audio").currentTime>.1')
                     page.get_by_role('button',name='打开沉浸式播放器',exact=True).click();page.locator('#lyric-panel').get_by_text(expected,exact=False).wait_for()
                     assert page.locator('audio').evaluate('a=>!a.paused')
-                    page.get_by_role('button',name='收起播放器，返回原页面',exact=True).click();page.wait_for_timeout(800)
+                    page.get_by_role('button',name='收起歌曲详情页',exact=True).click();page.wait_for_timeout(800)
                 # 恢复过程中清空，晚到恢复Lease同样必须回收。
                 upstream.hold_next=True;page.get_by_role('button',name='重试播放',exact=True).click()
                 for _ in range(100):

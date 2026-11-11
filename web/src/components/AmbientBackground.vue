@@ -101,6 +101,9 @@ onUnmounted(() => {
     aria-hidden="true"
     :data-palette-key="layers[active]?.key"
     :data-palette-evidence="layers[active]?.evidence"
+    :data-palette-status="layers[active]?.diagnostic?.status"
+    :data-palette-via="layers[active]?.diagnostic?.via"
+    :data-palette-reason="layers[active]?.diagnostic?.initialFailure"
   >
     <div
       v-for="(palette, index) in layers"

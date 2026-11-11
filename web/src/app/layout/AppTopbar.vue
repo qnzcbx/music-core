@@ -28,6 +28,14 @@ const canForward = computed(() => { void revision.value; return typeof window.hi
 .history-navigation button:disabled { opacity:.3; cursor:default; }
 .history-navigation button:hover:not(:disabled) { background:var(--app-hover); }
 svg { width:20px; height:20px; }
-@media(max-width:1100px) { .app-topbar { grid-template-columns:68px minmax(200px,1fr) minmax(0,180px); gap:12px; padding:18px 20px; } }
-@media(max-width:600px) { .app-topbar { grid-template-columns:56px minmax(0,1fr); padding:12px; gap:8px; } .history-navigation { gap:0; } .history-navigation button { width:28px; } .app-topbar :deep(.global-search) { grid-column:2; width:100%; } .search-topbar :deep(.global-search) { grid-column:1/-1; grid-row:2; } .search-topbar :deep(.source-selector) { grid-column:2; grid-row:1; justify-self:end; } }
+@media(max-width:1100px) {
+  .app-topbar { grid-template-columns:68px minmax(0,1fr); gap:8px 12px; padding:18px 20px; }
+  .app-topbar :deep(.source-selector) { grid-column:2; }
+}
+@media(max-width:600px) {
+  .app-topbar { grid-template-columns:minmax(0,1fr); padding:12px; gap:8px; }
+  .history-navigation { display:none; }
+  .app-topbar :deep(.global-search) { grid-column:1; width:100%; }
+  .app-topbar :deep(.source-selector) { grid-column:1; grid-row:2; }
+}
 </style>

@@ -213,11 +213,8 @@ const emit = defineEmits<{ coverElement: [element: unknown] }>();
         </g>
       </svg>
       <div class="turntable-light" aria-hidden="true" />
-      <span class="turntable-mark" aria-hidden="true">m.</span>
     </div>
-    <div class="vinyl-caption">
-      <span>SIDE A</span><span>33⅓ RPM · {{ playing ? "正在转动" : "停在此刻" }}</span>
-    </div>
+
   </div>
 </template>
 <style scoped>
