@@ -12,7 +12,7 @@ import {
   type RingPreset,
 } from '../appearance/player-layout';
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     layout: PlayerLayout;
     alignment: LyricAlignment;
@@ -41,6 +41,10 @@ const backgrounds = [
   { id: 'dark', name: '深色' },
 ] as const;
 const rings = PLAYER_RING_PRESETS;
+const backgroundName = computed(
+  () => backgrounds.find((item) => item.id === props.background)?.name,
+);
+const ringName = computed(() => rings.find((item) => item.id === props.ringPreset)?.name);
 function close(restore = false) {
   if (!panel.value?.open) return;
   panel.value.open = false;
@@ -121,14 +125,17 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               @click="select(item.id)"
             >
               <span
-                class="layout-preview"
-                :class="`preview-${item.id}`"
+                class="layout-preview alignment-scene"
+                :class="[
+                  `preview-${item.id}`,
+                  `align-${item.id === layout ? alignment : item.id === 'vinyl-wide' ? 'left' : 'center'}`,
+                ]"
                 aria-hidden="true"
               >
                 <span class="preview-machine"
                   ><span class="preview-disc"><i /></span><span class="preview-arm"
                 /></span>
-                <span class="preview-copy"><i /><i /><i /><i /></span>
+                <span class="preview-copy"><i /><i /><i /><i /><i /></span>
                 <span
                   v-if="layout === item.id"
                   class="preview-check"
@@ -162,7 +169,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           <h2>{{ editingName }}</h2>
         </header>
         <fieldset class="editor-section">
-          <legend>背景</legend>
+          <legend>
+            背景<span
+              class="selected-option"
+              aria-live="polite"
+              >已选{{ backgroundName }}</span
+            >
+          </legend>
           <div class="background-options">
             <button
               v-for="item in backgrounds"
@@ -170,18 +183,50 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               type="button"
               class="edit-choice"
               :aria-pressed="background === item.id"
+              :aria-label="item.name"
+              :title="item.name"
               @click="emit('background', item.id)"
             >
               <i
                 class="background-preview"
                 :class="`background-${item.id}`"
                 aria-hidden="true"
-              />{{ item.name }}
+              />
+            </button>
+          </div>
+        </fieldset>
+        <fieldset
+          v-if="editing === 'vinyl-wide'"
+          class="editor-section"
+        >
+          <legend>
+            唱片颜色<span
+              class="selected-option"
+              aria-live="polite"
+              >已选{{ ringName }}</span
+            >
+          </legend>
+          <div class="ring-options">
+            <button
+              v-for="item in rings"
+              :key="item.id"
+              type="button"
+              class="edit-choice"
+              :aria-pressed="ringPreset === item.id"
+              :aria-label="item.name"
+              :title="item.name"
+              @click="emit('ring', item.id)"
+            >
+              <i
+                class="ring-swatch"
+                :style="{ background: `linear-gradient(135deg,${item.colors})` }"
+                aria-hidden="true"
+              />
             </button>
           </div>
         </fieldset>
         <fieldset class="editor-section">
-          <legend>歌词对齐</legend>
+          <legend>封面和歌词版式</legend>
           <div class="alignment-options">
             <button
               v-for="item in [
@@ -190,43 +235,27 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               ] as const"
               :key="item.id"
               type="button"
-              class="edit-choice"
+              class="edit-choice alignment-choice"
+              :aria-label="`歌词${item.name}`"
               :aria-pressed="alignment === item.id"
               @click="emit('align', item.id)"
             >
               <span
-                class="alignment-preview"
-                :class="item.id"
+                class="alignment-scene layout-preview"
+                :class="[`preview-${editing}`, `align-${item.id}`]"
                 aria-hidden="true"
-                ><i /><i /><i /></span
-              >{{ item.name }}
-            </button>
-          </div>
-        </fieldset>
-        <fieldset
-          v-if="editing === 'vinyl-wide'"
-          class="editor-section"
-        >
-          <legend>唱片颜色</legend>
-          <div class="ring-options">
-            <button
-              v-for="item in rings"
-              :key="item.id"
-              type="button"
-              class="edit-choice"
-              :aria-pressed="ringPreset === item.id"
-              @click="emit('ring', item.id)"
-            >
-              <i
-                class="ring-swatch"
-                :style="{ background: `linear-gradient(135deg,${item.colors})` }"
-                aria-hidden="true"
-              />{{ item.name
-              }}<span
-                v-if="ringPreset === item.id"
-                aria-hidden="true"
-                >✓</span
               >
+                <span class="preview-machine"
+                  ><span class="preview-disc"><i /></span><span class="preview-arm"
+                /></span>
+                <span class="preview-copy"><i /><i /><i /><i /><i /></span>
+                <span
+                  v-if="alignment === item.id"
+                  class="preview-check"
+                  >✓</span
+                >
+              </span>
+              <span>歌词{{ item.name }}</span>
             </button>
           </div>
         </fieldset>
@@ -860,5 +889,226 @@ button:focus-visible {
     gap: 8px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+</style>
+
+<style scoped>
+.alignment-choice {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  align-items: stretch;
+  text-align: left;
+}
+.alignment-choice[aria-pressed='true'] {
+  background: transparent;
+}
+.alignment-scene {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1.85;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+.alignment-choice[aria-pressed='true'] .alignment-scene {
+  border-color: #18bd69;
+  box-shadow: inset 0 0 0 1px #18bd6922;
+}
+.alignment-choice > span:last-child {
+  padding: 0 2px;
+}
+.alignment-scene .preview-machine {
+  width: 24%;
+  left: 6%;
+  top: 34%;
+  aspect-ratio: 456/429;
+  background: linear-gradient(135deg, #fff, #e8eae7);
+  box-shadow: 1px 3px 5px #26353320;
+}
+.alignment-scene .preview-disc {
+  inset: auto;
+  width: 75.44%;
+  aspect-ratio: 1;
+  left: 12.28%;
+  top: 9.8%;
+  background: conic-gradient(#85929f, #657281, #b2bdc8, #85929f);
+  box-shadow: 0 0 0 2px #aeb4b644;
+}
+.alignment-scene .preview-disc > i {
+  inset: 20%;
+  background: #386380;
+  box-shadow: 0 0 0 1px #344455;
+}
+.alignment-scene .preview-arm {
+  height: 72%;
+  width: 3%;
+  right: 9%;
+  top: 4%;
+  transform: rotate(8deg);
+  background: #edf0ed;
+  border-color: #9ba5a2;
+  border-radius: 1px 1px 60% 0;
+}
+.alignment-scene .preview-copy {
+  width: 57%;
+  right: 6%;
+  top: 37%;
+  gap: 5px;
+}
+.alignment-scene .preview-copy > i {
+  width: 92%;
+  height: 3px;
+  opacity: 0.55;
+  margin: 0;
+  background: #63728e;
+}
+.alignment-scene .preview-copy > i:first-child {
+  width: 58%;
+  height: 4px;
+  background: #303e53;
+  opacity: 1;
+}
+.alignment-scene .preview-copy > i:nth-child(2) {
+  width: 42%;
+  height: 2px;
+  margin-bottom: 5px;
+}
+.alignment-scene .preview-copy > i:nth-child(3) {
+  width: 100%;
+  background: #5376b1;
+  opacity: 1;
+}
+.alignment-scene .preview-copy > i:nth-child(4) {
+  width: 84%;
+}
+.alignment-scene.align-center .preview-copy > i {
+  margin-inline: auto;
+}
+.alignment-scene.preview-vinyl-wide .preview-machine {
+  width: 62%;
+  left: 59%;
+  top: -39%;
+  background: transparent;
+  box-shadow: none;
+  aspect-ratio: 1;
+}
+.alignment-scene.preview-vinyl-wide .preview-disc {
+  inset: 0;
+  width: 100%;
+  background: conic-gradient(#b0aab7, #777381, #bec0cd, #9992a3, #b0aab7);
+}
+.alignment-scene.preview-vinyl-wide .preview-disc > i {
+  inset: 19.8%;
+}
+.alignment-scene.preview-vinyl-wide .preview-copy {
+  left: 8%;
+  right: auto;
+  top: 38%;
+  width: 47%;
+}
+.alignment-scene.preview-square-cover .preview-machine {
+  width: 27%;
+  aspect-ratio: 1;
+  left: 6%;
+  top: 30%;
+  border-radius: 3px;
+  background: linear-gradient(145deg, #779aa9, #bcb6c1 50%, #d9c0a7);
+}
+.alignment-scene.preview-lyrics-only .preview-copy {
+  width: 70%;
+  left: 15%;
+  top: 31%;
+}
+.alignment-scene .preview-check {
+  width: 17px;
+  height: 17px;
+  right: 7px;
+  top: 7px;
+  font-size: 10px;
+  background: #18bd69;
+}
+</style>
+
+<style scoped>
+/* 各分组选项从同一左边线开始，不因缩略图类型产生额外缩进。 */
+.background-options .edit-choice,
+.ring-options .edit-choice {
+  align-items: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.background-options .background-preview {
+  width: 40px;
+  height: 40px;
+  aspect-ratio: 1;
+}
+.ring-options .edit-choice {
+  align-items: center;
+  text-align: center;
+}
+.background-options .edit-choice[aria-pressed='true'] .background-preview,
+.ring-options .edit-choice[aria-pressed='true'] .ring-swatch {
+  outline: 2px solid #18bd69;
+  outline-offset: -2px;
+}
+.alignment-choice > span:last-child {
+  padding-inline: 0;
+}
+</style>
+
+<style scoped>
+.alignment-scene .preview-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.alignment-scene.align-center .preview-copy {
+  align-items: center;
+}
+.alignment-scene .preview-copy > i {
+  flex-shrink: 0;
+}
+.alignment-scene.align-left .preview-copy > i {
+  margin-inline: 0;
+}
+.alignment-options .alignment-choice[aria-pressed='true']::after {
+  content: none;
+}
+</style>
+
+<style scoped>
+.background-options,
+.ring-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.background-options .edit-choice,
+.ring-options .edit-choice {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+}
+.ring-options .ring-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 5px;
+}
+.layout-card .alignment-scene {
+  height: auto;
+  aspect-ratio: 1.85;
+}
+</style>
+
+<style scoped>
+.selected-option {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--player-border, var(--app-border));
+  font-size: 0.9em;
+  font-weight: 400;
+  color: var(--player-text-muted, var(--app-text-muted));
 }
 </style>

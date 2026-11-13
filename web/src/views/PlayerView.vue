@@ -139,6 +139,7 @@ onUnmounted(() => {
           :label="song.name"
           :layout="layout"
           :ring-preset="ringPreset"
+          :dark="backgroundMode === 'dark'"
           @cover-element="registerCover"
         />
       </div>
@@ -193,6 +194,7 @@ onUnmounted(() => {
     </div>
   </section>
 </template>
+
 <style scoped>
 .immersive-player {
   color-scheme: light;
@@ -737,6 +739,21 @@ onUnmounted(() => {
   }
 }
 </style>
+
+<style scoped>
+/* 信息与歌词共享同一内容宽度和对齐轴，避免列表缩进造成错位。 */
+.immersive-player .listening-column .immersive-identity,
+.immersive-player .listening-column :deep(.lyric-scroll),
+.immersive-player .listening-column :deep(.lyric-line),
+.immersive-player .listening-column :deep(.lyric-scroll pre) {
+  text-align: var(--player-lyric-align, center);
+}
+.immersive-player .listening-column :deep(.lyric-scroll ol),
+.immersive-player .listening-column :deep(.lyric-scroll li),
+.immersive-player .listening-column :deep(.lyric-scroll pre) {
+  padding-inline: 0;
+}
+</style>
 <style scoped>
 .immersive-topbar {
   display: flex;
@@ -869,4 +886,49 @@ onUnmounted(() => {
   --app-selected:#35424c; --app-accent:#b1cbd5; --app-shadow-panel:0 12px 30px #0005;
 }
 .immersive-player[data-player-background="light"] { --player-accent:#445967; }
+</style>
+
+<style scoped>
+/* 经典唱片机沿用 V2 的歌词排版，其他布局继续使用各自的样式。 */
+.classic-layout .immersive-identity h1 {
+  font-family: inherit;
+  font-size: clamp(20px, 1.85vw, 28px);
+  font-weight: 500;
+  letter-spacing: .02em;
+  margin-bottom: 6px;
+}
+.classic-layout .immersive-artist {
+  font-size: clamp(14px, 1.16vw, 21px);
+  letter-spacing: .03em;
+}
+.classic-layout :deep(.lyric-scroll) {
+  --lyric-height: clamp(245px, 45.5dvh, 465px);
+  mask-image: linear-gradient(180deg, #000 0%, #000 50%, transparent 100%);
+}
+.classic-layout :deep(.lyric-scroll li) {
+  padding: 0;
+  margin-bottom: clamp(9px, 1dvh, 12px);
+  font-size: clamp(15px, 1.38vw, 26px);
+  line-height: 1.48;
+  letter-spacing: .02em;
+  opacity: .85;
+  color: var(--player-text-muted);
+  transition: color .3s ease, opacity .3s ease;
+}
+.classic-layout :deep(.lyric-scroll li.lyric-near) {
+  opacity: .84;
+  color: var(--player-text-muted);
+}
+.classic-layout :deep(.lyric-scroll li.lyric-current) {
+  font-size: clamp(16.5px, 1.45vw, 20px);
+  font-weight: 600;
+  color: var(--player-text);
+  opacity: 1;
+}
+@media (max-width:600px) {
+  .classic-layout :deep(.lyric-scroll) { --lyric-height: 230px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .classic-layout :deep(.lyric-scroll li) { transition:none; }
+}
 </style>

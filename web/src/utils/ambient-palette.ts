@@ -108,7 +108,7 @@ export function coverReadUrl(value:string):string|null {
   try{const url=new URL(value);if(url.protocol==='https:'&&['y.gtimg.cn','d.musicapp.migu.cn'].includes(url.hostname))return '/api/covers?url='+encodeURIComponent(value);}catch{/* 无效地址由图片加载器报告。 */}
   return null;
 }
-function readPixels(url:string,anonymous=true,timeoutMs=4500):Promise<RGB[]> {
+function readPixels(url:string,anonymous=true,timeoutMs=4500,sample?: (image:HTMLImageElement)=>RGB[]):Promise<RGB[]> {
   return new Promise((resolve,reject)=>{
     const image=new Image();if(anonymous)image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';image.decoding='async';
     let timer:ReturnType<typeof setTimeout>,settled=false;
@@ -120,7 +120,7 @@ function readPixels(url:string,anonymous=true,timeoutMs=4500):Promise<RGB[]> {
       const canvas=document.createElement('canvas');canvas.width=canvas.height=64;
       try{
         const context=canvas.getContext('2d',{willReadFrequently:true});if(!context)throw new CoverPaletteError('pixel-sampling-failed');
-        context.drawImage(image,0,0,64,64);const colors=representativeColors(context.getImageData(0,0,64,64).data);
+        context.drawImage(image,0,0,64,64);const colors=sample?sample(image):representativeColors(context.getImageData(0,0,64,64).data);
         if(!colors.length)throw new CoverPaletteError('pixel-sampling-failed');done(undefined,colors);
       }catch(error){done(error instanceof CoverPaletteError?error:new CoverPaletteError(error instanceof DOMException&&error.name==='SecurityError'?'canvas-cors-denied':'pixel-sampling-failed'));}
       finally{canvas.width=canvas.height=0;}
@@ -131,17 +131,17 @@ function readPixels(url:string,anonymous=true,timeoutMs=4500):Promise<RGB[]> {
   });
 }
 export const extractCoverColors=(url:string)=>readPixels(url);
-async function extractWithDiagnostic(url:string){
-  try{return {colors:await readPixels(url),diagnostic:{status:'success',via:'direct' as const}};}
+export async function extractWithDiagnostic(url:string,sample?: (image:HTMLImageElement)=>RGB[]){
+  try{return {colors:await readPixels(url,true,4500,sample),diagnostic:{status:'success',via:'direct' as const}};}
   catch(first){
     let failure=first;
     const relay=coverReadUrl(url);
     // 匿名加载失败时，区分“展示也失败”和“可展示但像素被跨域保护”。
     if(relay&&first instanceof CoverPaletteError&&first.stage==='image-request-failed'){
-      try{return {colors:await readPixels(url,false),diagnostic:{status:'success',via:'direct' as const}};}catch(probe){failure=probe;}
+      try{return {colors:await readPixels(url,false,4500,sample),diagnostic:{status:'success',via:'direct' as const}};}catch(probe){failure=probe;}
     }
     if(!relay)throw failure;
-    try{return {colors:await readPixels(relay,true,10000),diagnostic:{status:'success',via:'relay' as const,initialFailure:failure instanceof CoverPaletteError?failure.stage:'image-request-failed'}};}
+    try{return {colors:await readPixels(relay,true,10000,sample),diagnostic:{status:'success',via:'relay' as const,initialFailure:failure instanceof CoverPaletteError?failure.stage:'image-request-failed'}};}
     catch(error){throw new CoverPaletteError('relay-'+(error instanceof CoverPaletteError?error.stage:'image-request-failed'));}
   }
 }
