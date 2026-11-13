@@ -6,38 +6,87 @@ export const PLAYER_LAYOUTS = [
   { id: 'square-cover', name: '方形封面', description: '完整专辑封面，与歌词并排' },
   { id: 'lyrics-only', name: '纯净歌词', description: '留白之间，专注每一句歌词' },
 ] as const;
-export type PlayerLayout = typeof PLAYER_LAYOUTS[number]['id'];
+export type PlayerLayout = (typeof PLAYER_LAYOUTS)[number]['id'];
+export type PlayerBackground = 'cover' | 'light' | 'dark';
+export const PLAYER_RING_PRESETS = [
+  { id: 'smoky', name: '烟灰', colors: '#aeb0b5,#6f7178' },
+  { id: 'frost', name: '雾银', colors: '#d8e0e8,#949ea8' },
+  { id: 'amber', name: '琥珀', colors: '#b59672,#5e4630' },
+  { id: 'obsidian', name: '曜石', colors: '#43464b,#16181b' },
+  { id: 'glacier', name: '冰川蓝', colors: '#b6dce9,#638da8' },
+  { id: 'turquoise', name: '松石绿', colors: '#9acfc0,#3d8e7d' },
+  { id: 'violet', name: '烟紫', colors: '#c2b4d2,#89749d' },
+  { id: 'lemon', name: '柠黄', colors: '#ece3a3,#b8a646' },
+  { id: 'rose', name: '玫瑰红', colors: '#e1a8bb,#a85b77' },
+] as const;
+export type RingPreset = (typeof PLAYER_RING_PRESETS)[number]['id'];
+function isRingPreset(value: unknown): value is RingPreset {
+  return PLAYER_RING_PRESETS.some((item) => item.id === value);
+}
 export type LyricAlignment = 'left' | 'center';
 export const DEFAULT_LYRIC_ALIGNMENTS: Record<PlayerLayout, LyricAlignment> = {
-  classic: 'center', 'vinyl-wide': 'left', 'square-cover': 'center', 'lyrics-only': 'center',
+  classic: 'center',
+  'vinyl-wide': 'left',
+  'square-cover': 'center',
+  'lyrics-only': 'center',
 };
 export const PLAYER_LAYOUT_KEY = 'media-lab.player-layout.v1';
 type LayoutStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export function isPlayerLayout(value: unknown): value is PlayerLayout {
-  return PLAYER_LAYOUTS.some(item => item.id === value);
+  return PLAYER_LAYOUTS.some((item) => item.id === value);
 }
-export function isLyricAlignment(value: unknown): value is LyricAlignment { return value === 'left' || value === 'center'; }
+export function isLyricAlignment(value: unknown): value is LyricAlignment {
+  return value === 'left' || value === 'center';
+}
 /** Synchronous, versioned visual preference; never stores player/media data. */
-export function createPlayerLayoutSelection(beforeChange: () => void = () => {}, storage?: LayoutStorage) {
+export function createPlayerLayoutSelection(
+  beforeChange: () => void = () => {},
+  storage?: LayoutStorage,
+) {
   let initial: PlayerLayout = 'classic';
   const alignments = { ...DEFAULT_LYRIC_ALIGNMENTS };
+  const backgrounds = Object.fromEntries(
+    PLAYER_LAYOUTS.map((item) => [item.id, 'cover']),
+  ) as Record<PlayerLayout, PlayerBackground>;
+  let savedRing: RingPreset = 'smoky';
   try {
     const saved = JSON.parse(storage?.getItem(PLAYER_LAYOUT_KEY) ?? 'null');
-    if (saved?.version === 1 && (saved.layout === 'classic' || saved.layout === 'vinyl-wide')) initial = saved.layout;
-    if (saved?.version === 2) {
+    if (saved?.version === 1 && (saved.layout === 'classic' || saved.layout === 'vinyl-wide'))
+      initial = saved.layout;
+    if (saved?.version === 2 || saved?.version === 3) {
       if (isPlayerLayout(saved.layout)) initial = saved.layout;
       for (const { id } of PLAYER_LAYOUTS) {
         const value = saved.lyricAlignments?.[id];
         if (isLyricAlignment(value)) alignments[id] = value;
+        const background = saved.backgrounds?.[id];
+        if (['cover', 'light', 'dark'].includes(background)) backgrounds[id] = background;
       }
     }
-  } catch { /* Missing, corrupt or denied storage keeps the default. */ }
+    if (isRingPreset(saved?.ringPreset)) savedRing = saved.ringPreset;
+  } catch {
+    /* Missing, corrupt or denied storage keeps the default. */
+  }
   const layout = ref<PlayerLayout>(initial);
   const lyricAlignments = ref(alignments);
+  const backgroundModes = ref(backgrounds);
+  const backgroundMode = computed(() => backgroundModes.value[layout.value]);
+  const ringPreset = ref<RingPreset>(savedRing);
   const lyricAlignment = computed(() => lyricAlignments.value[layout.value]);
   function persist() {
-    try { storage?.setItem(PLAYER_LAYOUT_KEY, JSON.stringify({ version: 2, layout: layout.value, lyricAlignments: lyricAlignments.value })); }
-    catch { /* The current root still keeps the user's choices in memory. */ }
+    try {
+      storage?.setItem(
+        PLAYER_LAYOUT_KEY,
+        JSON.stringify({
+          version: 3,
+          layout: layout.value,
+          lyricAlignments: lyricAlignments.value,
+          backgrounds: backgroundModes.value,
+          ringPreset: ringPreset.value,
+        }),
+      );
+    } catch {
+      /* The current root still keeps the user's choices in memory. */
+    }
   }
   function selectLayout(value: unknown) {
     if (!isPlayerLayout(value) || value === layout.value) return false;
@@ -52,10 +101,34 @@ export function createPlayerLayoutSelection(beforeChange: () => void = () => {},
     persist();
     return true;
   }
-  return { layout: readonly(layout), selectLayout, lyricAlignments: readonly(lyricAlignments), lyricAlignment, selectLyricAlignment };
+  function selectBackground(value: PlayerBackground) {
+    if (!['cover', 'light', 'dark'].includes(value)) return;
+    backgroundModes.value = { ...backgroundModes.value, [layout.value]: value };
+    persist();
+  }
+  function selectRingPreset(value: RingPreset) {
+    if (!isRingPreset(value)) return;
+    ringPreset.value = value;
+    persist();
+  }
+  return {
+    backgroundMode,
+    selectBackground,
+    ringPreset: readonly(ringPreset),
+    selectRingPreset,
+    layout: readonly(layout),
+    selectLayout,
+    lyricAlignments: readonly(lyricAlignments),
+    lyricAlignment,
+    selectLyricAlignment,
+  };
 }
 export function startPlayerLayoutSelection() {
   let storage: LayoutStorage | undefined;
-  try { storage = window.localStorage; } catch { /* Even accessing the property can throw. */ }
+  try {
+    storage = window.localStorage;
+  } catch {
+    /* Even accessing the property can throw. */
+  }
   return createPlayerLayoutSelection(undefined, storage);
 }

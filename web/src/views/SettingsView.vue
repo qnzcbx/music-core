@@ -8,10 +8,10 @@ import PlayerLayoutSelector from '../components/PlayerLayoutSelector.vue';
 const appearance=inject<Appearance>(APPEARANCE)!;
 const mode=ref(appearance.mode);onUnmounted(appearance.subscribe(()=>{mode.value=appearance.mode}));
 const {searchState:{sources,providers}}=useCoreClient();
-const {layout,lyricAlignment,selectLayout,selectLyricAlignment,phase}=usePlayerVisuals();
+const {layout,lyricAlignment,selectLayout,selectLyricAlignment,phase,backgroundMode,selectBackground,ringPreset,selectRingPreset}=usePlayerVisuals();
 </script>
 <template><section class="settings-view"><h1 class="page-title">设置</h1>
-<section><h2>外观</h2><h3>主题</h3><fieldset aria-label="外观主题"><label v-for="choice in ([['light','浅色'],['dark','深色'],['system','跟随系统']] as const)" :key="choice[0]"><input type="radio" name="settings-theme" :checked="mode===choice[0]" @change="appearance.select(choice[0])"/>{{choice[1]}}</label></fieldset><h3>播放器样式</h3><PlayerLayoutSelector inline :layout="layout" :alignment="lyricAlignment" :transitioning="phase!=='idle'" @select="selectLayout" @align="selectLyricAlignment"/></section>
+<section><h2>外观</h2><h3>主题</h3><fieldset aria-label="外观主题"><label v-for="choice in ([['light','浅色'],['dark','深色'],['system','跟随系统']] as const)" :key="choice[0]"><input type="radio" name="settings-theme" :checked="mode===choice[0]" @change="appearance.select(choice[0])"/>{{choice[1]}}</label></fieldset><h3>播放器样式</h3><PlayerLayoutSelector inline :layout="layout" :alignment="lyricAlignment" :background="backgroundMode" :ring-preset="ringPreset" @background="selectBackground" @ring="selectRingPreset" :transitioning="phase!=='idle'" @select="selectLayout" @align="selectLyricAlignment"/></section>
 
 <section><h2>音乐来源</h2><SearchBar v-model:sources="sources" :providers="providers"/><p>勾选保存搜索偏好，不会立即搜索或打断播放。来源顺序由项目配置决定，不等同于后台解析优先级。</p></section>
 </section></template>

@@ -69,12 +69,12 @@ def main():
             page.add_init_script('window.extractions=0;const original=CanvasRenderingContext2D.prototype.getImageData;CanvasRenderingContext2D.prototype.getImageData=function(...args){window.extractions++;return original.apply(this,args)}')
             page.goto(url);page.wait_for_load_state('networkidle');page.locator('#query').fill('取色');page.locator('#query').press('Enter')
             def choose(identifier):
-                if page.locator('.immersive-player').count():page.get_by_role('button',name='收起歌曲详情页').click();page.wait_for_timeout(700)
+                if page.locator('.immersive-player').count():page.locator('.collapse-player').click();page.wait_for_timeout(700)
                 page.locator(f'.song-row[data-platform-id="{identifier}"] .action-play').first.click()
                 page.wait_for_function('document.querySelector("audio").currentTime>0&&!document.querySelector("audio").paused')
                 page.get_by_role('button',name='打开沉浸式播放器',exact=True).click();page.locator('.immersive-player').wait_for();page.wait_for_timeout(1100)
             choose(1);page.evaluate('window.firstAudio=document.querySelector("audio")')
-            page.get_by_role('button',name='收起歌曲详情页').click();page.wait_for_timeout(700)
+            page.locator('.collapse-player').click();page.wait_for_timeout(700)
             page.locator('.song-row[data-platform-id="2"] .action-play-next').first.click();page.get_by_role('menuitem',name='添加到播放队列',exact=True).click()
             page.get_by_role('button',name='打开沉浸式播放器',exact=True).click();page.wait_for_timeout(700)
             room=page.locator('.immersive-player');controls=room.locator('.immersive-controls')
@@ -143,13 +143,13 @@ def main():
             assert upstream.held;away();page.wait_for_timeout(4450);assert room.get_attribute('data-controls-hidden')=='false'
             upstream.fail_open=True;upstream.held.clear();page.wait_for_function('document.querySelector(".immersive-controls").dataset.phase==="error"')
             away();page.wait_for_timeout(4450);assert room.get_attribute('data-controls-hidden')=='false';shot('error-controls-visible.png')
-            upstream.fail_open=False;controls.get_by_role('button',name='重试播放',exact=True).click();page.wait_for_function('document.querySelector(".immersive-controls").dataset.phase==="ready"')
+            upstream.fail_open=False;controls.locator('.play-toggle').click();page.wait_for_function('document.querySelector(".immersive-controls").dataset.phase==="ready"')
             result['idle']['loadingAndErrorVisible']=True
             page.emulate_media(reduced_motion='reduce');assert page.locator('.immersive-control-layer').evaluate('(el)=>getComputedStyle(el).transitionDuration')=='0s'
             page.emulate_media(reduced_motion='no-preference')
-            controls.get_by_role('button',name='收起歌曲详情页',exact=True).click();page.wait_for_timeout(700);assert page.locator('.immersive-player').count()==0
+            page.locator('.collapse-player').click();page.wait_for_timeout(700);assert page.locator('.immersive-player').count()==0
             assert page.locator('audio').evaluate('(a)=>a===firstAudio&&!a.paused')
-            page.get_by_role('button',name='关闭播放',exact=True).click();page.wait_for_timeout(500)
+            page.get_by_role('button',name='播放队列',exact=True).click();page.get_by_role('button',name='清空队列',exact=True).click();page.wait_for_timeout(500)
             assert page.locator('audio').evaluate('(a)=>a.paused&&!a.getAttribute("src")') and page.locator('audio').count()==1
             result.update({'paletteChanged':True,'sameCoverCached':True,'noCoverFallback':True,'corsFallback':True,'templates':4,'widths':[390,768,1440],'singleAudio':True,'noVisualReopen':True,'pageErrors':errors})
             assert not errors

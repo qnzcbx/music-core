@@ -1,28 +1,44 @@
 <script setup lang="ts">
 import CoverArt from "./CoverArt.vue";
+import WideVinylRing from "./WideVinylRing.vue";
+import { WIDE_COVER_RATIO, type RingPreset } from "./wide-vinyl/ring-field";
 import type { AmbientPalette } from "../utils/ambient-palette";
 import type { PlayerLayout } from "../appearance/player-layout";
-import { useId } from "vue";
+import { useId, ref, watch, nextTick } from "vue";
 
 const tonearmId = useId();
-defineProps<{
+const props = defineProps<{
   cover?: string | null;
   playing: boolean;
   palette: AmbientPalette;
   label: string;
   layout?: PlayerLayout;
+  ringPreset?: RingPreset;
 }>();
+const scene = ref<HTMLElement>();
+function syncRing() {
+  const cover = scene.value?.querySelector('.record-art-rotor')?.getAnimations()[0];
+  const ring = scene.value?.querySelector('.wide-ring-rotor')?.getAnimations()[0];
+  if (cover && ring) ring.currentTime = cover.currentTime;
+}
+watch(() => [props.layout, props.playing], () => { void nextTick(syncRing); });
 const emit = defineEmits<{ coverElement: [element: unknown] }>();
 </script>
 <template>
   <div
+    ref="scene"
     class="vinyl-scene"
     :class="{ 'vinyl-playing': playing, 'vinyl-wide-scene': layout === 'vinyl-wide' }"
-    :style="{ '--vinyl-tint': palette.left, '--spin-state': playing ? 'running' : 'paused' }"
+    :style="{ '--vinyl-tint': palette.left, '--wide-cover-ratio': WIDE_COVER_RATIO, '--spin-state': playing ? 'running' : 'paused' }"
   >
     <div class="turntable" role="img" :aria-label="`${label} · ${playing ? '播放中' : '已暂停'}`">
       <div class="platter-shadow" />
       <div class="vinyl-grooves"><span class="vinyl-reflection" /></div>
+      <template v-if="layout === 'vinyl-wide'">
+        <div class="wide-ring-shadow" />
+        <div class="wide-ring-rotor"><WideVinylRing :preset="ringPreset" @ready="syncRing" /></div>
+        <div class="wide-ring-optics" />
+      </template>
       <div
         :ref="(value) => emit('coverElement', value)"
         class="record-label"
@@ -402,36 +418,6 @@ const emit = defineEmits<{ coverElement: [element: unknown] }>();
 .vinyl-wide-scene .vinyl-caption {
   display: none;
 }
-.vinyl-wide-scene .vinyl-grooves {
-  width: 100%;
-  height: 100%;
-  left: 0;
-  top: 0;
-  background:
-    repeating-radial-gradient(circle, #d9e4db26 0 1px, transparent 1px 3px),
-    radial-gradient(
-      circle,
-      color-mix(in srgb, var(--vinyl-tint) 22%, #26322d) 0 56%,
-      color-mix(in srgb, var(--vinyl-tint) 50%, #34443a) 73%,
-      color-mix(in srgb, var(--vinyl-tint) 62%, #89917b) 98%,
-      #e2e7d478 100%
-    );
-  box-shadow:
-    inset 0 0 0 3px #fffff02b,
-    0 25px 65px #26372820;
-}
-.vinyl-wide-scene .record-label {
-  width: 66%;
-  height: 66%;
-  left: 17%;
-  top: 17%;
-  box-shadow:
-    0 0 0 6px #172720a6,
-    0 0 0 10px #ffffe82b;
-}
-.vinyl-wide-scene .vinyl-reflection {
-  opacity: 0.65;
-}
 @media (max-width: 760px) {
   .vinyl-scene {
     width: min(70vw, 320px);
@@ -459,4 +445,41 @@ const emit = defineEmits<{ coverElement: [element: unknown] }>();
     transition: none;
   }
 }
+</style>
+
+<style scoped>
+@keyframes wide-ring-spin { to { transform:rotate(360deg); } }
+.wide-ring-shadow, .wide-ring-rotor, .wide-ring-optics { position:absolute; inset:0; border-radius:50%; pointer-events:none; }
+.wide-ring-shadow { box-shadow:-18px 60px 106px 10px #3e372f38, -7px 23px 53px #2e323b1f; }
+.wide-ring-rotor { animation:wide-ring-spin 24s linear infinite; animation-play-state:var(--spin-state); }
+.vinyl-wide-scene .vinyl-grooves { display:none; }
+.vinyl-wide-scene .record-label { width:calc(var(--wide-cover-ratio) * 100%); height:calc(var(--wide-cover-ratio) * 100%); left:calc(50% - var(--wide-cover-ratio) * 50%); top:calc(50% - var(--wide-cover-ratio) * 50%); box-shadow:none; background:transparent; z-index:2; }
+.vinyl-wide-scene .record-label::after { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; box-shadow:inset 0 0 4px 1px #141b2333; }
+.vinyl-wide-scene .spindle { display:none; }
+@media(prefers-reduced-motion:reduce) { .wide-ring-rotor { animation:none; } }
+    .wide-ring-optics {
+      z-index: 4;
+      opacity: .84;
+      --lip: calc(var(--wide-cover-ratio) * 100%);
+      --seat: calc(var(--lip) + (100% - var(--lip)) * .153);
+      mask-image: radial-gradient(circle closest-side,
+        transparent calc(var(--lip) + .25px), #0008 calc(var(--lip) + 1.25px),
+        #0008 calc(var(--seat) - 1.4px), #000 calc(var(--seat) + 1.4px),
+        #000 97.5%, #000a 99.6%, transparent 100%);
+      background: conic-gradient(from 0deg,
+        rgb(244 246 252 / .18) 0deg,
+        rgb(239 244 250 / .16) 31deg,
+        rgb(238 243 250 / .02) 68deg,
+        rgb(33 31 36 / .09) 117deg,
+        rgb(32 31 38 / .17) 166deg,
+        rgb(31 30 36 / .20) 205deg,
+        rgb(32 32 40 / .17) 228deg,
+        rgb(240 241 245 / 0) 250deg,
+        rgb(244 244 249 / .16) 265deg,
+        rgb(246 246 251 / .30) 284deg,
+        rgb(245 245 250 / .27) 309deg,
+        rgb(244 246 252 / .18) 360deg);
+    }
+
+
 </style>

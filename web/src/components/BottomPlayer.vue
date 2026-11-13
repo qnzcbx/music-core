@@ -33,7 +33,7 @@ function panel(name: string, open: boolean) {
   emit("lockChange", Object.values(panels).some(Boolean));
 }
 watch(compactImmersive, () => {
-  for (const key of ["volume", "style", "queue"]) delete panels[key];
+  for (const key of ["volume", "queue"]) delete panels[key];
   emit("lockChange", Object.values(panels).some(Boolean));
 });
 const { selected, time, duration, playing, message, phase } = player;
@@ -172,18 +172,7 @@ function seek(event: Event) {
       >
         <DownloadStateIcon :identity="downloadIdentity" />
       </button>
-      <template v-if="immersive">
-        <PlayerLayoutSelector
-          icon-only
-          above
-          :layout="visuals.layout.value"
-          :alignment="visuals.lyricAlignment.value"
-          :transitioning="visuals.phase.value === 'layout'"
-          @select="visuals.selectLayout"
-          @align="visuals.selectLyricAlignment"
-          @open-change="panel('style', $event)"
-        />
-      </template>
+
       <button
         v-if="compactMini"
         class="mini-play-toggle"
@@ -211,6 +200,22 @@ function seek(event: Event) {
         @open-change="panel('queue', $event)"
       />
     </div>
+        <PlayerLayoutSelector
+          v-if="immersive"
+          class="immersive-style-entry"
+          icon-only
+          above
+          :layout="visuals.layout.value"
+          :alignment="visuals.lyricAlignment.value"
+          :background="visuals.backgroundMode.value"
+          :ring-preset="visuals.ringPreset.value"
+          @background="visuals.selectBackground"
+          @ring="visuals.selectRingPreset"
+          :transitioning="visuals.phase.value === 'layout'"
+          @select="visuals.selectLayout"
+          @align="visuals.selectLyricAlignment"
+          @open-change="panel('style', $event)"
+        />
   </footer>
 </template>
 <style scoped>
@@ -448,8 +453,8 @@ function seek(event: Event) {
   box-shadow: none;
   color: var(--mini-text);
   backdrop-filter: none;
-  --mini-text: #293238;
-  --mini-muted: #515c62;
+  --mini-text: var(--player-control, #293238);
+  --mini-muted: var(--player-text-muted, #515c62);
   --mini-accent: #52646b;
   --mini-button: #d6dcdb;
   --mini-button-text: #263337;
@@ -653,4 +658,9 @@ function seek(event: Event) {
     animation: none;
   }
 }
+</style>
+
+<style scoped>
+.immersive-style-entry { position:fixed; right:136px; bottom:28px; z-index:50; }
+@media(max-width:600px) { .immersive-style-entry { right:18px; top:18px; bottom:auto; } }
 </style>

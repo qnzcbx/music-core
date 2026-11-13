@@ -12,6 +12,8 @@ import { usePlayerVisuals } from "../composables/usePlayerTransition";
 const { player, lyrics } = useCoreClient();
 const {
   palette,
+  backgroundMode,
+  ringPreset,
   phase,
   layout,
   selectLayout,
@@ -31,6 +33,11 @@ const eligible = computed(
 );
 const chrome = useImmersiveControls(root, controls, eligible);
 const backgroundPalette = computed(() => {
+  if (backgroundMode.value !== 'cover') {
+    const dark = backgroundMode.value === 'dark';
+    const base = dark ? '#151b20' : '#f5f4ef';
+    return { ...palette.value, key: 'fixed-' + backgroundMode.value, base, baseLeft:base, baseRight:base, left:base, center:base, right:base };
+  }
   if (palette.value.evidence !== "fallback") return palette.value;
   const tints =
     layout.value === "vinyl-wide"
@@ -82,10 +89,11 @@ onUnmounted(() => {
     :data-controls-hidden="chrome.hidden.value"
     :class="{ 'wide-player': layout === 'vinyl-wide' }"
     :data-player-layout="layout"
+    :data-player-background="backgroundMode"
     :data-lyric-alignment="lyricAlignment"
     aria-label="沉浸式播放器"
     :style="{
-      '--player-accent': palette.accent,
+      '--player-accent': backgroundMode === 'cover' ? palette.accent : backgroundMode === 'dark' ? '#d9e7eb' : '#445967',
       '--layout-preview-left': palette.left,
       '--layout-preview-right': palette.right,
       '--player-lyric-align': lyricAlignment,
@@ -130,6 +138,7 @@ onUnmounted(() => {
           :palette="palette"
           :label="song.name"
           :layout="layout"
+          :ring-preset="ringPreset"
           @cover-element="registerCover"
         />
       </div>
@@ -187,6 +196,7 @@ onUnmounted(() => {
 <style scoped>
 .immersive-player {
   color-scheme: light;
+  --player-panel-bg:#fff;
   --player-text: #283c32;
   --player-text-muted: #53634f;
   --player-control: #3e5344;
@@ -502,9 +512,10 @@ onUnmounted(() => {
 }
 .wide-layout .record-column {
   position: fixed;
-  top: -36vh;
-  right: -20vw;
-  width: clamp(720px, 52vw, 1380px);
+  top: 20.47dvh;
+  left: 91.05vw;
+  transform: translate(-50%, -50%);
+  width: min(68vw, 100.6dvh);
   aspect-ratio: 1;
   pointer-events: none;
 }
@@ -573,6 +584,8 @@ onUnmounted(() => {
     position: relative;
     top: auto;
     right: auto;
+    left: auto;
+    transform: none;
     width: min(44vw, 320px);
     justify-self: center;
   }
@@ -844,4 +857,16 @@ onUnmounted(() => {
 
 <style scoped>
 .immersive-control-layer{background:transparent;border:0;box-shadow:none;backdrop-filter:none}.immersive-control-layer::before,.immersive-control-layer::after{content:none;display:none}
+</style>
+
+<style scoped>
+.immersive-player[data-player-background="dark"] {
+  color-scheme: dark;
+  --player-panel-bg:#222b32;
+  --player-text:#edf1f4; --player-text-muted:#aab5be; --player-control:#e4ebf0;
+  --player-lyric:#b8c3cc; --player-lyric-near:#d3dce3; --player-active-color:#ffffff;
+  --player-accent:#d9e7eb; --player-focus:#b1cbd5; --player-surface:#222b32f5; --player-border:#49545d;
+  --app-selected:#35424c; --app-accent:#b1cbd5; --app-shadow-panel:0 12px 30px #0005;
+}
+.immersive-player[data-player-background="light"] { --player-accent:#445967; }
 </style>
