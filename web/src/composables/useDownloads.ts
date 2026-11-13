@@ -25,7 +25,7 @@ export function useDownloads(){
   clearTimeout(timer);loading.value=true;const token=revision,request=new AbortController();queries.add(request);
   inflight=(async()=>{
    try{const data=await listDownloads(request.signal);if(disposed||token!==revision)return;
-    const completed=data.some(t=>t.status==='completed'&&tasks.value.find(old=>old.id===t.id)?.status!=='completed');
+    const completed=data.some(t=>(t.status==='completed'||t.sourcePreserved)&&tasks.value.find(old=>old.id===t.id)?.status!=='completed');
     tasks.value=data;error.value='';
     if(wantFiles||completed){wantFiles=false;try{const saved=await listDownloadFiles(request.signal);if(!disposed&&token===revision){files.value=saved;fileError.value='';}}catch(reason){if(!disposed&&token===revision)fileError.value=message(reason);}}
    }catch(reason){if(!disposed&&token===revision)error.value=message(reason);}
@@ -49,7 +49,7 @@ export function useDownloads(){
  }
  async function operate(task:DownloadTask,operation:'cancel'|'retry'){
   if(operation==='retry'&&retried.value[task.id])return;
-  const result=await perform(task.id,()=>updateDownload(task.id,operation),operation==='retry'?'已重新开始下载':'已更新任务状态');
+  const result=await perform(task.id,()=>updateDownload(task.id,operation),operation==='retry'?'已发起重试':'已更新任务状态');
   if(result&&operation==='retry')retried.value={...retried.value,[task.id]:result.id};
   return result;
  }

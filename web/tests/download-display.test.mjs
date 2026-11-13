@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {downloadStatus,downloadPercent,formatDownloadBytes,downloadError} from '../src/utils/download-display.ts';
+
+test('转换失败与源校验失败独立，保底不冒充MP3完成',()=>{
+ assert.equal(downloadStatus({status:'failed',sourcePreserved:true,errorCode:'conversion_failed'}),'转换失败，已保留 FLAC');
+ assert.equal(downloadStatus({status:'failed',errorCode:'conversion_failed'}),'转换失败');
+ assert.equal(downloadStatus({status:'failed',errorCode:'source_verification_failed'}),'源文件校验失败');
+ for(const phase of ['source_verifying','transcoding','output_verifying','publishing'])assert.equal(downloadPercent({status:'downloading',phase,receivedBytes:100,totalBytes:100}),null);
+});
 test('解析不显示下载百分比，未知总长不伪造百分比，收完不提前宣称完成',()=>{
  assert.equal(downloadPercent({status:'resolving',receivedBytes:0,totalBytes:100}),null);
  assert.equal(downloadPercent({status:'downloading',receivedBytes:42,totalBytes:null}),null);

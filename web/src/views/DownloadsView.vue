@@ -18,7 +18,7 @@ const { downloads, player } = useCoreClient();
 const tab = ref<"files" | "tasks">("files");
 const tasks = computed(() => [...downloads.tasks.value].sort((a, b) => b.createdAt - a.createdAt));
 function taskFor(file: SavedDownloadFile) {
-  return tasks.value.find((task) => task.status === "completed" && task.fileId === file.fileId);
+  return tasks.value.find((task) => (task.status === "completed" || task.sourcePreserved) && task.fileId === file.fileId);
 }
 const removal = ref<SavedDownloadFile | null>(null),
   deleteFile = ref(false),

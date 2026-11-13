@@ -9,6 +9,7 @@ import stat
 import hashlib
 import ipaddress
 import json
+import logging
 import threading
 import unicodedata
 from time import time
@@ -50,8 +51,9 @@ class DownloadRequest(DTO):
 class DownloadTask(DTO):
     outputMode: OutputMode = 'original'
     expectedSourceCodec: Literal['flac'] | None = None
-    phase: Literal['downloading','transcoding','verifying','completed'] | None = None
+    phase: Literal['downloading','source_verifying','transcoding','output_verifying','publishing','verifying','completed'] | None = None
     sourceMedia: MediaRepresentation | None = None
+    sourcePreserved: bool = False
     transcoded: bool = False
     finalSizeBytes: int | None = None
     quality: DownloadQuality = 'auto'
@@ -395,7 +397,11 @@ class DownloadManager:
         except asyncio.CancelledError:
             if job.public.status not in TERMINAL: self.update(job, status='cancelled')
         except CoreError as error:
-            if job.public.status not in TERMINAL: self.update(job, status='failed', errorCode=error.code.value)
+            logging.getLogger(__name__).warning('download_failed task=%s phase=%s code=%s', job.public.id, job.public.phase, error.code.value)
+            if job.public.status not in TERMINAL:
+                code = ('conversion_failed' if error.code == ErrorCode.CAPABILITY_UNSUPPORTED and job.public.outputMode != 'original'
+                        else 'source_verification_failed' if job.public.phase == 'source_verifying' else error.code.value)
+                self.update(job, status='failed', errorCode=code)
         except (asyncio.TimeoutError, httpx.TimeoutException):
             if job.public.status not in TERMINAL: self.update(job, status='failed', errorCode='upstream_timeout')
         except httpx.HTTPError:
@@ -411,9 +417,100 @@ class DownloadManager:
                     # 每份任务文件独立清理，不因一个删除失败跳过另一份。
                     self.update(job, errorCode='temporary_cleanup_failed')
 
+    def publish(self, job, publish_part, actual, kind, *, preserved=False):
+        p = job.public
+        stem = safe_stem(' - '.join(s.strip() for s in (p.artist,p.title) if s and s.strip())
+                     or f'{p.identity.providerId}-{p.identity.platformId}')
+        for index in range(1,10001):
+            target = self.root / (stem + (f' ({index})' if index > 1 else '') + '.' + kind)
+            try:
+                # 同文件系统硬链接是原子的“不存在才发布”，跨进程也绝不覆盖。
+                os.link(publish_part,target)
+                break
+            except FileExistsError: continue
+        else: raise OSError('无可用文件名')
+        self.update(job, status='failed' if preserved else 'completed', phase=job.public.phase if preserved else 'completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind, actualMedia=actual, finalSizeBytes=actual.sizeBytes, sourcePreserved=preserved)
+
+    async def convert_and_save(self, job, part, source, existing=None):
+        from app.transcode import validate_flac, convert_flac, ConversionError
+        output = part.with_name(part.stem+'-output.part')
+        async with self.conversion_slots:
+            self.update(job, phase='source_verifying', sourceMedia=source)
+            await validate_flac(part, timeout=self.settings.conversion_timeout)
+            self.update(job, phase='transcoding')
+            try:
+                actual = await asyncio.wait_for(convert_flac(part, output, 320000 if job.public.outputMode=='mp3_320' else 192000,
+                    timeout=self.settings.conversion_timeout, max_bytes=self.settings.max_bytes,
+                    phase_changed=lambda phase: self.update(job, phase=phase)), self.settings.conversion_timeout)
+            except (CoreError, asyncio.TimeoutError) as error:
+                cause = error.cause if isinstance(error, ConversionError) else error
+                if isinstance(error, ConversionError): self.update(job, phase=error.phase)
+                logging.getLogger(__name__).warning('download_conversion_failed task=%s phase=%s error=%s', job.public.id, job.public.phase, type(cause).__name__)
+                if isinstance(cause, OSError) and not isinstance(cause, FileNotFoundError): raise cause
+                output.unlink(missing_ok=True)
+                # 保底前再次完整验证，不把截断或损坏源文件发布为成果。
+                await validate_flac(part, timeout=self.settings.conversion_timeout)
+                self.update(job, errorCode='conversion_failed')
+                if not existing:
+                    for previous in self.jobs.values():
+                        saved = previous.public
+                        if saved.identity != job.public.identity or saved.format != 'flac' or not saved.fileId:
+                            continue
+                        try:
+                            path, info, _ = self.find_file(saved.fileId)
+                            if info.st_size != part.stat().st_size: continue
+                            with path.open('rb') as left, part.open('rb') as right:
+                                while True:
+                                    chunk = left.read(65536)
+                                    if chunk != right.read(65536): break
+                                    if not chunk:
+                                        if self.fingerprint(path, path.stat()) == saved.fileId:
+                                            existing = saved.fileId
+                                        break
+                        except FileNotFoundError:
+                            continue
+                        if existing: break
+                if existing:
+                    path, info, kind = self.find_file(existing)
+                    self.update(job, status='failed', sourcePreserved=True, fileId=existing, filename=path.name,
+                        format=kind, actualMedia=source, finalSizeBytes=info.st_size)
+                else:
+                    self.publish(job, part, source, 'flac', preserved=True)
+                return
+            self.update(job, phase='publishing', transcoded=True)
+            await asyncio.sleep(0)
+            self.publish(job, output, actual, 'mp3')
+
     async def transfer(self, job, part):
         if job.public.status in TERMINAL: raise asyncio.CancelledError()
         self.update(job, status='resolving')
+        if job.public.outputMode != 'original':
+            # 只复用仍有稳定来源身份和文件指纹的当前进程任务，不按标题猜测。
+            for previous in reversed(list(self.jobs.values())):
+                saved = previous.public
+                if saved.id == job.public.id or saved.identity != job.public.identity or saved.format != 'flac' or not saved.fileId:
+                    continue
+                try:
+                    path, info, _ = self.find_file(saved.fileId)
+                except FileNotFoundError:
+                    continue
+                if info.st_size > self.settings.max_bytes: continue
+                self.root.mkdir(parents=True, exist_ok=True)
+                with path.open('rb') as source_file, part.open('xb') as target:
+                    copied = 0
+                    while chunk := source_file.read(65536):
+                        copied += len(chunk)
+                        if copied > self.settings.max_bytes: raise CoreError(ErrorCode.MEDIA_CAPACITY)
+                        target.write(chunk)
+                        await asyncio.sleep(0)
+                    target.flush()
+                    os.fsync(target.fileno())
+                if self.fingerprint(path, path.stat()) != saved.fileId:
+                    raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+                with part.open('rb') as source_file:
+                    actual = inspect_audio(source_file.read(65536)).model_copy(update={'sizeBytes':info.st_size})
+                await self.convert_and_save(job, part, actual, existing=saved.fileId)
+                return
         async def resolve_source():
             provider=provider_for(self.state,job.public.identity.providerId)
             if job.public.outputMode!='original':
@@ -510,30 +607,13 @@ class DownloadManager:
             publish_part=part
             if job.public.outputMode!='original' and not direct:
                 if actual.codec!='flac' or actual.lossless is not True:raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
-                from app.transcode import convert_flac
-                publish_part=part.with_name(part.stem+'-output.part')
-                async with self.conversion_slots:
-                    self.update(job,phase='transcoding')
-                    actual=await asyncio.wait_for(convert_flac(part,publish_part,320000 if job.public.outputMode=='mp3_320' else 192000,
-                        timeout=self.settings.conversion_timeout,max_bytes=self.settings.max_bytes),self.settings.conversion_timeout)
-                self.update(job,phase='verifying',actualMedia=actual,transcoded=True)
-                kind='mp3'
+                await self.convert_and_save(job, part, actual)
+                return
             self.update(job,phase='verifying',actualMedia=actual,finalSizeBytes=actual.sizeBytes)
             # 最后一次可取消点在发布前；原子发布与终态更新之间没有await。
             await asyncio.sleep(0)
             if job.public.status in TERMINAL: raise asyncio.CancelledError()
-            p = job.public
-            stem = safe_stem(' - '.join(s.strip() for s in (p.artist,p.title) if s and s.strip())
-                             or f'{p.identity.providerId}-{p.identity.platformId}')
-            for index in range(1,10001):
-                target = self.root / (stem + (f' ({index})' if index > 1 else '') + '.' + kind)
-                try:
-                    # 同文件系统硬链接是原子的“不存在才发布”，跨进程也绝不覆盖。
-                    os.link(publish_part,target)
-                    break
-                except FileExistsError: continue
-            else: raise OSError('无可用文件名')
-            self.update(job, status='completed', phase='completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind)
+            self.publish(job, publish_part, actual, kind)
         finally:
             if response is not None:
                 with anyio.CancelScope(shield=True): await response.aclose()

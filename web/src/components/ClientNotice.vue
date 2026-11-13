@@ -42,7 +42,7 @@ watch(
         previous?.some((t) => t.id === task.id && t.status !== "failed")
       ) {
         console.error("下载失败", { identity: task.identity, code: task.errorCode });
-        show("下载失败，请到下载页查看任务");
+        show(task.sourcePreserved ? "转换失败，已保留 FLAC" : task.errorCode === "conversion_failed" ? "转换失败，请到下载页重试" : task.errorCode === "source_verification_failed" ? "源文件校验失败" : "下载失败，请到下载页查看任务");
       }
   },
 );

@@ -58,6 +58,39 @@ def main():
         page.get_by_role('button',name='刷新下载列表').click();page.wait_for_timeout(200);assert '下载成功' in page.locator('.client-notice').inner_text()
         assert '5.7 MB' in page.locator('.download-row').inner_text()
         page.get_by_role('button',name='关闭提示').click();page.get_by_role('button',name='刷新下载列表').click();page.wait_for_timeout(150);assert not page.locator('.client-notice').count()
+        # 同一受控夹具继续验证失败保底与重试反馈，不冒充在线来源。
+        tasks[0].update(status='downloading',phase='source_verifying',updatedAt=7)
+        page.get_by_role('button',name='刷新下载列表').click();page.wait_for_timeout(200)
+        assert '正在校验源文件' in page.locator('.download-row').inner_text()
+        tasks[0].update(status='failed',phase='output_verifying',sourcePreserved=True,errorCode='conversion_failed',fileId='kept',filename='kept.flac',format='flac',updatedAt=8)
+        files.append({'fileId':'kept','filename':'kept.flac','format':'flac','sizeBytes':50000000,'modifiedAt':8})
+        page.get_by_role('button',name='刷新下载列表').click();page.wait_for_timeout(250)
+        assert '转换失败，已保留 FLAC' in page.locator('.download-row').inner_text()
+        assert '转换失败，已保留 FLAC' in page.locator('.client-notice').inner_text()
+        page.screenshot(path=str(screenshots/'conversion-preserved-flac.png'))
+        page.get_by_role('tab',name='下载歌曲',exact=True).click()
+        assert page.locator('[data-filename="kept.flac"]').count()==1
+        assert '转换失败，已保留 FLAC' in page.locator('[data-filename="kept.flac"]').inner_text(), page.locator('[data-filename="kept.flac"]').inner_text()
+        # 自有合法FLAC验证原生Audio本地播放，不写用户下载目录。
+        import subprocess
+        from app.transcode import tools
+        executable, _ = tools()
+        fixture = OUT/'playback-fixture.flac'
+        subprocess.run([executable,'-nostdin','-v','error','-y','-f','lavfi','-i','sine=frequency=440:duration=4','-c:a','flac',str(fixture)],check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        page.route('**/api/downloads/files/kept/stream',lambda r:r.fulfill(body=fixture.read_bytes(),content_type='audio/flac'))
+        page.set_viewport_size({'width':390,'height':844})
+        page.locator('[data-filename="kept.flac"] .download-identity').click()
+        page.wait_for_function('document.querySelector("audio") && !document.querySelector("audio").paused && document.querySelector("audio").currentTime>0')
+        page.screenshot(path=str(screenshots/'conversion-preserved-local-play.png'))
+        page.get_by_role('tab',name='正在下载').click()
+        def retry(r):
+            task={**tasks[0],'id':'retry','status':'downloading','phase':'transcoding','sourcePreserved':False,'fileId':None,'filename':None,'updatedAt':9}
+            tasks.append(task);r.fulfill(status=202,json=task)
+        page.route('**/api/downloads/converting/retry',retry)
+        page.get_by_role('button',name='重试',exact=True).click();page.wait_for_timeout(250)
+        assert '已发起重试，请查看新任务' in page.locator('.downloads-view').inner_text()
+        assert '转换中' in page.locator('.downloads-view').inner_text()
         print('SAVING_UI_PASS: missing encoder, lossless-only choices, reset, estimate, short scroll/theme, same task stages/cancel/failure, final size, one success notification')
         browser.close()
 

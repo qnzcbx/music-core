@@ -120,7 +120,7 @@ async function copy() {
             >
               <LoadingIcon v-if="current && busy" class="loading-icon" />
               <PauseIcon
-                v-else-if="current && playing" 
+                v-else-if="current && playing"
               />
               <PlayIcon v-else/>
             </span>
@@ -141,7 +141,7 @@ async function copy() {
         ></span>
         <div class="download-state">
           <span>
-            {{ file ? "已保存" : task ? downloadStatus(task) : "" }}
+            {{ task?.sourcePreserved ? "转换失败，已保留 FLAC" : file ? "已保存" : task ? downloadStatus(task) : "" }}
             <template v-if="file">
               · {{ file.format.toUpperCase() }}
               <span class="compact-size">
@@ -155,7 +155,7 @@ async function copy() {
               </span>
             </template>
           </span>
-          <template 
+          <template
             v-if="!file && task?.status === 'downloading' && (!task.phase || task.phase==='downloading')"
           >
             <progress
@@ -174,12 +174,13 @@ async function copy() {
               <template v-else> · 总大小未知</template>
             </small>
           </template>
-          <progress 
-            v-if="!file && task?.status==='downloading' && ['transcoding','verifying'].includes(task.phase||'')" 
+          <progress
+            v-if="!file && task?.status==='downloading' && ['source_verifying','transcoding','output_verifying','publishing','verifying'].includes(task.phase||'')"
             aria-label="正在处理音频"
           />
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
+        <span v-if="file && task?.sourcePreserved" class="preserved-source-note">转换失败，已保留 FLAC</span>
         <div class="download-actions">
           <button
             v-if="!file && task && ['queued', 'resolving', 'downloading'].includes(task.status)"
@@ -195,7 +196,7 @@ async function copy() {
           >
             重试
           </button>
-          <span v-if="retried" class="download-muted">已重试</span>
+          <span v-if="retried" class="download-muted">已发起重试，请查看新任务</span>
           <template v-if="file">
             <button class="file-icon" aria-label="复制名称" title="复制名称" @click.stop="copy">
               <CopyIcon />
@@ -237,6 +238,10 @@ async function copy() {
   </ContextMenuRoot>
 </template>
 <style scoped>
+.preserved-source-note { display: none; }
+@media (max-width: 600px) {
+  .preserved-source-note { display: block; grid-column: 1 / -1; color: var(--app-text-muted); font-size: 12px; }
+}
 .download-row {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(110px, 0.7fr) minmax(160px, 1fr) 110px;

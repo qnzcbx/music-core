@@ -17,6 +17,99 @@ from test_download_quality import mp3
 
 TRACK=TrackIdentity(providerId='kuwo',platformId='1')
 
+
+@pytest.mark.parametrize('failure', ['encoder', 'spawn', 'output'])
+def test_real_pipeline_failure_stage_and_fallback(tmp_path, audio, monkeypatch, failure):
+    if failure == 'encoder':
+        async def unavailable(): return {'available':False,'reason':'test no libmp3lame'}
+        monkeypatch.setattr(transcode, 'encoder_capability', unavailable)
+    elif failure == 'spawn':
+        original = transcode.owned_process
+        async def missing(args, **kwargs):
+            if 'libmp3lame' in args: raise FileNotFoundError('test missing executable')
+            return await original(args, **kwargs)
+        monkeypatch.setattr(transcode, 'owned_process', missing)
+    else:
+        original = transcode.probe_file
+        async def invalid(probe, path):
+            result = await original(probe, path)
+            return {**result, 'codec_name':'invalid'} if '-output.part' in path.name else result
+        monkeypatch.setattr(transcode, 'probe_file', invalid)
+    async def scenario():
+        manager, client, _ = await manager_at(tmp_path/'downloads', audio)
+        async with client:
+            job = manager.create(DownloadRequest(identity=TRACK, outputMode='mp3_192'))
+            await finish(job)
+            assert job.public.sourcePreserved and job.public.errorCode == 'conversion_failed'
+            assert job.public.phase == ('output_verifying' if failure=='output' else 'transcoding')
+            assert len(manager.files()) == 1 and not list(manager.root.glob('*.part'))
+    asyncio.run(scenario())
+
+
+def test_nonzero_process_has_bounded_safe_diagnostics(caplog):
+    with pytest.raises(CoreError):
+        asyncio.run(transcode.owned_process([sys.executable, '-c', 'import sys;sys.stderr.write("invalid frame header https://secret.test/?token=hidden");sys.exit(7)']))
+    assert 'exit=7' in caplog.text and 'invalid frame header' in caplog.text
+    assert 'secret.test' not in caplog.text and 'hidden' not in caplog.text
+
+
+def test_parallel_fallback_does_not_duplicate_source(tmp_path, audio, monkeypatch):
+    async def broken(*args, **kwargs): raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+    monkeypatch.setattr(transcode, 'convert_flac', broken)
+    async def scenario():
+        manager, client, _ = await manager_at(tmp_path/'downloads', audio)
+        async with client:
+            jobs = [manager.create(DownloadRequest(identity=TRACK, outputMode=mode)) for mode in ('mp3_192','mp3_320')]
+            await asyncio.gather(*(finish(job) for job in jobs))
+            assert all(job.public.sourcePreserved for job in jobs)
+            assert jobs[0].public.fileId == jobs[1].public.fileId
+            assert len(manager.files()) == 1
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('phase', ['transcoding', 'output_verifying'])
+def test_preserved_source_reused_for_retry(tmp_path, audio, monkeypatch, phase):
+    async def scenario():
+        real = transcode.convert_flac
+        async def broken(source, output, *args, **kwargs):
+            output.write_bytes(b'incomplete')
+            kwargs['phase_changed'](phase)
+            raise transcode.ConversionError(phase, CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE))
+        monkeypatch.setattr(transcode, 'convert_flac', broken)
+        manager, client, calls = await manager_at(tmp_path/'downloads', audio)
+        async with client:
+            first = manager.create(DownloadRequest(identity=TRACK, outputMode='mp3_320'))
+            await finish(first)
+            assert first.public.status == 'failed' and first.public.sourcePreserved
+            assert first.public.errorCode == 'conversion_failed' and first.public.phase == phase
+            assert first.public.actualMedia.codec == 'flac' and first.public.outputMode == 'mp3_320'
+            original = manager.root / first.public.filename
+            before = original.read_bytes()
+            second = manager.create(DownloadRequest(identity=TRACK, outputMode='mp3_320'))
+            await finish(second)
+            assert second.public.fileId == first.public.fileId
+            assert len(manager.files()) == 1 and len(calls) == 1
+            monkeypatch.setattr(transcode, 'convert_flac', real)
+            third = manager.create(DownloadRequest(identity=TRACK, outputMode='mp3_320'))
+            await finish(third)
+            assert third.public.status == 'completed' and third.public.actualMedia.codec == 'mp3'
+            assert original.read_bytes() == before and len(calls) == 1
+            assert not list(manager.root.glob('*.part'))
+    asyncio.run(scenario())
+
+
+def test_invalid_source_never_enters_encoder(tmp_path, audio, monkeypatch):
+    async def forbidden(*args, **kwargs): pytest.fail('invalid source reached encoder')
+    monkeypatch.setattr(transcode, 'convert_flac', forbidden)
+    async def scenario():
+        manager, client, _ = await manager_at(tmp_path/'downloads', audio[:-1000])
+        async with client:
+            job = manager.create(DownloadRequest(identity=TRACK, outputMode='mp3_192'))
+            await finish(job)
+            assert job.public.errorCode == 'source_verification_failed'
+            assert not job.public.sourcePreserved and not manager.files()
+    asyncio.run(scenario())
+
 @pytest.fixture
 def audio(tmp_path):
     executable,_=transcode.tools()
@@ -103,13 +196,15 @@ def test_failure_cleanup_and_cancel(tmp_path,audio,monkeypatch,kind):
             if kind=='disk':raise OSError('磁盘空间不足')
             raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         monkeypatch.setattr(transcode,'convert_flac',convert)
-        manager,client,_=await manager_at(tmp_path/'downloads',audio,timeout=.1 if kind=='timeout' else 5)
+        manager,client,_=await manager_at(tmp_path/'downloads',audio,conversion_timeout=2 if kind=='timeout' else 5)
         async with client:
             job=manager.create(DownloadRequest(identity=TRACK,outputMode='mp3_192'));await entered.wait()
             if kind=='cancel':await manager.cancel(job)
             await finish(job)
             assert job.public.status==('cancelled' if kind=='cancel' else 'failed')
-            assert not manager.files() and not list(manager.root.glob('*.part'))
+            assert bool(manager.files()) == (kind in ('timeout','invalid'))
+            assert job.public.sourcePreserved == (kind in ('timeout','invalid'))
+            assert not list(manager.root.glob('*.part'))
     asyncio.run(scenario())
 
 def test_conversion_serial_and_service_close(tmp_path,audio,monkeypatch):
