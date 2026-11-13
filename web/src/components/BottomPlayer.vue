@@ -107,6 +107,7 @@ function seek(event: Event) {
         <span class="player-album">{{ selected?.album }}</span>
       </div>
     </div>
+
     <div v-if="!compactMini" class="transport">
       <div class="transport-buttons">
         <PlaybackModeMenu :immersive="immersive" @open-change="panel('mode', $event)" />
@@ -160,6 +161,7 @@ function seek(event: Event) {
         <time>{{ duration ? format(duration) : "—:—" }}</time>
       </div>
     </div>
+    
     <div v-if="!compactImmersive" class="player-tools">
       <button
         v-if="!immersive"

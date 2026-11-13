@@ -19,6 +19,7 @@ watch(opened, (value) => emit("openChange", value));
         <VolumeIcon v-else />
       </button>
     </PopoverTrigger>
+    
     <PopoverContent
       :class="{ 'immersive-layer': props.immersive }"
       class="music-layer volume-layer"

@@ -573,7 +573,7 @@ onUnmounted(() => {
     position: relative;
     top: auto;
     right: auto;
-    width: min(72vw, 580px);
+    width: min(44vw, 320px);
     justify-self: center;
   }
   .wide-layout .listening-column {
@@ -602,7 +602,7 @@ onUnmounted(() => {
     gap: 24px;
   }
   .wide-layout .record-column {
-    width: min(48vw, 210px);
+    width: min(46vw, 196px);
   }
   .wide-layout :deep(.lyric-scroll) {
     --lyric-height: clamp(180px, 30dvh, 250px);
