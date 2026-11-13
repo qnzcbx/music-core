@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import AsciiOceanBackground from "../features/home/components/AsciiOceanBackground.vue";
+import { ref } from "vue";
+import HomeInkBackground from "../features/home/components/HomeInkBackground.vue";
 import HomeGreeting from "../features/home/components/HomeGreeting.vue";
 import HomeSearch from "../features/home/components/HomeSearch.vue";
+const inkText = ref("");
 </script>
 <template>
-  <section class="home-view" aria-label="棣栭〉">
-    <AsciiOceanBackground />
-    <div class="home-main"><HomeGreeting /><HomeSearch /></div>
+  <section class="home-view" aria-label="首页">
+    <HomeInkBackground :text="inkText" />
+    <div class="home-main"><HomeGreeting /><HomeSearch @draft-change="inkText = $event" /></div>
   </section>
 </template>
 <style scoped>
@@ -22,11 +24,15 @@ import HomeSearch from "../features/home/components/HomeSearch.vue";
   background: var(--app-bg);
 }
 .home-main {
+  pointer-events: none;
   position: relative;
   z-index: 1;
   width: min(600px, calc(100% - 64px));
   text-align: center;
   transform: translateY(-24px);
+}
+.home-main :deep(.home-search) {
+  pointer-events: auto;
 }
 @media (max-width: 600px) {
   .home-main {

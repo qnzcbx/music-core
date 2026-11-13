@@ -1,0 +1,35 @@
+{
+  "home": {
+    "gpu": 47,
+    "observers": 1,
+    "signals": 1
+  },
+  "away": [
+    {
+      "gpu": 0,
+      "observers": 0,
+      "signals": 0
+    },
+    {
+      "gpu": 0,
+      "observers": 0,
+      "signals": 0
+    },
+    {
+      "gpu": 0,
+      "observers": 0,
+      "signals": 0
+    },
+    {
+      "gpu": 0,
+      "observers": 0,
+      "signals": 0
+    }
+  ],
+  "initialReduced": "reduced",
+  "missingModule": {
+    "input": true,
+    "state": "unavailable",
+    "searchNavigation": true
+  }
+}

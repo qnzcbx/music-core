@@ -1,0 +1,60 @@
+{
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "visuals": "three sizes, light/dark; props updated without new context",
+  "contextsAfterTheme": 1,
+  "searchRaf": 0,
+  "cycles": [
+    {
+      "raf": 0,
+      "canvases": 0
+    },
+    {
+      "raf": 0,
+      "canvases": 0
+    },
+    {
+      "raf": 0,
+      "canvases": 0
+    },
+    {
+      "raf": 0,
+      "canvases": 0
+    },
+    {
+      "raf": 0,
+      "canvases": 0
+    },
+    {
+      "raf": 0,
+      "canvases": 0
+    }
+  ],
+  "audio": {
+    "before": 0.006163,
+    "home": {
+      "time": 4.575469,
+      "same": true,
+      "paused": false
+    },
+    "away": {
+      "time": 8.801667,
+      "same": true,
+      "paused": false
+    },
+    "opens": 0,
+    "seek": 30.453003
+  },
+  "scroll": 300,
+  "reducedRaf": 0,
+  "errors": [],
+  "canvas": {
+    "state": "animated",
+    "canvas": 3,
+    "webgl": 0
+  },
+  "failure": {
+    "state": "unavailable",
+    "canvas": 0,
+    "webgl": 0
+  }
+}
