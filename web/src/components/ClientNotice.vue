@@ -21,7 +21,7 @@ watch(
       });
       show(
         player.selected.value && "fileId" in player.selected.value
-          ? "本地文件无法读取，请刷新下载列表确认文件存在"
+          ? player.message.value
           : "歌曲播放失败，请稍后重试或选择其他歌曲",
       );
     }

@@ -108,7 +108,7 @@ export interface QueueEntry {
 /** 本地条目只携带稳定文件引用，绝不伪装为在线平台。 */
 export interface LocalSong {
  kind:'local'; fileId:string; id:string; source:'local'; name:string; title:string;
- artist:string; album:string; cover:null; duration:null;
+ artist:string; album:string; cover:string|null; duration:number|null;
 }
 export type PlayableSong=SearchEntry|LocalSong;
 export interface LocalQueueEntry {key:string;kind:'local';fileId:string;metadata:TrackSnapshot}

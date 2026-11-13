@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {effectScope} from 'vue';
 import {useQueue} from '../src/player/useQueue.ts';
+import {decodePlayer} from '../src/player/player-persistence.ts';
 const song=(id,source='kuwo')=>({id,source,platformId:id,mid:id,name:'同名歌曲',title:'同名歌曲',artist:'歌手',album:'专辑',duration:10,resolveState:'idle'});
 const local=fileId=>({kind:'local',fileId,id:JSON.stringify(['local',fileId]),source:'local',name:'历史.mp3',title:'历史.mp3',artist:'',album:'',cover:null,duration:null});
 function fixture(storage,open=async()=>{}) {
@@ -28,12 +29,45 @@ test('混合队列复用四种模式与历史，删除其他文件不中断，�
  await q.remove(JSON.stringify(['local','a']));assert.equal(q.current.value,null);assert.equal(stopped.length,1);scope.stop();
 });
 
-test('本地条目不写入在线持久化协议或媒体 URL，在线队列重载兼容',async()=>{
+test('无效本地文件 ID 不写入快照，在线队列重载兼容',async()=>{
  let value=null;const storage={getItem:()=>value,setItem:(_key,text)=>{value=text}};
  const f=fixture(storage);f.queue.add(song('11'));await f.queue.select(local('file-id'));
  assert.ok(value);assert.equal(value.includes('file-id'),false);assert.equal(value.includes('/stream'),false);
  const next=fixture(storage);assert.equal(next.queue.entries.value.length,1);assert.equal(next.queue.entries.value[0].track.platformId,'11');assert.equal(next.queue.current.value,null);
  f.close();next.close();
+});
+
+test('稳定本地文件 ID、混合队列、模式和进度恢复但不打开媒体，清空后不复活',async()=>{
+ let raw=null;const storage={getItem:()=>raw,setItem:(_key,value)=>{raw=value;}};
+ const f=fixture(storage),fileId='a'.repeat(64);
+ f.queue.add(song('11'));await f.queue.select({...local(fileId),duration:123});
+ f.queue.position.value=37.5;f.queue.setMode('repeat_all');
+ const restored=fixture(storage);
+ assert.equal(restored.queue.currentSong.value.fileId,fileId);
+ assert.equal(restored.queue.currentSong.value.duration,123);
+ assert.equal(restored.queue.position.value,37.5);
+ assert.equal(restored.queue.navigation.mode,'repeat_all');
+ assert.equal(restored.queue.entries.value.length,2);assert.deepEqual(restored.calls,[]);
+ await restored.queue.select(song('11'));assert.equal(restored.queue.position.value,0);
+ await restored.queue.clear();const empty=fixture(storage);
+ assert.equal(empty.queue.currentSong.value,null);assert.deepEqual(empty.queue.entries.value,[]);
+ f.close();restored.close();empty.close();
+});
+
+test('旧快照兼容，非法进度归零，恢复身份与元数据显式投影',()=>{
+ for(const version of [1,2,3]){
+   const value=decodePlayer(JSON.stringify({schemaVersion:version,queue:[],position:-10}));
+   assert.equal(value.kind,'valid');assert.equal(value.value.position,0);
+ }
+ for(const position of ['60',null,-1,86401]){
+   const value=decodePlayer(JSON.stringify({schemaVersion:3,position}));
+   assert.equal(value.value.position,0);
+ }
+ for(const query of ['token=secret','Authorization=secret','signature=secret']){
+   let raw;const f=fixture({getItem:()=>null,setItem:(_key,value)=>{raw=value;}});
+   f.queue.add({...song('12'),cover:`https://example.test/a.jpg?${query}`,streamUrl:'secret',lease:'secret'});
+   assert.equal(raw.includes('secret'),false);f.close();
+ }
 });
 test('稳定身份去重、同名不同版本保留，添加不解析',()=>{
  const f=fixture();f.queue.add(song('1'));f.queue.add(song('1'));f.queue.add(song('2'));f.queue.add(song('1','netease'));

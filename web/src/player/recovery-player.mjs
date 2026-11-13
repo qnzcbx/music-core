@@ -33,12 +33,14 @@ export class RecoveryPlayer {
     this.binding=true; this.audio.pause(); this.audio.removeAttribute('src'); this.audio.load(); this.binding=false;
     this.state('idle','会话已关闭'); await this.closeId(old?.playbackId);
   }
-  async select(identity) {
+  async select(identity, startAt=0) {
     // 选择立即占用世代，不能让旧close的晚到完成重置新的选择。
     const stopping=this.stop(), generation=this.generation;
     await stopping;
     if(this.generation!==generation)return;
-    this.identity={...identity}; this.pendingSeek=undefined; this.bookmark=0; this.desiredPlaying=true; this.automaticUsed=false;
+    this.identity={...identity}; this.pendingSeek=undefined;
+    this.bookmark=Number.isFinite(startAt)?Math.max(0,startAt):0;
+    this.desiredPlaying=true; this.automaticUsed=false;
     return this.reopen(false);
   }
   async setPlaying(value) {

@@ -65,7 +65,9 @@ export function usePlayerStore() {
     state.queue=[];state.currentQueueKey=null;state.navigation.reset();
   }
   function restoreQueue(saved:PersistedPlayer) {
-    state.queue=saved.queue.map(entry=>({key:entry.key,track:{...entry.track},metadata:{...entry.metadata}}));
+    state.queue=saved.queue
+      .filter((entry):entry is QueueEntry=>!('kind' in entry))
+      .map(entry=>({key:entry.key,track:{...entry.track},metadata:{...entry.metadata}}));
     state.currentQueueKey=saved.currentQueueKey;
     state.playing=false;state.currentTime=0;state.duration=0;state.volume=saved.settings.volume;
     state.navigation.reset();state.navigation.mode=saved.navigation.mode;

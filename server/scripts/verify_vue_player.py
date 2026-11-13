@@ -84,6 +84,11 @@ def main():
                 duration=page.locator('audio').evaluate('a=>a.duration');target=duration*ratio
                 slider=page.get_by_label('播放进度',exact=True);slider.evaluate('(el,value)=>{el.value=String(value);el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));}',target)
                 page.wait_for_function("target=>{const a=document.querySelector('audio');return !a.seeking&&Math.abs(a.currentTime-target)<2}",arg=target)
+            # 短受控音频在 94% 处很快自然结束；路由连续性从开头单独验证。
+            page.get_by_label('播放进度',exact=True).evaluate('el=>{el.value="0";el.dispatchEvent(new Event("change",{bubbles:true}));}')
+            page.wait_for_function('!document.querySelector("audio").seeking')
+            if page.locator('audio').evaluate('a=>a.paused'):
+                page.get_by_role('button',name='播放',exact=True).click()
             for path in ('/','/settings','/search'):
                 page.evaluate("path=>history.pushState({},'',path)",path);page.evaluate("dispatchEvent(new PopStateEvent('popstate'))")
                 page.wait_for_timeout(150)
@@ -100,7 +105,7 @@ def main():
                 for _ in range(200):
                     if len(opened)>count:break
                     page.wait_for_timeout(100)
-                assert len(opened)==count+1, {'before':count,'after':len(opened),'phase':page.locator('.player').get_attribute('data-phase'),'fixtureOpens':len(upstream.opens),'leases':[l.state for l in app.state.playback_leases.entries.values()]}
+                assert len(opened)==count+1, {'before':count,'after':len(opened),'phase':page.locator('.player').get_attribute('data-phase'),'fixtureOpens':len(upstream.opens),'leases':[l.state for l in app.state.playback_leases.entries.values()],'renewStatuses':renew_status}
                 page.wait_for_function("document.querySelector('.player').dataset.phase==='ready'")
                 assert page.locator('audio').evaluate('a=>a===window.firstAudio&&a.volume===.3&&a.muted')
                 upstream.hold_next=True
@@ -115,13 +120,14 @@ def main():
                 assert '人工测试1' in page.locator('.player .track-title').inner_text()
                 assert sum(l.state=='active' for l in app.state.playback_leases.entries.values())==1
                 page.route('**/api/playback/open',lambda route:route.fulfill(status=503,json={'error':{'message':'人工受控失败'}}))
-                page.get_by_role('button',name='重试播放').click()
+                page.locator('.song-row[data-platform-id="2"] .action-play').click()
                 page.wait_for_function("document.querySelector('.player').dataset.phase==='error'")
                 page.screenshot(path=str(screenshots/'player-controlled-error.png'))
             else:
                 page.set_viewport_size({'width':390,'height':844});page.screenshot(path=str(screenshots/'player-mobile-player.png'))
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-            page.get_by_role('button',name='关闭播放').click();page.wait_for_timeout(700)
+            page.get_by_role('button',name='播放队列',exact=True).click()
+            page.get_by_role('button',name='清空队列',exact=True).click();page.wait_for_timeout(700)
             assert not page.locator('audio').get_attribute('src')
             closed_status=[page.request.head(url+session['streamUrl']).status for session in opened]
             assert all(status==410 for status in closed_status),closed_status

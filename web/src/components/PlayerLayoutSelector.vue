@@ -614,8 +614,8 @@ button:focus-visible {
   margin-inline: auto;
 }
 .ring-swatch {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 1px solid #0002;
 }
@@ -669,7 +669,7 @@ button:focus-visible {
   top: 16px;
   right: 16px;
   bottom: auto;
-  width: min(720px, max(480px, 38vw), calc(100vw - 32px));
+  width: min(510px, max(480px, 38vw), calc(100vw - 32px));
   height: calc(100dvh - var(--mini-player-height, 116px) - 32px);
   max-height: calc(100dvh - var(--mini-player-height, 116px) - 32px);
   padding: 16px;
@@ -751,8 +751,8 @@ button:focus-visible {
   background: transparent;
 }
 .background-preview {
-  width: 60px;
-  height: 54px;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
 }
 .background-options .edit-choice[aria-pressed='true'] .background-preview {
@@ -815,10 +815,6 @@ button:focus-visible {
   padding: 4px;
   position: relative;
 }
-.ring-swatch {
-  width: 44px;
-  height: 44px;
-}
 .ring-options .edit-choice[aria-pressed='true'] .ring-swatch {
   outline: 2px solid #19ca71;
   outline-offset: 3px;
@@ -844,11 +840,11 @@ button:focus-visible {
     width: auto;
     height: calc(100dvh - var(--mini-player-height, 160px) - 68px);
     max-height: calc(100dvh - var(--mini-player-height, 160px) - 68px);
-    padding: 20px;
+    padding: 12px;
     border-radius: 16px;
   }
   .layout-grid {
-    gap: 16px 12px;
+    gap: 4px 4px;
   }
   .layout-name {
     font-size: 13px;

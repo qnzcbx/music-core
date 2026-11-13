@@ -17,3 +17,8 @@ export const router = createRouter({
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 });
+
+// 刷新沉浸地址时回到浏览页，恢复播放器只呈现在底栏。
+router.beforeEach((to, from) => {
+  if (!from.matched.length && (to.path === '/player' || to.path.startsWith('/player/'))) return '/';
+});

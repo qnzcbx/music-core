@@ -30,6 +30,21 @@ function setup(){
     fail(value){fail=value;},head(value){headStatus=value;}};
 }
 
+test('首次打开先定位再出声，非法进度归零、越界按实际时长截断',async()=>{
+ for(const [saved,expected] of [[42,42],[999,119.9],[-1,0],[NaN,0]]){
+   const s=setup(),heard=[];s.audio.play=async()=>{heard.push(s.audio.currentTime);s.audio.paused=false;};
+   await s.player.select(identity,saved);assert.deepEqual(heard,[expected]);await s.player.dispose();
+ }
+});
+
+test('刷新恢复的 Open 晚到不能把旧进度套到新曲，旧 Lease 关闭',async()=>{
+ const s=setup(),release=s.delay();const pending=s.player.select(identity,70);
+ await tick();await s.player.select({...identity,platformId:'2'});release();await pending;
+ assert.equal(s.player.identity.platformId,'2');assert.equal(s.audio.currentTime,0);
+ assert.equal(s.player.session.playbackId,'lease1');assert(s.closed.includes('lease0'));
+ await s.player.dispose();
+});
+
 test('恢复中Seek采用最新目标并保持暂停',async()=>{
  const s=setup();await s.player.select(identity);const release=s.delay();const pending=s.player.recover(true);
  s.player.seek(70);await s.player.setPlaying(false);release();await pending;
