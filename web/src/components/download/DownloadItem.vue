@@ -5,6 +5,9 @@ import PlayIcon from '~icons/lucide/play';
 import PauseIcon from '~icons/lucide/pause';
 import LoadingIcon from '~icons/lucide/loader-circle';
 import CopyIcon from '~icons/lucide/copy';
+import DownloadIcon from '~icons/lucide/download';
+import RetryIcon from '~icons/lucide/rotate-cw';
+import SourceIcon from '~icons/lucide/file-down';
 import TrashIcon from '~icons/lucide/trash-2';
 import {
   ContextMenuRoot,
@@ -17,6 +20,7 @@ import CoverArt from '../CoverArt.vue';
 import { providerName } from '../../composables/useProviders';
 import { formatDownloadBytes, downloadStatus, downloadPercent } from '../../utils/download-display';
 const props = defineProps<{
+  delivery?: { state: string; text: string };
   task?: DownloadTask;
   file?: SavedDownloadFile;
   cover?: string | null;
@@ -26,7 +30,14 @@ const props = defineProps<{
   playing?: boolean;
   busy?: boolean;
 }>();
-const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: [] }>();
+const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; source: [] }>();
+const browserAction = computed(() =>
+  props.task?.status !== 'completed' || props.delivery?.state === 'failed'
+    ? '重试'
+    : props.delivery?.state === 'handed'
+      ? '重新下载'
+      : '下载',
+);
 const playbackText = computed(() =>
   props.busy ? '正在加载' : props.playing ? '正在播放' : '已暂停',
 );
@@ -164,7 +175,11 @@ async function copy() {
                   ? '已保存'
                   : task
                     ? task.deliveryMode === 'browser' && task.status === 'completed'
-                      ? '准备完成'
+                      ? delivery?.state === 'failed'
+                        ? delivery.text
+                        : delivery?.state === 'handed'
+                          ? '已发起下载'
+                          : '准备完成'
                       : downloadStatus(task)
                     : ''
             }}
@@ -235,7 +250,13 @@ async function copy() {
             取消
           </button>
           <button
-            v-if="!file && task && ['failed', 'cancelled'].includes(task.status) && !retried"
+            v-if="
+              !file &&
+              task &&
+              task.deliveryMode !== 'browser' &&
+              ['failed', 'cancelled'].includes(task.status) &&
+              !retried
+            "
             :disabled="pending"
             @click="emit('retry')"
           >
@@ -247,10 +268,31 @@ async function copy() {
             >已发起重试，请查看新任务</span
           >
           <button
-            v-if="task?.deliveryMode === 'browser' && task.artifactUrl"
+            v-if="
+              !file &&
+              task?.deliveryMode === 'browser' &&
+              ['completed', 'failed', 'cancelled'].includes(task.status)
+            "
+            :disabled="pending"
+            class="file-icon"
+            :title="browserAction"
+            :aria-label="browserAction"
             @click.stop="emit('save')"
           >
-            保存到此设备
+            <DownloadIcon v-if="browserAction === '下载'" />
+            <RetryIcon v-else />
+          </button>
+          <button
+            v-if="
+              !file && task?.deliveryMode === 'browser' && task.sourcePreserved && task.artifactUrl
+            "
+            :disabled="pending"
+            class="file-icon"
+            title="保存原文件"
+            aria-label="保存原文件"
+            @click.stop="emit('source')"
+          >
+            <SourceIcon />
           </button>
           <template v-if="file">
             <button

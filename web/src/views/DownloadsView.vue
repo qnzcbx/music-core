@@ -99,7 +99,7 @@ onMounted(() => {
       {{ downloads.fileError.value }}
     </p>
     <p
-      v-if="downloads.feedback.value"
+      v-if="downloads.localMode.value && downloads.feedback.value"
       class="download-notice"
       role="status"
     >
@@ -143,11 +143,13 @@ onMounted(() => {
         :key="task.id"
         :task="task"
         :cover="downloads.covers.value[queueKey(task.identity)]"
-        :pending="downloads.pending.value.has(task.id)"
+        :delivery="downloads.deliveries.value[task.id]"
+        :pending="downloads.pending.value.has(task.id) || downloads.delivering.value.has(task.id)"
         :retried="!!downloads.retried.value[task.id]"
         @cancel="downloads.operate(task, 'cancel')"
         @retry="downloads.operate(task, 'retry')"
-        @save="downloads.deliver(task)"
+        @save="downloads.downloadAgain(task)"
+        @source="downloads.deliver(task)"
       />
       <p
         v-if="!tasks.length && !downloads.loading.value && !downloads.error.value"

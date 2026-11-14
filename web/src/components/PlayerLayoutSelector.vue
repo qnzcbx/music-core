@@ -132,9 +132,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 ]"
                 aria-hidden="true"
               >
-                <span class="preview-machine"
-                  ><span class="preview-disc"><i /></span><span class="preview-arm"
-                /></span>
+                <span class="preview-machine">
+                  <span class="preview-disc"><i /></span>
+                  <span class="preview-arm" />
+                </span>
                 <span class="preview-copy"><i /><i /><i /><i /><i /></span>
                 <span
                   v-if="layout === item.id"
@@ -170,11 +171,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         </header>
         <fieldset class="editor-section">
           <legend>
-            背景<span
+            背景
+            <span
               class="selected-option"
               aria-live="polite"
-              >已选{{ backgroundName }}</span
             >
+              已选{{ backgroundName }}
+            </span>
           </legend>
           <div class="background-options">
             <button
@@ -245,15 +248,17 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 :class="[`preview-${editing}`, `align-${item.id}`]"
                 aria-hidden="true"
               >
-                <span class="preview-machine"
-                  ><span class="preview-disc"><i /></span><span class="preview-arm"
-                /></span>
+                <span class="preview-machine">
+                  <span class="preview-disc"><i /></span>
+                  <span class="preview-arm" />
+                </span>
                 <span class="preview-copy"><i /><i /><i /><i /><i /></span>
                 <span
                   v-if="alignment === item.id"
                   class="preview-check"
-                  >✓</span
                 >
+                  ✓
+                </span>
               </span>
               <span>歌词{{ item.name }}</span>
             </button>

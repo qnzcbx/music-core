@@ -7,6 +7,7 @@ import {
   removeDownloadFile,
 } from '../api/downloads';
 import { requestJson, ApiError } from '../api/http';
+import { downloadError } from '../utils/download-display';
 import { trackIdentity, queueKey } from '../utils/player-queue';
 import type { SearchEntry } from '../types/music';
 import type { DownloadTask, SavedDownloadFile, DownloadQuality, OutputMode } from '../types/core';
@@ -18,19 +19,42 @@ export function useDownloads() {
   const deliveries = ref<
     Record<string, { state: 'preparing' | 'handed' | 'ready' | 'failed'; text: string }>
   >({});
-  const delivering = new Set<string>();
+  const delivering = ref(new Set<string>());
+  // 仅恢复已发起状态，刷新不重复交付。
+  try {
+    for (const id of JSON.parse(sessionStorage.getItem('download-handed') || '[]')) {
+      if (typeof id === 'string' && /^[a-f0-9]{32}$/.test(id))
+        deliveries.value[id] = { state: 'handed', text: '已发起下载' };
+    }
+  } catch {}
+  function rememberHanded() {
+    try {
+      const ids = Object.keys(deliveries.value).filter(
+        (id) => deliveries.value[id]?.state === 'handed',
+      );
+      sessionStorage.setItem('download-handed', JSON.stringify(ids.slice(-500)));
+    } catch {}
+  }
   function artifactUrl(task: DownloadTask) {
     return /^[a-f0-9]{32}$/.test(task.id) &&
       task.artifactUrl === `/api/downloads/${task.id}/artifact`
       ? task.artifactUrl
       : null;
   }
-  async function deliver(task: DownloadTask) {
+  async function deliver(task: DownloadTask, prepareExpired = false) {
     const url = artifactUrl(task);
-    if (!url || delivering.has(task.id)) return;
-    delivering.add(task.id);
+    if (delivering.value.has(task.id) || pending.value.has(task.id)) return;
+    if (!url) {
+      if (prepareExpired) await prepareAgain(task);
+      return;
+    }
+    delivering.value = new Set([...delivering.value, task.id]);
     try {
       const response = await fetch(url, { method: 'HEAD' });
+      if (response.status === 410 && prepareExpired) {
+        await prepareAgain(task);
+        return;
+      }
       if (!response.ok)
         throw new Error(
           response.status === 410 ? '成品已过期，请重新准备下载' : '无法交付，请重试',
@@ -44,15 +68,21 @@ export function useDownloads() {
       anchor.remove();
       deliveries.value[task.id] = {
         state: 'handed',
-        text: '已交给浏览器；若未开始，请点击保存到此设备',
+        text: '已发起下载',
+      };
+      rememberHanded();
+      feedback.value = {
+        key: task.id,
+        text: `开始下载${task.title ? '：《' + task.title + '》' : ''}`,
       };
     } catch (reason) {
       deliveries.value[task.id] = {
         state: 'failed',
         text: reason instanceof Error ? reason.message : '浏览器交付失败，请重试',
       };
+      feedback.value = { key: task.id, text: deliveries.value[task.id]!.text, error: true };
     } finally {
-      delivering.delete(task.id);
+      delivering.value = new Set([...delivering.value].filter((id) => id !== task.id));
     }
   }
   const tasks = shallowRef<DownloadTask[]>([]),
@@ -252,6 +282,28 @@ export function useDownloads() {
     if (result && operation === 'retry') retried.value = { ...retried.value, [task.id]: result.id };
     return result;
   }
+  function prepareAgain(task: DownloadTask) {
+    return perform(
+      task.id,
+      () =>
+        createDownload({
+          identity: task.identity,
+          title: task.title,
+          artist: task.artist,
+          album: task.album,
+          cover: task.cover,
+          quality: task.quality,
+          outputMode: task.outputMode,
+          expectedSourceCodec: task.expectedSourceCodec,
+        }),
+      '已发起重试',
+    );
+  }
+  async function downloadAgain(task: DownloadTask) {
+    if (pending.value.has(task.id) || delivering.value.has(task.id)) return;
+    if (task.artifactUrl && !task.sourcePreserved) await deliver(task, true);
+    else await prepareAgain(task);
+  }
   async function removeFile(file: SavedDownloadFile, deleteFile: boolean) {
     if (pending.value.has(file.fileId)) return false;
     revision++;
@@ -289,7 +341,7 @@ export function useDownloads() {
             ? '转换失败，可手动保存有效 FLAC'
             : task.status === 'cancelled'
               ? '已取消'
-              : '准备失败，请重试',
+              : downloadError(task.errorCode),
         };
     }
   });
@@ -316,6 +368,8 @@ export function useDownloads() {
     localMode,
     deliveries,
     deliver,
+    delivering,
+    downloadAgain,
     artifactUrl,
     downloadSong,
     choose,
