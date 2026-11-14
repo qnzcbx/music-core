@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 """API 仅提供本期真实实现的健康状态与来源信息。"""
 import logging
 import asyncio
@@ -118,13 +119,26 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.migu = MiguProvider(client)
             api.state.http_client = client
             api.state.cover_reader = CoverReader(cover_transport)
-            settings = download_settings or DownloadSettings(directory=os.environ.get('MUSIC_CORE_DOWNLOAD_DIR', DownloadSettings().directory), data_directory=Path(os.environ.get('MUSIC_CORE_DATA_DIR', Path(__file__).resolve().parents[2] / '.runtime' / 'app-data')))
+            from app.library_settings import initial_directory
+            if download_settings is None:
+                data = Path(os.environ.get('MUSIC_CORE_DATA_DIR', Path(__file__).resolve().parents[2] / '.runtime' / 'app-data'))
+                override = os.environ.get('MUSIC_CORE_DOWNLOAD_DIR')
+                local_mode = os.environ.get('MUSIC_CORE_LOCAL_MODE') == '1'
+                if local_mode:
+                    directory = initial_directory(data, DownloadSettings().directory, override)
+                else:
+                    directory = data / 'web-downloads' / f'web-{os.getpid()}-{uuid4().hex}'
+                settings = DownloadSettings(directory=directory, data_directory=data, deployment_locked=override is not None, local_mode=local_mode)
+            else:
+                settings = download_settings
+
             api.state.downloads = DownloadManager(api.state, settings)
             api.state.downloads.prepare()
             async def cleanup():
                 while True:
                     await asyncio.sleep(media_settings.sweep_interval)
                     api.state.playback_leases.sweep()
+                    api.state.downloads.artifacts.sweep(api.state.downloads.readers)
             task=asyncio.create_task(cleanup())
             try:
                 yield

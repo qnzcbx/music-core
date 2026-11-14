@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useCoreClient } from "../composables/useCoreClient";
-import DownloadItem from "../components/download/DownloadItem.vue";
-import RefreshIcon from "~icons/lucide/refresh-cw";
+import { computed, onMounted, ref } from 'vue';
+import { useCoreClient } from '../composables/useCoreClient';
+import DownloadItem from '../components/download/DownloadItem.vue';
+import RefreshIcon from '~icons/lucide/refresh-cw';
 import {
   AlertDialogRoot,
   AlertDialogPortal,
@@ -11,32 +11,34 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogCancel,
-} from "reka-ui";
-import type { SavedDownloadFile } from "../types/core";
-import { queueKey } from "../utils/player-queue";
+} from 'reka-ui';
+import type { SavedDownloadFile } from '../types/core';
+import { queueKey } from '../utils/player-queue';
 const { downloads, player } = useCoreClient();
-const tab = ref<"files" | "tasks">("files");
+const tab = ref<'files' | 'tasks'>('files');
 const tasks = computed(() => [...downloads.tasks.value].sort((a, b) => b.createdAt - a.createdAt));
 function taskFor(file: SavedDownloadFile) {
-  return tasks.value.find((task) => (task.status === "completed" || task.sourcePreserved) && task.fileId === file.fileId);
+  return tasks.value.find(
+    (task) => (task.status === 'completed' || task.sourcePreserved) && task.fileId === file.fileId,
+  );
 }
 const removal = ref<SavedDownloadFile | null>(null),
   deleteFile = ref(false),
   removing = ref(false),
-  removeError = ref("");
+  removeError = ref('');
 function play(file: SavedDownloadFile) {
-  if (player.selectedId.value === JSON.stringify(["local", file.fileId])) void player.toggle();
+  if (player.selectedId.value === JSON.stringify(['local', file.fileId])) void player.toggle();
   else void player.selectLocal(file, taskFor(file));
 }
 function confirm(file: SavedDownloadFile) {
   removal.value = file;
   deleteFile.value = false;
-  removeError.value = "";
+  removeError.value = '';
 }
 async function remove() {
   if (!removal.value || removing.value) return;
   removing.value = true;
-  removeError.value = "";
+  removeError.value = '';
   try {
     await player.removeLocal(removal.value.fileId);
     if (await downloads.removeFile(removal.value, deleteFile.value)) removal.value = null;
@@ -52,7 +54,7 @@ onMounted(() => {
 <template>
   <section class="downloads-view">
     <header class="downloads-heading">
-      <h1 class="page-title">本地和下载</h1>
+      <h1 class="page-title">{{ downloads.localMode.value ? '本地和下载' : '下载任务' }}</h1>
       <button
         class="refresh-downloads"
         aria-label="刷新下载列表"
@@ -63,33 +65,53 @@ onMounted(() => {
         <RefreshIcon :class="{ spinning: downloads.loading.value }" />
       </button>
     </header>
-    <div class="download-tabs" role="tablist" aria-label="下载分类">
-      <button 
-        role="tab" 
-        :aria-selected="tab === 'files'" 
+    <div
+      v-if="downloads.localMode.value"
+      class="download-tabs"
+      role="tablist"
+      aria-label="下载分类"
+    >
+      <button
+        role="tab"
+        :aria-selected="tab === 'files'"
         @click="tab = 'files'"
       >
         下载歌曲
       </button>
-      <button 
-        role="tab" 
-        :aria-selected="tab === 'tasks'" 
+      <button
+        role="tab"
+        :aria-selected="tab === 'tasks'"
         @click="tab = 'tasks'"
       >
         正在下载
       </button>
     </div>
-    <p v-if="downloads.error.value" role="alert">{{ downloads.error.value }}</p>
-    <p v-if="tab === 'files' && downloads.fileError.value" role="alert">
+    <p
+      v-if="downloads.error.value"
+      role="alert"
+    >
+      {{ downloads.error.value }}
+    </p>
+    <p
+      v-if="tab === 'files' && downloads.fileError.value"
+      role="alert"
+    >
       {{ downloads.fileError.value }}
     </p>
-    <p v-if="downloads.feedback.value" class="download-notice" role="status">
+    <p
+      v-if="downloads.feedback.value"
+      class="download-notice"
+      role="status"
+    >
       {{ downloads.feedback.value.text }}
     </p>
-    <div class="download-columns" aria-hidden="true">
+    <div
+      class="download-columns"
+      aria-hidden="true"
+    >
       <span>歌曲 / 歌手</span><span>大小</span><span>状态</span><span>操作</span>
     </div>
-    <template v-if="tab === 'files'">
+    <template v-if="downloads.localMode.value && tab === 'files'">
       <DownloadItem
         v-for="file in downloads.files.value"
         :key="file.fileId"
@@ -100,7 +122,10 @@ onMounted(() => {
         @remove="confirm(file)"
         :file="file"
         :task="taskFor(file)"
-        :cover="file.cover || (taskFor(file) ? downloads.covers.value[queueKey(taskFor(file)!.identity)] : null)"
+        :cover="
+          file.cover ||
+          (taskFor(file) ? downloads.covers.value[queueKey(taskFor(file)!.identity)] : null)
+        "
       />
       <p
         v-if="
@@ -110,9 +135,7 @@ onMounted(() => {
       >
         还没有下载的歌曲
       </p>
-      <p class="download-location">
-        任务历史仅为服务快照。
-      </p>
+      <p class="download-location">任务历史仅为服务快照。</p>
     </template>
     <template v-else>
       <DownloadItem
@@ -124,6 +147,7 @@ onMounted(() => {
         :retried="!!downloads.retried.value[task.id]"
         @cancel="downloads.operate(task, 'cancel')"
         @retry="downloads.operate(task, 'retry')"
+        @save="downloads.deliver(task)"
       />
       <p
         v-if="!tasks.length && !downloads.loading.value && !downloads.error.value"
@@ -152,24 +176,35 @@ onMounted(() => {
         >
           <AlertDialogTitle>删除下载记录？</AlertDialogTitle>
           <AlertDialogDescription>
-            将从下载列表移除《{{
-              removal ? taskFor(removal)?.title || removal.filename : ""
-            }}》。
+            将从下载列表移除《{{ removal ? taskFor(removal)?.title || removal.filename : '' }}》。
           </AlertDialogDescription>
           <label>
-            <input v-model="deleteFile" type="checkbox" :disabled="removing" />
+            <input
+              v-model="deleteFile"
+              type="checkbox"
+              :disabled="removing"
+            />
             同时删除本地音频文件
           </label>
-          <p v-if="deleteFile" class="file-delete-warning">
+          <p
+            v-if="deleteFile"
+            class="file-delete-warning"
+          >
             音频文件将从磁盘删除，此操作可能无法撤销。
           </p>
-          <p v-if="removeError" role="alert">{{ removeError }}</p>
+          <p
+            v-if="removeError"
+            role="alert"
+          >
+            {{ removeError }}
+          </p>
           <footer>
-            <AlertDialogCancel :disabled="removing">
-              取消
-            </AlertDialogCancel>
-            <button :disabled="removing" @click="remove">
-              {{ removing ? "正在删除…" : "确认删除" }}
+            <AlertDialogCancel :disabled="removing"> 取消 </AlertDialogCancel>
+            <button
+              :disabled="removing"
+              @click="remove"
+            >
+              {{ removing ? '正在删除…' : '确认删除' }}
             </button>
           </footer>
         </AlertDialogContent>
@@ -198,7 +233,7 @@ onMounted(() => {
   font-size: 14px;
   cursor: pointer;
 }
-.download-tabs button[aria-selected="true"] {
+.download-tabs button[aria-selected='true'] {
   border-bottom-color: var(--app-accent);
   color: var(--app-text);
 }

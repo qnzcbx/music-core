@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import type { DownloadTask, SavedDownloadFile } from "../../types/core";
-import PlayIcon from "~icons/lucide/play";
-import PauseIcon from "~icons/lucide/pause";
-import LoadingIcon from "~icons/lucide/loader-circle";
-import CopyIcon from "~icons/lucide/copy";
-import TrashIcon from "~icons/lucide/trash-2";
+import { computed, ref } from 'vue';
+import type { DownloadTask, SavedDownloadFile } from '../../types/core';
+import PlayIcon from '~icons/lucide/play';
+import PauseIcon from '~icons/lucide/pause';
+import LoadingIcon from '~icons/lucide/loader-circle';
+import CopyIcon from '~icons/lucide/copy';
+import TrashIcon from '~icons/lucide/trash-2';
 import {
   ContextMenuRoot,
   ContextMenuTrigger,
   ContextMenuPortal,
   ContextMenuContent,
   ContextMenuItem,
-} from "reka-ui";
-import CoverArt from "../CoverArt.vue";
-import { providerName } from "../../composables/useProviders";
-import { formatDownloadBytes, downloadStatus, downloadPercent } from "../../utils/download-display";
+} from 'reka-ui';
+import CoverArt from '../CoverArt.vue';
+import { providerName } from '../../composables/useProviders';
+import { formatDownloadBytes, downloadStatus, downloadPercent } from '../../utils/download-display';
 const props = defineProps<{
   task?: DownloadTask;
   file?: SavedDownloadFile;
@@ -26,16 +26,16 @@ const props = defineProps<{
   playing?: boolean;
   busy?: boolean;
 }>();
-const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: [] }>();
+const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: [] }>();
 const playbackText = computed(() =>
-  props.busy ? "正在加载" : props.playing ? "正在播放" : "已暂停",
+  props.busy ? '正在加载' : props.playing ? '正在播放' : '已暂停',
 );
 const actionText = computed(() =>
-  props.current && (props.playing || props.busy) ? "暂停" : "播放",
+  props.current && (props.playing || props.busy) ? '暂停' : '播放',
 );
 const percent = computed(() => (props.task ? downloadPercent(props.task) : null));
 const pressed = ref(false);
-const copyNotice = ref(""),
+const copyNotice = ref(''),
   menuOpen = ref(false),
   trigger = ref<HTMLElement>();
 let suppressClick = false;
@@ -48,10 +48,10 @@ function playRow() {
 }
 function play() {
   if (!props.file || menuOpen.value || suppressClick) return;
-  emit("play");
+  emit('play');
 }
 function keyboardMenu(event: KeyboardEvent) {
-  if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+  if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
     event.preventDefault();
     event.currentTarget instanceof HTMLElement && openMenu(event.currentTarget);
   }
@@ -59,7 +59,7 @@ function keyboardMenu(event: KeyboardEvent) {
 function openMenu(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   element.dispatchEvent(
-    new MouseEvent("contextmenu", {
+    new MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
       clientX: rect.left + 24,
@@ -71,17 +71,23 @@ function openMenu(element: HTMLElement) {
 async function copy() {
   try {
     await navigator.clipboard.writeText(
-      props.task?.title || props.file?.filename || props.task?.filename || "",
+      props.task?.title || props.file?.filename || props.task?.filename || '',
     );
-    copyNotice.value = "已复制";
+    copyNotice.value = '已复制';
   } catch {
-    copyNotice.value = "无法复制，请检查剪贴板权限";
+    copyNotice.value = '无法复制，请检查剪贴板权限';
   }
 }
 </script>
 <template>
-  <ContextMenuRoot :open="menuOpen" @update:open="opened">
-    <ContextMenuTrigger as-child :disabled="!file">
+  <ContextMenuRoot
+    :open="menuOpen"
+    @update:open="opened"
+  >
+    <ContextMenuTrigger
+      as-child
+      :disabled="!file"
+    >
       <article
         ref="trigger"
         class="download-row"
@@ -99,6 +105,7 @@ async function copy() {
         :data-task-id="task?.id"
         :data-status="task?.status ?? 'saved'"
         :data-filename="file?.filename"
+        :data-file-id="file?.fileId"
         :data-playback="current ? (busy ? 'loading' : playing ? 'playing' : 'paused') : undefined"
       >
         <div
@@ -118,36 +125,52 @@ async function copy() {
               :data-icon="current && busy ? 'loading' : current && playing ? 'pause' : 'play'"
               aria-hidden="true"
             >
-              <LoadingIcon v-if="current && busy" class="loading-icon" />
-              <PauseIcon
-                v-else-if="current && playing"
+              <LoadingIcon
+                v-if="current && busy"
+                class="loading-icon"
               />
-              <PlayIcon v-else/>
+              <PauseIcon v-else-if="current && playing" />
+              <PlayIcon v-else />
             </span>
           </div>
           <div class="download-title">
-            <h3>{{ file?.title || task?.title || file?.filename || "未命名歌曲" }}</h3>
+            <h3>{{ file?.title || task?.title || file?.filename || '未命名歌曲' }}</h3>
             <p v-if="file?.artist || task?.artist || !file">
-              {{ file?.artist || task?.artist || "本地文件" }}
+              {{ file?.artist || task?.artist || '本地文件' }}
               <span v-if="task && !file"> · {{ providerName(task.identity.providerId) }}</span>
             </p>
             <p v-if="file?.album">{{ file.album }}</p>
           </div>
         </div>
         <span class="download-size">
-          {{ formatDownloadBytes(file?.sizeBytes ?? (task?.status==='completed' ? task.finalSizeBytes ?? task.receivedBytes : task?.receivedBytes)) }}
-          <template v-if="!file && task?.totalBytes && task.status!=='completed'">
+          {{
+            formatDownloadBytes(
+              file?.sizeBytes ??
+                (task?.status === 'completed'
+                  ? (task.finalSizeBytes ?? task.receivedBytes)
+                  : task?.receivedBytes),
+            )
+          }}
+          <template v-if="!file && task?.totalBytes && task.status !== 'completed'">
             / {{ formatDownloadBytes(task.totalBytes) }}
-          </template
-        ></span>
+          </template></span
+        >
         <div class="download-state">
           <span>
-            {{ task?.sourcePreserved ? "转换失败，已保留 FLAC" : file ? "已保存" : task ? downloadStatus(task) : "" }}
+            {{
+              task?.sourcePreserved
+                ? '转换失败，已保留 FLAC'
+                : file
+                  ? '已保存'
+                  : task
+                    ? task.deliveryMode === 'browser' && task.status === 'completed'
+                      ? '准备完成'
+                      : downloadStatus(task)
+                    : ''
+            }}
             <template v-if="file">
               · {{ file.format.toUpperCase() }}
-              <span class="compact-size">
-                · {{ formatDownloadBytes(file.sizeBytes) }}
-              </span>
+              <span class="compact-size"> · {{ formatDownloadBytes(file.sizeBytes) }} </span>
             </template>
             <template v-else-if="task?.status === 'completed'">
               · {{ task.format?.toUpperCase() }}
@@ -157,7 +180,11 @@ async function copy() {
             </template>
           </span>
           <template
-            v-if="!file && task?.status === 'downloading' && (!task.phase || task.phase==='downloading')"
+            v-if="
+              !file &&
+              task?.status === 'downloading' &&
+              (!task.phase || task.phase === 'downloading')
+            "
           >
             <progress
               v-if="task.totalBytes"
@@ -165,9 +192,12 @@ async function copy() {
               :value="task.receivedBytes"
               aria-label="下载进度"
             />
-            <progress v-else aria-label="下载进度未知" />
+            <progress
+              v-else
+              aria-label="下载进度未知"
+            />
             <small>
-              {{ percent !== null ? percent + "% · " : "" }}
+              {{ percent !== null ? percent + '% · ' : '' }}
               {{ formatDownloadBytes(task.finalSizeBytes ?? task.receivedBytes) }}
               <template v-if="task.totalBytes">
                 / {{ formatDownloadBytes(task.totalBytes) }}
@@ -176,12 +206,26 @@ async function copy() {
             </small>
           </template>
           <progress
-            v-if="!file && task?.status==='downloading' && ['source_verifying','transcoding','output_verifying','publishing','verifying'].includes(task.phase||'')"
+            v-if="
+              !file &&
+              task?.status === 'downloading' &&
+              [
+                'source_verifying',
+                'transcoding',
+                'output_verifying',
+                'publishing',
+                'verifying',
+              ].includes(task.phase || '')
+            "
             aria-label="正在处理音频"
           />
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
-        <span v-if="file && task?.sourcePreserved" class="preserved-source-note">转换失败，已保留 FLAC</span>
+        <span
+          v-if="file && task?.sourcePreserved"
+          class="preserved-source-note"
+          >转换失败，已保留 FLAC</span
+        >
         <div class="download-actions">
           <button
             v-if="!file && task && ['queued', 'resolving', 'downloading'].includes(task.status)"
@@ -197,9 +241,24 @@ async function copy() {
           >
             重试
           </button>
-          <span v-if="retried" class="download-muted">已发起重试，请查看新任务</span>
+          <span
+            v-if="retried"
+            class="download-muted"
+            >已发起重试，请查看新任务</span
+          >
+          <button
+            v-if="task?.deliveryMode === 'browser' && task.artifactUrl"
+            @click.stop="emit('save')"
+          >
+            保存到此设备
+          </button>
           <template v-if="file">
-            <button class="file-icon" aria-label="复制名称" title="复制名称" @click.stop="copy">
+            <button
+              class="file-icon"
+              aria-label="复制名称"
+              title="复制名称"
+              @click.stop="copy"
+            >
               <CopyIcon />
             </button>
             <button
@@ -218,7 +277,11 @@ async function copy() {
               文件操作
             </button>
           </template>
-          <small v-if="copyNotice" role="status">{{ copyNotice }}</small>
+          <small
+            v-if="copyNotice"
+            role="status"
+            >{{ copyNotice }}</small
+          >
         </div>
       </article>
     </ContextMenuTrigger>
@@ -228,20 +291,23 @@ async function copy() {
         :side-offset="6"
         @close-auto-focus="trigger?.querySelector<HTMLElement>('[role=button]')?.focus()"
       >
-        <ContextMenuItem @select="copy">
-          <CopyIcon />复制名称
-        </ContextMenuItem>
-        <ContextMenuItem @select="emit('remove')">
-          <TrashIcon />删除
-        </ContextMenuItem>
+        <ContextMenuItem @select="copy"> <CopyIcon />复制名称 </ContextMenuItem>
+        <ContextMenuItem @select="emit('remove')"> <TrashIcon />删除 </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenuPortal>
   </ContextMenuRoot>
 </template>
 <style scoped>
-.preserved-source-note { display: none; }
+.preserved-source-note {
+  display: none;
+}
 @media (max-width: 600px) {
-  .preserved-source-note { display: block; grid-column: 1 / -1; color: var(--app-text-muted); font-size: 12px; }
+  .preserved-source-note {
+    display: block;
+    grid-column: 1 / -1;
+    color: var(--app-text-muted);
+    font-size: 12px;
+  }
 }
 .download-row {
   display: grid;
@@ -403,7 +469,7 @@ button:disabled {
 .saved-row.is-current,
 .saved-row.is-pressed,
 .saved-row:active,
-.saved-row[data-state="open"] {
+.saved-row[data-state='open'] {
   background: var(--app-selected);
 }
 .saved-row .download-cover {
@@ -543,7 +609,7 @@ button:disabled {
   border-radius: 8px;
   box-shadow: 0 8px 32px #0002;
 }
-.local-file-menu [role="menuitem"] {
+.local-file-menu [role='menuitem'] {
   padding: 10px 12px;
   display: flex;
   align-items: center;

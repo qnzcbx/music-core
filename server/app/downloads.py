@@ -14,7 +14,7 @@ import threading
 import unicodedata
 from time import time
 from typing import Literal
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, quote
 from uuid import uuid4
 
 import anyio
@@ -52,6 +52,9 @@ class DownloadRequest(DTO):
 
 
 class DownloadTask(DTO):
+    deliveryMode: Literal['browser', 'library'] = 'library'
+    artifactUrl: str | None = None
+    artifactExpiresAt: int | None = None
     album: str | None = None
     cover: str | None = None
     outputMode: OutputMode = 'original'
@@ -91,6 +94,16 @@ class SavedDownloadFile(DTO):
     modifiedAt: int
 
 
+class LocalLaunchTicket(DTO):
+    ticket: str = Field(min_length=1, max_length=128)
+
+
+class DirectorySettings(DTO):
+    location: Literal['music', 'downloads', 'custom']
+    path: str | None = Field(default=None, max_length=4096)
+    migrate: bool = False
+
+
 class NamingSettings(DTO):
     naming: Literal['title', 'artist_title', 'title_artist']
 
@@ -122,6 +135,9 @@ def trusted_local(request):
 class DownloadSettings:
     directory: Path = ROOT
     data_directory: Path | None = None
+    deployment_locked: bool = False
+    local_mode: bool = True
+    artifact_ttl: float = 3600
     concurrency: int = 2
     capacity: int = 100
     max_pending: int = 20
@@ -140,6 +156,7 @@ class DownloadSettings:
 class Job:
     public: DownloadTask
     naming: str = 'artist_title'
+    directory: Path | None = None
     worker: asyncio.Task | None = field(default=None, repr=False)
 
 
@@ -186,15 +203,22 @@ class DownloadManager:
         self.state, self.settings = state, settings
         self.root = Path(settings.directory).resolve()
         self.index = DownloadIndex(settings.data_directory or self.root.parent / ('.music-core-data-' + hashlib.sha256(str(self.root).encode()).hexdigest()[:16]))
-        self.index.libraries(self.root, ROOT.resolve()) if settings.data_directory else self.index.libraries(self.root)
+        if settings.local_mode:
+            self.index.libraries(self.root, ROOT.resolve()) if settings.data_directory else self.index.libraries(self.root)
         self.jobs = {}
         self.slots = asyncio.Semaphore(settings.concurrency)
         self.conversion_slots = asyncio.Semaphore(1)
         self.closed = False
         self.file_lock = threading.RLock()
         self.readers = {}
+        from app.library_settings import LibraryManager
+        self.library = LibraryManager(self) if settings.local_mode else None
+        from app.download_delivery import BrowserArtifacts
+        self.artifacts = BrowserArtifacts(settings.artifact_ttl)
 
     def prepare(self):
+        if not self.settings.local_mode:
+            self.artifacts.clean_old_processes(self.root.parent, process_exists)
         # 只清理本实现自己创建的任务临时文件，不触碰其他文件及子目录。
         try:
             if self.root.exists():
@@ -272,12 +296,22 @@ class DownloadManager:
                     continue
 
     def find_file(self, identifier):
+        if not self.settings.local_mode:
+            path = self.artifacts.find(identifier)
+            info = path.lstat()
+            if path.is_symlink() or self.fingerprint(path, info) != identifier:
+                raise FileNotFoundError()
+            with path.open('rb') as stream:
+                return path, info, audio_format(stream.read(16))
         if not re.fullmatch('[0-9a-f]{64}', identifier): raise FileNotFoundError()
+        identifier = self.index.resolve(identifier)
         for path, info, kind in self.snapshots():
             if self.fingerprint(path, info) == identifier: return path, info, kind
         raise FileNotFoundError()
 
     def files(self):
+        if not self.settings.local_mode:
+            return []
         """只读列出受限目录内的音频，不推断已丢失的任务身份。"""
 
         output = []
@@ -286,14 +320,17 @@ class DownloadManager:
                 hidden = self.hidden()
                 for path, info, kind in self.snapshots():
                     identifier = self.fingerprint(path, info)
+                    if self.index.resolve(identifier) != identifier:
+                        continue
                     metadata, indexed_hidden = self.index.metadata(identifier)
                     legacy_hidden = self.hidden(path.parent)
                     if identifier not in hidden and identifier not in legacy_hidden and not indexed_hidden:
-                        output.append(SavedDownloadFile(fileId=identifier,filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000), **metadata))
+                        output.append(SavedDownloadFile(fileId=self.index.public_id(identifier),filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000), **metadata))
             return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
         except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
 
     def remove_file(self, identifier, delete_file):
+        identifier = self.index.resolve(identifier)
         with self.file_lock:
             path, info, _ = self.find_file(identifier)
             if delete_file:
@@ -336,6 +373,7 @@ class DownloadManager:
                 raise ctypes.WinError(ctypes.get_last_error())
 
     def stream_file(self, request, identifier):
+        identifier = self.index.resolve(identifier)
         stream = None
         try:
             with self.file_lock:
@@ -401,7 +439,7 @@ class DownloadManager:
             del self.jobs[old]
         now = int(time()*1000)
         job = Job(DownloadTask(id=uuid4().hex, identity=body.identity, title=body.title, artist=body.artist, album=body.album, cover=safe_cover(body.cover),
-                              quality=body.quality, outputMode=body.outputMode, expectedSourceCodec=body.expectedSourceCodec, status='queued', createdAt=now, updatedAt=now), naming=self.index.naming())
+                              deliveryMode='library' if self.settings.local_mode else 'browser', quality=body.quality, outputMode=body.outputMode, expectedSourceCodec=body.expectedSourceCodec, status='queued', createdAt=now, updatedAt=now), naming=self.index.naming(), directory=self.root)
         self.jobs[job.public.id] = job
         job.worker = asyncio.create_task(self.run(job))
         # queued阶段即取消时协程可能尚未启动，回调仍负责去除Task引用。
@@ -423,7 +461,7 @@ class DownloadManager:
         await asyncio.gather(*workers, return_exceptions=True)
 
     async def run(self, job):
-        part = self.root / (f'.music-core-{os.getpid()}-' + job.public.id + '.part')
+        part = (job.directory or self.root) / (f'.music-core-{os.getpid()}-' + job.public.id + '.part')
         try:
             async with self.slots:
                 await asyncio.wait_for(self.transfer(job, part), self.settings.timeout)
@@ -456,14 +494,18 @@ class DownloadManager:
         stem = safe_stem(' - '.join(s.strip() for s in parts if s and s.strip())
                      or f'{p.identity.providerId}-{p.identity.platformId}')
         for index in range(1,10001):
-            target = self.root / (stem + (f' ({index})' if index > 1 else '') + '.' + kind)
+            target = (job.directory or self.root) / (stem + (f' ({index})' if index > 1 else '') + '.' + kind)
             try:
                 # 同文件系统硬链接是原子的“不存在才发布”，跨进程也绝不覆盖。
                 os.link(publish_part,target)
                 break
             except FileExistsError: continue
         else: raise OSError('无可用文件名')
-        self.index.record(self.fingerprint(target, target.stat()), target, {'title': p.title, 'artist': p.artist, 'album': p.album, 'cover': safe_cover(p.cover)})
+        if self.settings.local_mode:
+            self.index.record(self.fingerprint(target, target.stat()), target, {'title': p.title, 'artist': p.artist, 'album': p.album, 'cover': safe_cover(p.cover)}, published=True)
+        else:
+            artifact = self.artifacts.add(p.id, target, self.fingerprint(target, target.stat()))
+            self.update(job, artifactUrl=f'/api/downloads/{p.id}/artifact', artifactExpiresAt=int(artifact.expires*1000))
         self.update(job, status='failed' if preserved else 'completed', phase=job.public.phase if preserved else 'completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind, actualMedia=actual, finalSizeBytes=actual.sizeBytes, sourcePreserved=preserved)
 
     async def convert_and_save(self, job, part, source, existing=None):
@@ -530,7 +572,7 @@ class DownloadManager:
                 except FileNotFoundError:
                     continue
                 if info.st_size > self.settings.max_bytes: continue
-                self.root.mkdir(parents=True, exist_ok=True)
+                part.parent.mkdir(parents=True, exist_ok=True)
                 with path.open('rb') as source_file, part.open('xb') as target:
                     copied = 0
                     while chunk := source_file.read(65536):
@@ -610,7 +652,7 @@ class DownloadManager:
                 if total is not None and total != int(match[2]): raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
                 total = int(match[2])
             if total is not None and total > self.settings.max_bytes: raise CoreError(ErrorCode.MEDIA_CAPACITY)
-            self.root.mkdir(parents=True, exist_ok=True)
+            part.parent.mkdir(parents=True, exist_ok=True)
             self.update(job, status='downloading', phase='downloading', totalBytes=total)
             prefix = bytearray()
             # 同步有界文件写入不会留下取消后仍写盘的线程；每块让出事件循环。
@@ -658,6 +700,12 @@ def download_router():
     router = APIRouter(prefix='/api/downloads')
 
     def manager(request): return request.app.state.downloads
+
+    def local_manager(request):
+        m = manager(request)
+        if not m.settings.local_mode:
+            raise HTTPException(403, detail='网页版不提供后端音乐库管理')
+        return m
 
     @router.post('', response_model=DownloadTask, status_code=202)
     async def create(body: DownloadRequest, request: Request):
@@ -711,28 +759,95 @@ def download_router():
         finally:
             monitor.cancel();await asyncio.gather(monitor,return_exceptions=True)
 
+    @router.post('/settings/local-launch')
+    async def local_launch(request: Request):
+        m = local_manager(request)
+        if not trusted_local(request) or not m.library.launcher_authorized(request):
+            return file_error(403, '仅可信本机启动入口可建立管理会话')
+        try:
+            return JSONResponse({'ticket': m.library.issue_ticket()}, headers={'Cache-Control':'no-store'})
+        except ValueError as reason:
+            return file_error(429, str(reason))
+
+    @router.post('/settings/local-session')
+    async def local_session(body: LocalLaunchTicket, request: Request):
+        if not trusted_local(request):
+            return file_error(403, '仅允许本机启动入口')
+        try:
+            session = local_manager(request).library.redeem(body.ticket)
+            response = JSONResponse({'authorized':True}, headers={'Cache-Control':'no-store'})
+            response.set_cookie('music-core-library-session', session, max_age=43200, httponly=True, samesite='strict', path='/api/downloads', secure=request.url.scheme=='https')
+            return response
+        except ValueError as reason:
+            return file_error(403, str(reason))
+
     @router.get('/settings')
     async def download_settings(request: Request):
-        if not trusted_local(request):
-            return file_error(403, '只允许本机页面读取下载设置')
         m = manager(request)
+        if not m.settings.local_mode:
+            return {'mode':'browser','naming':m.index.naming(),'canManage':False,'deploymentLocked':False,'error':None}
         error = None
+        can_manage = trusted_local(request) and m.library.authorized(request)
         probe = m.root / ('.music-core-check-' + uuid4().hex + '.tmp')
         try:
-            m.root.mkdir(parents=True, exist_ok=True)
-            with probe.open('xb') as stream:
-                stream.write(b'')
-            probe.unlink()
+            if m.root.exists() and not m.root.is_dir():
+                raise OSError('该位置不是目录')
+            if can_manage:
+                m.root.mkdir(parents=True, exist_ok=True)
+                with probe.open('xb') as stream:
+                    stream.write(b'')
+                probe.unlink()
         except OSError as reason:
             error = f'音乐库目录不可写：{reason}'
-        return {'directory': str(m.root), 'naming': m.index.naming(), 'error': error}
+        return {'mode':'local','directory': str(m.root), 'naming': m.index.naming(), 'error': error, 'deploymentLocked': m.library.locked, 'canManage': can_manage}
+
+    @router.post('/settings/directory/preview')
+    async def preview_directory(body: DirectorySettings, request: Request):
+        m = local_manager(request)
+        if not trusted_local(request) or not m.library.authorized(request):
+            return file_error(403, '需要后端本机管理授权')
+        try:
+            target = m.library.target(body.location, body.path)
+            candidates = [source for _, source, _, _ in m.library.candidates() if source.parent != target]
+            sources = sorted({str(source.parent) for source in candidates}) if body.migrate else [str(m.root)]
+            return {'source': str(m.root), 'sources': sources, 'target': str(target), 'count': len(candidates)}
+        except (ValueError, OSError) as reason:
+            return file_error(400, str(reason))
+
+    @router.post('/settings/directory')
+    async def change_directory(body: DirectorySettings, request: Request):
+        m = local_manager(request)
+        if not trusted_local(request) or not m.library.authorized(request):
+            return file_error(403, '需要后端本机管理授权')
+        try:
+            with m.file_lock:
+                target = m.library.target(body.location, body.path)
+                return m.library.change(target, body.migrate)
+        except (ValueError, OSError) as reason:
+            return file_error(400, str(reason))
 
     @router.put('/settings')
     async def change_download_settings(body: NamingSettings, request: Request):
-        if not trusted_local(request):
-            return file_error(403, '只允许本机页面修改命名设置')
+        if manager(request).settings.local_mode and (not trusted_local(request) or not manager(request).library.authorized(request)):
+            return file_error(403, '需要本机管理会话才能修改下载设置')
         manager(request).index.naming(body.naming)
         return {'naming': body.naming}
+
+    @router.get('/{task_id}/artifact')
+    @router.head('/{task_id}/artifact', include_in_schema=False)
+    async def artifact_file(task_id: str, request: Request):
+        m = manager(request)
+        if m.settings.local_mode:
+            return file_error(404, '本机任务不提供网页附件')
+        artifact = m.artifacts.get(task_id)
+        if artifact is None:
+            return file_error(410, '成品已过期，请重新准备下载')
+        try:
+            response = m.stream_file(request, artifact.identifier)
+            response.headers['Content-Disposition'] = "attachment; filename=download" + artifact.path.suffix + "; filename*=UTF-8''" + quote(artifact.path.name)
+            return response
+        except (FileNotFoundError, OSError):
+            return file_error(410, '成品已变化或过期，请重新准备下载')
 
     @router.get('/files', response_model=list[SavedDownloadFile])
     async def files(request: Request):
@@ -742,6 +857,7 @@ def download_router():
 
     @router.post('/files/{identifier}/remove')
     async def remove_file(identifier: str, body: RemoveDownloadFile, request: Request):
+        local_manager(request)
         if not trusted_local(request): return file_error(403, '只允许本机页面管理下载文件')
         m = manager(request)
         # 等待播放器停止后正在取消的媒体响应释放句柄；超时明确返回失败。
@@ -758,6 +874,7 @@ def download_router():
     @router.get('/files/{identifier}/stream')
     @router.head('/files/{identifier}/stream', include_in_schema=False)
     async def stream_file(identifier: str, request: Request):
+        local_manager(request)
         if not trusted_local(request): return file_error(403, '只允许本机页面读取下载文件')
         try: return manager(request).stream_file(request, identifier)
         except FileNotFoundError: return file_error(404, '文件已变化或不存在，请刷新列表')

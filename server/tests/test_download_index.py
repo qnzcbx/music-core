@@ -59,7 +59,8 @@ def test_settings_read_only_path_and_invalid_library(tmp_path):
         assert value['directory'] == str(invalid.resolve())
         assert '不可写' in value['error']
         assert client.put('/api/downloads/settings', json={'naming': 'title', 'directory': str(tmp_path)}).status_code == 422
-        assert client.put('/api/downloads/settings', json={'naming': 'title'}).status_code == 200
+        assert client.put('/api/downloads/settings', json={'naming': 'title'}).status_code == 403
+        assert client.put('/api/downloads/settings', json={'naming': 'title'}, headers={'X-Library-Admin':app.state.downloads.library.token}).status_code == 200
 
 
 def test_naming_publish_and_restart(tmp_path):
