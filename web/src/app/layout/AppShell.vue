@@ -16,7 +16,8 @@ watch(expanded, value => {
 const route = useRoute(), content = ref<HTMLElement>()
 const {player}=useCoreClient()
 const home = computed(() => route.path === '/')
-const hidePlayer = computed(() => home.value && !player.selected.value && !player.queue.entries.value.length)
+const notFound = computed(() => route.name === 'not-found')
+const hidePlayer = computed(() => (home.value || route.meta.hideEmptyPlayer) && !player.selected.value && !player.queue.entries.value.length)
 const scrollPositions = new Map<string, number>()
 watch(() => route.fullPath, (to, from) => {
   if (content.value) { scrollPositions.set(from, content.value.scrollTop); content.value.scrollTop = scrollPositions.get(to) ?? 0 }
@@ -26,8 +27,8 @@ watch(() => route.fullPath, (to, from) => {
   <div class="app-shell" :class="{ 'immersive-shell': immersive, 'sidebar-expanded': expanded, 'home-shell': home }">
     <AppSidebar v-show="!immersive" :expanded="expanded" :search-query="searchQuery" @toggle="expanded = !expanded" />
     <div class="app-workspace">
-      <AppTopbar v-if="!home" v-show="!immersive" />
-      <main id="app-content" ref="content" class="app-content" :class="{ 'full-screen-content': immersive, 'home-content': home, 'settings-content': route.path === '/settings' }" tabindex="-1">
+      <AppTopbar v-if="!home && !notFound" v-show="!immersive" />
+      <main id="app-content" ref="content" class="app-content" :class="{ 'full-screen-content': immersive, 'home-content': home, 'not-found-content': notFound, 'settings-content': route.path === '/settings' }" tabindex="-1">
         <slot />
       </main>
       <div v-show="!hidePlayer && !immersive" class="workspace-player"><slot name="player" /></div>
@@ -64,4 +65,12 @@ watch(() => route.fullPath, (to, from) => {
 @media(prefers-reduced-motion:reduce) { .app-shell { transition:none; } }
 /* Home owns the space released by its topbar/footer. The audio slot stays mounted. */
 .home-shell .app-content { padding:0; }
+</style>
+
+<style scoped>
+/* 独立的内容尺寸容器让 404 按扣除导航和播放器后的空间排版。 */
+.not-found-content {
+  container-type: size;
+  padding-block: 24px;
+}
 </style>

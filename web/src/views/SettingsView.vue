@@ -77,9 +77,6 @@ const {
         v-model:sources="sources"
         :providers="providers"
       />
-      <p>
-        勾选保存搜索偏好，不会立即搜索或打断播放。来源顺序由项目配置决定，不等同于后台解析优先级。
-      </p>
     </section>
   </section>
 </template>

@@ -213,14 +213,256 @@ def verify_resume(page, url, upstream, app):
     (OUT / ('resume-controlled.json' if controlled else 'resume-real.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(result, ensure_ascii=False))
 
+def verify_empty_queue_dismissal(page, url, app):
+    """复用真实播放链路，验证首页队列清空时的 Portal 与焦点清理。"""
+    page.set_default_timeout(10000)
+    errors, opened, results = [], [], []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.on('response', lambda response: opened.append(response.json())
+            if response.url.endswith('/api/playback/open') and response.status == 200 else None)
+    screenshots = OUT / 'screenshots'
+    screenshots.mkdir(parents=True, exist_ok=True)
+    for width in (1440, 390):
+        page.set_viewport_size({'width': width, 'height': 900 if width == 1440 else 844})
+        for action in ('clear', 'remove-last'):
+            print(f'CASE {width} {action}', flush=True)
+            page.goto(url + '/search?q=人工')
+            page.wait_for_load_state('networkidle')
+            page.locator('.song-row[data-platform-id="1"] .action-play').click()
+            ready(page)
+            # 从通常的导航入口返回首页，保留正在播放的会话。
+            page.locator('a[href="/"]:visible').first.click()
+            page.wait_for_url(url + '/')
+            queue(page)
+            layer = '.queue-panel' if width == 1440 else '.queue-drawer'
+            page.locator(layer).wait_for(state='visible')
+            page.screenshot(path=str(screenshots / f'queue-{width}-{action}-before.png'))
+            # 逐帧观察，不能在底栏隐藏后继续显示失去锚点的面板。
+            page.evaluate("""() => {
+              window.queueResidualFrames = [];
+              window.observeQueueFrames = true;
+              const frame = () => {
+                const footer = document.querySelector('.workspace-player');
+                const layers = [...document.querySelectorAll('.queue-panel,.queue-drawer,[data-slot=drawer-overlay]')];
+                if (!footer?.getClientRects().length && layers.some(el => el.getClientRects().length))
+                  window.queueResidualFrames.push(layers.map(el => ({x:el.getBoundingClientRect().x,y:el.getBoundingClientRect().y})));
+                if (window.observeQueueFrames) requestAnimationFrame(frame);
+              };
+              requestAnimationFrame(frame);
+            }""")
+            if action == 'clear':
+                page.get_by_role('button', name='清空队列', exact=True).click()
+            else:
+                page.locator('.queue-remove').click()
+            page.wait_for_function("!document.querySelector('.workspace-player').getClientRects().length")
+            # 无需等待动画或 Escape，搜索必须立即能获得焦点并编辑。
+            search = page.locator('#query')
+            assert page.locator('.queue-panel,.queue-drawer,[data-slot=drawer-overlay]').count() == 0
+            search.click(timeout=5000)
+            search.fill('test')
+            assert search.input_value() == 'test'
+            assert search.evaluate('el => el === document.activeElement')
+            assert page.url == url + '/'
+            assert page.locator('.queue-panel,.queue-drawer,[data-slot=drawer-overlay]').count() == 0
+            assert page.locator('audio').evaluate('audio => audio.paused && !audio.getAttribute("src")')
+            page.wait_for_timeout(650)
+            assert search.evaluate('el => el === document.activeElement')
+            assert page.evaluate('window.queueResidualFrames') == []
+            page.evaluate('window.observeQueueFrames = false')
+            page.screenshot(path=str(screenshots / f'queue-{width}-{action}-after.png'), timeout=10000)
+            for session in opened:
+                assert page.request.head(url + session['streamUrl']).status == 410
+            if app:
+                assert not any(lease.state == 'active' for lease in app.state.playback_leases.entries.values())
+            before = len(opened)
+            page.reload()
+            page.wait_for_load_state('networkidle')
+            assert page.url == url + '/'
+            assert not page.locator('.workspace-player').is_visible()
+            assert page.locator('.queue-panel,.queue-drawer,[data-slot=drawer-overlay]').count() == 0
+            assert page.locator('audio').evaluate('audio => audio.paused && !audio.getAttribute("src")')
+            assert len(opened) == before
+            # 重新从首页搜索并播放，队列能够正常再次打开。
+            page.locator('#query').fill('人工')
+            page.locator('#query').press('Enter')
+            page.locator('.song-row[data-platform-id="1"] .action-play').click()
+            ready(page)
+            page.locator('a[href="/"]:visible').first.click()
+            queue(page)
+            assert page.locator(layer).is_visible()
+            assert page.locator('.queue-list article').count() == 1
+            page.keyboard.press('Escape')
+            page.wait_for_selector(layer, state='detached')
+            results.append({'width': width, 'action': action, 'closedWithoutResidualFrames': True,
+                            'searchImmediatelyUsable': True, 'sessionReleased': True,
+                            'reloadStaysEmpty': True, 'replayQueueOpens': True})
+            # 清理本轮重新播放的测试歌曲，避免下一轮沿用。
+            queue(page)
+            page.get_by_role('button', name='清空队列', exact=True).click()
+            page.wait_for_function("!document.querySelector('.workspace-player').getClientRects().length")
+    assert not errors, errors
+    result = {'cases': results, 'pageErrors': errors}
+    (OUT / 'empty-queue-result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def verify_not_found(page, url, app):
+    """在生产构建预览中覆盖路由回退和持续播放，复用既有受控服务。"""
+    errors, results = [], []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    screenshots = OUT / 'screenshots'
+    screenshots.mkdir(parents=True, exist_ok=True)
+    paths = ['/missing-page?probe=1#lost', '/unknown/deep/page?probe=2#lost']
+    for width in (1440, 390):
+        page.set_viewport_size({'width': width, 'height': 900 if width == 1440 else 844})
+        for path in paths:
+            for method in ('internal', 'direct', 'refresh'):
+                status = None
+                if method == 'internal':
+                    page.goto(url + '/settings')
+                    page.wait_for_load_state('networkidle')
+                    page.evaluate('path => document.querySelector("#app").__vue_app__.config.globalProperties.$router.push(path)', path)
+                else:
+                    response = page.goto(url + path)
+                    status = response.status
+                page.wait_for_load_state('networkidle')
+                if method == 'refresh':
+                    assert page.url == url + path
+                    response = page.reload()
+                    status = response.status
+                    page.wait_for_load_state('networkidle')
+                assert page.url == url + path
+                assert page.get_by_role('heading', name='页面未找到', exact=True).count() == 1
+                assert page.locator('.home-view').count() == 0
+                assert not page.locator('.workspace-player').is_visible()
+                assert page.locator('audio').evaluate('audio => audio.paused && !audio.getAttribute("src")')
+                assert page.locator('.signature path').count() == 2
+                assert page.locator('iframe').count() == 0
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                results.append({'width': width, 'requested': path, 'method': method,
+                                'finalUrl': page.url, 'documentStatus': status})
+                page.get_by_role('link', name='回到首页', exact=True).click()
+                page.wait_for_url(url + '/')
+                assert page.locator('.home-view').is_visible()
+        page.goto(url + paths[1])
+        page.wait_for_load_state('networkidle')
+        page.screenshot(path=str(screenshots / f'not-found-{width}-light.png'))
+    # 在实际剩余内容区校验居中和滚动，不能只靠全屏截图判断。
+    layout_results = []
+    def check_layout(width, height, must_fit):
+        page.set_viewport_size({'width': width, 'height': height})
+        page.wait_for_timeout(100)
+        assert page.locator('.app-topbar').count() == 0
+        assert page.locator('.app-sidebar').is_visible() == (width > 760)
+        metrics = page.evaluate("""() => {
+          const main = document.querySelector('#app-content');
+          const box = main.getBoundingClientRect();
+          const composition = document.querySelector('.composition').getBoundingClientRect();
+          const sleeve = document.querySelector('.sleeve').getBoundingClientRect();
+          const button = document.querySelector('.home-action').getBoundingClientRect();
+          return {top:box.top,height:main.clientHeight,scrollHeight:main.scrollHeight,
+            centerOffset:Math.abs((composition.top+composition.bottom)/2-(box.top+main.clientHeight/2)),
+            sleeveVisible:sleeve.top>=box.top && sleeve.bottom<=box.bottom,
+            buttonVisible:button.top>=box.top && button.bottom<=box.bottom};
+        }""")
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert abs(metrics['top']) < 1, metrics
+        if must_fit:
+            assert metrics['scrollHeight'] <= metrics['height'] + 1, metrics
+            assert metrics['sleeveVisible'] and metrics['buttonVisible'], metrics
+            assert metrics['centerOffset'] < 3, metrics
+        else:
+            page.locator('.home-action').scroll_into_view_if_needed()
+            assert page.locator('.home-action').evaluate('el => { const a=el.getBoundingClientRect(), b=document.querySelector("#app-content").getBoundingClientRect(); return a.top>=b.top && a.bottom<=b.bottom; }')
+            page.locator('.sleeve').scroll_into_view_if_needed()
+            page.locator('#app-content').evaluate('el => el.scrollTop = 0')
+        assert page.locator('.error-time').is_visible() == (width > 760)
+        layout_results.append({'width':width,'viewportHeight':height,'mustFit':must_fit,**metrics})
+    page.goto(url + '/missing-page')
+    page.wait_for_load_state('networkidle')
+    for width, height in [(1920,1080),(1440,900),(1366,768),(1280,720),(1024,768),
+                          (679,912),(390,844),(375,667),(390,500),(900,400)]:
+        check_layout(width, height, height >= 667)
+        if (width,height) in [(1366,768),(390,844),(390,500)]:
+            page.screenshot(path=str(screenshots / f'not-found-layout-{width}-{height}.png'))
+    # 应用主题优先于系统；画布跟随现有主题服务重绘。
+    page.goto(url + '/settings')
+    page.get_by_role('radio', name='深色', exact=True).check()
+    page.evaluate('document.querySelector("#app").__vue_app__.config.globalProperties.$router.push("/missing-page")')
+    page.wait_for_selector('.not-found')
+    assert page.locator('html').get_attribute('data-theme') == 'dark'
+    page.screenshot(path=str(screenshots / 'not-found-390-dark.png'))
+    page.goto(url + '/settings')
+    page.get_by_role('radio', name='浅色', exact=True).check()
+    assert page.locator('.app-topbar').is_visible()
+    # 合法搜索深链接及首页旧查询链接继续有效。
+    page.goto(url + '/search?q=人工')
+    page.locator('.song-row[data-platform-id="1"]').wait_for()
+    assert page.url == url + '/search?q=%E4%BA%BA%E5%B7%A5' or page.url == url + '/search?q=人工'
+    page.goto(url + '/?q=人工')
+    page.wait_for_url('**/search?q=*')
+    page.locator('.song-row[data-platform-id="1"]').wait_for()
+    # 有效播放器旧入口保留刷新时回首页的行为；未知多层路径不被此守卫吞掉。
+    page.goto(url + '/player/legacy-id')
+    page.wait_for_url(url + '/')
+    page.goto(url + '/player/unknown/deep')
+    page.wait_for_selector('.not-found')
+    assert page.url == url + '/player/unknown/deep'
+    # 页面请求由 SPA 回退返回 200；资源/API 缺失不能返回应用 HTML。
+    http_results = []
+    for path in ['/missing-page', '/unknown/deep/page', '/api/does-not-exist',
+                 '/assets/missing-file.js', '/assets/missing-file.css', '/missing.svg']:
+        response = page.request.get(url + path)
+        html = response.headers.get('content-type', '').startswith('text/html')
+        expected_page = path in ['/missing-page', '/unknown/deep/page']
+        assert response.status == (200 if expected_page else 404)
+        assert html == expected_page
+        http_results.append({'path': path, 'status': response.status, 'contentType': response.headers.get('content-type')})
+    # 导航进出 404 保留同一个 Audio、会话、队列及连续播放时间。
+    for width in (1440, 390):
+        page.set_viewport_size({'width': width, 'height': 900 if width == 1440 else 844})
+        page.goto(url + '/search?q=人工')
+        page.locator('.song-row[data-platform-id="1"] .action-play').click()
+        ready(page)
+        page.wait_for_function('document.querySelector("audio").currentTime > .2')
+        page.evaluate('window.originalAudio = document.querySelector("audio")')
+        before = page.locator('audio').evaluate('audio => ({src:audio.src,time:audio.currentTime})')
+        # 等待现有播放器把真实解码时长写回元数据，避免与本次路由无关的自然补全竞争。
+        page.wait_for_function('JSON.parse(localStorage.getItem("music-core.queue.v1")).queue[0].metadata.durationSeconds > 0')
+        storage = page.evaluate('localStorage.getItem("music-core.queue.v1")')
+        page.evaluate('document.querySelector("#app").__vue_app__.config.globalProperties.$router.push("/unknown/deep/page")')
+        page.wait_for_selector('.not-found')
+        assert page.locator('audio').evaluate('audio => audio === window.originalAudio && !audio.paused')
+        assert page.locator('audio').evaluate('audio => audio.src') == before['src']
+        assert page.locator('.workspace-player').is_visible()
+        check_layout(1366 if width == 1440 else width, 768 if width == 1440 else 844, True)
+        page.screenshot(path=str(screenshots / f'not-found-playing-{width}.png'))
+        queue(page)
+        assert page.locator('.queue-list article').count() == 1
+        page.keyboard.press('Escape')
+        page.get_by_role('link', name='回到首页', exact=True).click()
+        page.wait_for_url(url + '/')
+        assert page.locator('audio').evaluate('audio => audio === window.originalAudio && !audio.paused')
+        after = page.locator('audio').evaluate('audio => ({src:audio.src,time:audio.currentTime})')
+        assert after['src'] == before['src'] and after['time'] >= before['time']
+        snapshot = json.loads(page.evaluate('localStorage.getItem("music-core.queue.v1")'))
+        assert snapshot['queue'] == json.loads(storage)['queue'], (snapshot['queue'], json.loads(storage)['queue'])
+        if app: assert sum(lease.state == 'active' for lease in app.state.playback_leases.entries.values()) == 1
+        results.append({'width': width, 'playingAcrossNotFound': True, 'sameAudioAndSource': True, 'queueUnchanged': True})
+    assert not errors, errors
+    result = {'navigation': results, 'layout': layout_results, 'http': http_results, 'pageErrors': errors}
+    (OUT / 'not-found-result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(json.dumps(result, ensure_ascii=False))
+
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--resume',action='store_true');parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='未启动受控客户端时使用的 Vue 地址');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--resume',action='store_true');parser.add_argument('--empty-queue',action='store_true');parser.add_argument('--not-found',action='store_true');parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='未启动受控客户端时使用的 Vue 地址');args=parser.parse_args()
     server=None;vite=None;thread=None;app=None;upstream=None;url=args.url.rstrip('/')
     if args.controlled:
         upstream=FaultUpstream()
         output=io.BytesIO()
         with wave.open(output,'wb') as audio:
-            audio.setparams((1,2,8000,0,'NONE','not compressed'));audio.writeframes(upstream.audio[44:44+8000*2*8])
+            audio.setparams((1,2,8000,0,'NONE','not compressed'));audio.writeframes(upstream.audio[44:44+8000*2]*30 if args.not_found else upstream.audio[44:44+8000*2*8])
         upstream.audio=output.getvalue()
         async def resolve(identity,options=None):return await upstream.resolve(identity)
         async def search(*args):return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'人工测试{i}',artists=('人工',)) for i in (1,2,3)))
@@ -235,7 +477,11 @@ def main():
             time.sleep(.05)
         if not server.started:raise RuntimeError('队列受控服务启动失败')
         app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=get_lyrics)
-        vite=subprocess.Popen(['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort'],cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{api_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        if args.not_found:
+            command = ['node', str(ROOT/'web/node_modules/vite/bin/vite.js'), 'preview', '--host', '127.0.0.1', '--port', str(web_port), '--strictPort']
+        else:
+            command = ['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort']
+        vite=subprocess.Popen(command,cwd=ROOT/'web',env={**os.environ,'MUSIC_CORE_API_TARGET':f'http://127.0.0.1:{api_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         url=f'http://127.0.0.1:{web_port}'
         for _ in range(100):
             try:
@@ -247,6 +493,14 @@ def main():
         with sync_playwright() as pw:
             browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'),args=['--autoplay-policy=no-user-gesture-required'])
             page=browser.new_page(viewport={'width':1440,'height':1000},has_touch=True);errors=[];console=[];opened=[];requests=[]
+            if args.not_found:
+                verify_not_found(page, url, app)
+                browser.close()
+                return
+            if args.empty_queue:
+                verify_empty_queue_dismissal(page, url, app)
+                browser.close()
+                return
             if args.resume:
                 verify_resume(page, url, upstream, app)
                 browser.close()

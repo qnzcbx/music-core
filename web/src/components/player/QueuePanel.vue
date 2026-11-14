@@ -12,17 +12,26 @@ const emit = defineEmits<{ openChange: [open: boolean] }>();
 const mobile = useMediaQuery("(max-width:760px)"),
   opened = ref(false);
 watch(opened, (value) => emit("openChange", value));
+watch(
+  () => player.queue.entries.value.length,
+  (length) => {
+    if (!length) opened.value = false;
+  },
+  { flush: "sync" },
+);
 </script>
 <template>
   <Drawer v-if="mobile" v-model:open="opened">
     <DrawerTrigger as-child>
-      <button aria-label="播放队列">
+      <button aria-label="播放队列" :disabled="!player.queue.entries.value.length">
         <QueueIcon />
         <span v-if="!props.compact">{{ player.queue.entries.value.length }}</span>
       </button>
     </DrawerTrigger>
 
+    <!-- 空队列立即卸载 Portal 内容，避免退场期间跟随已隐藏的底栏重新定位。 -->
     <DrawerContent
+      v-if="player.queue.entries.value.length"
       :class="{ 'immersive-layer': props.immersive }"
       class="music-layer queue-drawer"
       :aria-describedby="undefined"
@@ -34,13 +43,14 @@ watch(opened, (value) => emit("openChange", value));
 
   <Popover v-else v-model:open="opened">
     <PopoverTrigger as-child>
-      <button aria-label="播放队列">
+      <button aria-label="播放队列" :disabled="!player.queue.entries.value.length">
         <QueueIcon />
         <span v-if="!props.compact">{{ player.queue.entries.value.length }}</span>
       </button>
     </PopoverTrigger>
     
     <PopoverContent
+      v-if="player.queue.entries.value.length"
       :class="{ 'immersive-layer': props.immersive }"
       class="music-layer queue-panel"
       side="top"
