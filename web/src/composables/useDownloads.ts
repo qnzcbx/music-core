@@ -45,7 +45,7 @@ export function useDownloads(){
   const existing=[...tasks.value].reverse().find(task=>queueKey(task.identity)===key&&(task.quality??'auto')===quality&&(task.outputMode??'original')===outputMode&&(task.status!=='completed'||files.value.some(f=>f.fileId===task.fileId)));
   if(existing){feedback.value={key,text:existing.status==='completed'?'该版本已有完成记录，可在下载页查看':activeDownload(existing)?'该歌曲已在下载任务中':'该版本已有任务，可在下载页重试'};return existing;}
   covers.value[key]=song.cover??null;
-  return perform(key,()=>createDownload({identity,quality,outputMode,expectedSourceCodec,title:song.title||song.name,artist:song.artist}),'已加入下载任务');
+  return perform(key,()=>createDownload({identity,quality,outputMode,expectedSourceCodec,title:song.title||song.name,artist:song.artist,album:song.album,cover:song.cover}),'已加入下载任务');
  }
  async function operate(task:DownloadTask,operation:'cancel'|'retry'){
   if(operation==='retry'&&retried.value[task.id])return;

@@ -126,11 +126,12 @@ async function copy() {
             </span>
           </div>
           <div class="download-title">
-            <h3>{{ task?.title || file?.filename || "未命名歌曲" }}</h3>
-            <p v-if="task?.artist || !file">
-              {{ task?.artist || "本地文件" }}
+            <h3>{{ file?.title || task?.title || file?.filename || "未命名歌曲" }}</h3>
+            <p v-if="file?.artist || task?.artist || !file">
+              {{ file?.artist || task?.artist || "本地文件" }}
               <span v-if="task && !file"> · {{ providerName(task.identity.providerId) }}</span>
             </p>
+            <p v-if="file?.album">{{ file.album }}</p>
           </div>
         </div>
         <span class="download-size">

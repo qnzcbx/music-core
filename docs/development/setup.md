@@ -121,7 +121,8 @@ export MUSIC_CORE_API_TARGET='http://127.0.0.1:8001'
 | `MUSIC_CORE_QQ_COOKIE` | 可选的 QQ 请求 Cookie，属于敏感信息。 |
 | `MUSIC_CORE_QQ_RESOLVER_ORDER` | QQ 已实现解析路线顺序；默认 `official,vkeys,tang,xunhuisi`。 |
 | `MUSIC_CORE_NETEASE_RESOLVER_ORDER` | 网易云已实现解析路线顺序；默认 `native,gdstudio-preview,jfjt`。 |
-| `MUSIC_CORE_DOWNLOAD_DIR` | 下载及本地文件扫描目录；默认是项目下载目录。 |
+| `MUSIC_CORE_DOWNLOAD_DIR` | 新下载保存目录；默认是项目 downloads。可用项目外的中文、带空格目录，修改后重启后端。旧库文件保留在原处，由索引继续定位。 |
+| `MUSIC_CORE_DATA_DIR` | 独立应用数据目录，默认项目 `.runtime/app-data`；保存 downloads.sqlite3。切换音乐库时保持此目录不变。 |
 | `MUSIC_CORE_FFMPEG` | 可选 FFmpeg 可执行文件路径；FFprobe 需与它同目录或位于 PATH。 |
 | `MUSIC_CORE_DEV_PLAYER` | 设为 `1` 后启用服务端开发播放器页面。 |
 | `MUSIC_CORE_API_TARGET` | Vite 的 `/api` 代理目标；默认后端地址如上。 |
@@ -158,3 +159,21 @@ build 命令先执行 TypeScript 类型检查，再生成 Vite 生产构建。�
 - **pnpm 安装或 Vite 启动失败：** 检查 Node 版本满足项目工具链要求，并用仓库锁文件执行 frozen-lockfile 安装。
 - **来源显示 degraded：** 检查自定义来源 JSON 是否包含四个来源 ID 及有效默认选项，然后重启服务。
 - **转码不可用：** 检查 ffmpeg、ffprobe 和 MP3 编码器是否安装可用；不需要转码时可继续使用其他可用格式/品质。
+
+
+## 下载库与命名
+
+保存目录是后端所在机器上的位置，网页只读展示，不提供任意路径改写接口。PowerShell 在启动后端的同一终端配置，例如：
+
+```powershell
+$env:MUSIC_CORE_DOWNLOAD_DIR = Join-Path ([Environment]::GetFolderPath('MyMusic')) 'Music Core'
+# 也可使用其他已挂载磁盘上的目录，例如操作者自己的音乐库。
+# 可选：独立数据目录只配置一次，之后切换音乐库不要更改它。
+$env:MUSIC_CORE_DATA_DIR = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Music Core'
+cd server
+.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+```
+
+环境变量不会自动从 .env 加载；修改音乐库目录后重启后端。旧文件不移动、不改名，原 fileId 在文件未变化时继续可用。首次发现的旧项目 downloads 和操作者配置的目录会登记进索引；只扫描这些已知库，不搜索其他文件夹。手动复制进当前库的音频会在下次列表刷新/重启发现；实际移动后原 ID 失效，新位置生成新 ID，不按歌名猜配或续播。
+
+设置页可选择歌曲名、歌手 - 歌曲名（默认）、歌曲名 - 歌手，保存到 SQLite；仅影响新建任务，重试作为新任务使用当时设置。运行中的任务保留创建时的命名规则。原样、转码和有效原文件保底走相同安全命名及不覆盖发布流程。目录不可写时设置页明确提示，下载报保存错误，不回退其他目录。任务状态本身仍为进程内状态，持久化的是成品索引、展示元数据及命名偏好。备份/迁移时同时保留应用数据目录，不能仅迁移音频后期待旧 fileId 不变。

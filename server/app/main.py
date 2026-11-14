@@ -1,3 +1,4 @@
+from pathlib import Path
 """API 仅提供本期真实实现的健康状态与来源信息。"""
 import logging
 import asyncio
@@ -117,7 +118,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
             api.state.migu = MiguProvider(client)
             api.state.http_client = client
             api.state.cover_reader = CoverReader(cover_transport)
-            settings = download_settings or DownloadSettings(directory=os.environ.get('MUSIC_CORE_DOWNLOAD_DIR', DownloadSettings().directory))
+            settings = download_settings or DownloadSettings(directory=os.environ.get('MUSIC_CORE_DOWNLOAD_DIR', DownloadSettings().directory), data_directory=Path(os.environ.get('MUSIC_CORE_DATA_DIR', Path(__file__).resolve().parents[2] / '.runtime' / 'app-data')))
             api.state.downloads = DownloadManager(api.state, settings)
             api.state.downloads.prepare()
             async def cleanup():

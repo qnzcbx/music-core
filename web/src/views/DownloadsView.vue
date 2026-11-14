@@ -100,7 +100,7 @@ onMounted(() => {
         @remove="confirm(file)"
         :file="file"
         :task="taskFor(file)"
-        :cover="taskFor(file) ? downloads.covers.value[queueKey(taskFor(file)!.identity)] : null"
+        :cover="file.cover || (taskFor(file) ? downloads.covers.value[queueKey(taskFor(file)!.identity)] : null)"
       />
       <p
         v-if="

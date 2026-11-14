@@ -3,6 +3,7 @@ import { inject, ref, onUnmounted } from 'vue';
 import { APPEARANCE, type Appearance } from '../appearance/theme';
 import { useCoreClient } from '../composables/useCoreClient';
 import { usePlayerVisuals } from '../composables/usePlayerTransition';
+import DownloadSettings from '../components/DownloadSettings.vue';
 import SearchBar from '../components/SearchBar.vue';
 import PlayerLayoutSelector from '../components/PlayerLayoutSelector.vue';
 const appearance=inject<Appearance>(APPEARANCE)!;
@@ -13,6 +14,7 @@ const {layout,lyricAlignment,selectLayout,selectLyricAlignment,phase,backgroundM
 <template><section class="settings-view"><h1 class="page-title">设置</h1>
 <section><h2>外观</h2><h3>主题</h3><fieldset aria-label="外观主题"><label v-for="choice in ([['light','浅色'],['dark','深色'],['system','跟随系统']] as const)" :key="choice[0]"><input type="radio" name="settings-theme" :checked="mode===choice[0]" @change="appearance.select(choice[0])"/>{{choice[1]}}</label></fieldset><h3>播放器样式</h3><PlayerLayoutSelector inline :layout="layout" :alignment="lyricAlignment" :background="backgroundMode" :ring-preset="ringPreset" @background="selectBackground" @ring="selectRingPreset" :transitioning="phase!=='idle'" @select="selectLayout" @align="selectLyricAlignment"/></section>
 
+<section><h2>下载</h2><DownloadSettings /></section>
 <section><h2>音乐来源</h2><SearchBar v-model:sources="sources" :providers="providers"/><p>勾选保存搜索偏好，不会立即搜索或打断播放。来源顺序由项目配置决定，不等同于后台解析优先级。</p></section>
 </section></template>
 <style scoped>

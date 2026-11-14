@@ -22,6 +22,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import Field
+from app.download_index import DownloadIndex, safe_cover
 from app.models import DTO, TrackIdentity, ResolveOptions, MediaRepresentation
 from app.download_quality import inspect_audio, satisfies
 from app.providers import provider_for
@@ -39,6 +40,8 @@ DownloadQuality=Literal['auto','standard','high','lossless']
 
 
 class DownloadRequest(DTO):
+    album: str | None = Field(default=None, max_length=500)
+    cover: str | None = Field(default=None, max_length=2048)
     outputMode: OutputMode = 'original'
     expectedSourceCodec: Literal['flac'] | None = None
     quality: DownloadQuality = 'auto'
@@ -49,6 +52,8 @@ class DownloadRequest(DTO):
 
 
 class DownloadTask(DTO):
+    album: str | None = None
+    cover: str | None = None
     outputMode: OutputMode = 'original'
     expectedSourceCodec: Literal['flac'] | None = None
     phase: Literal['downloading','source_verifying','transcoding','output_verifying','publishing','verifying','completed'] | None = None
@@ -75,11 +80,19 @@ class DownloadTask(DTO):
 
 
 class SavedDownloadFile(DTO):
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    cover: str | None = None
     fileId: str
     filename: str
     sizeBytes: int
     format: str
     modifiedAt: int
+
+
+class NamingSettings(DTO):
+    naming: Literal['title', 'artist_title', 'title_artist']
 
 
 class RemoveDownloadFile(DTO):
@@ -108,6 +121,7 @@ def trusted_local(request):
 @dataclass(frozen=True)
 class DownloadSettings:
     directory: Path = ROOT
+    data_directory: Path | None = None
     concurrency: int = 2
     capacity: int = 100
     max_pending: int = 20
@@ -116,6 +130,8 @@ class DownloadSettings:
     conversion_timeout: float = 300
 
     def __post_init__(self):
+        if isinstance(self.directory, str) and not self.directory.strip():
+            raise ValueError('音乐库目录不能为空')
         if min(self.concurrency, self.capacity, self.max_pending, self.max_bytes, self.timeout, self.conversion_timeout) <= 0:
             raise ValueError('下载限制必须为正数')
 
@@ -123,6 +139,7 @@ class DownloadSettings:
 @dataclass
 class Job:
     public: DownloadTask
+    naming: str = 'artist_title'
     worker: asyncio.Task | None = field(default=None, repr=False)
 
 
@@ -168,6 +185,8 @@ class DownloadManager:
     def __init__(self, state, settings):
         self.state, self.settings = state, settings
         self.root = Path(settings.directory).resolve()
+        self.index = DownloadIndex(settings.data_directory or self.root.parent / ('.music-core-data-' + hashlib.sha256(str(self.root).encode()).hexdigest()[:16]))
+        self.index.libraries(self.root, ROOT.resolve()) if settings.data_directory else self.index.libraries(self.root)
         self.jobs = {}
         self.slots = asyncio.Semaphore(settings.concurrency)
         self.conversion_slots = asyncio.Semaphore(1)
@@ -201,11 +220,11 @@ class DownloadManager:
         return self.jobs[identifier]
 
     def fingerprint(self, path, info):
-        value = (str(self.root), path.name, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        value = (str(path.parent), path.name, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         return hashlib.sha256(repr(value).encode('utf-8')).hexdigest()
 
-    def hidden(self):
-        path = self.root / '.music-core-hidden.json'
+    def hidden(self, root=None):
+        path = (root or self.root) / '.music-core-hidden.json'
         if not path.exists(): return set()
         info = path.lstat()
         if path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400 or not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
@@ -231,17 +250,26 @@ class DownloadManager:
             temporary.unlink(missing_ok=True)
 
     def snapshots(self):
-        if not self.root.exists(): return
-        for path in self.root.iterdir():
-            if path.name.startswith('.') or path.suffix.lower() not in ('.mp3', '.m4a', '.flac', '.ogg'): continue
-            try:
-                info = path.lstat()
-                if not stat.S_ISREG(info.st_mode) or path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400: continue
-                with path.open('rb') as stream:
-                    if self.fingerprint(path, os.fstat(stream.fileno())) != self.fingerprint(path, info): continue
-                    kind = audio_format(stream.read(16))
-                yield path, info, kind
-            except (CoreError, FileNotFoundError): continue
+        for root in self.index.libraries():
+            if not root.exists():
+                continue
+            if root.is_symlink() or not root.is_dir():
+                raise OSError('音乐库目录无效')
+            for path in root.iterdir():
+                if path.name.startswith('.') or path.suffix.lower() not in ('.mp3', '.m4a', '.flac', '.ogg'):
+                    continue
+                try:
+                    info = path.lstat()
+                    if not stat.S_ISREG(info.st_mode) or path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
+                        continue
+                    with path.open('rb') as stream:
+                        if self.fingerprint(path, os.fstat(stream.fileno())) != self.fingerprint(path, info):
+                            continue
+                        kind = audio_format(stream.read(16))
+                    self.index.record(self.fingerprint(path, info), path)
+                    yield path, info, kind
+                except (CoreError, FileNotFoundError):
+                    continue
 
     def find_file(self, identifier):
         if not re.fullmatch('[0-9a-f]{64}', identifier): raise FileNotFoundError()
@@ -251,15 +279,17 @@ class DownloadManager:
 
     def files(self):
         """只读列出受限目录内的音频，不推断已丢失的任务身份。"""
-        if not self.root.exists(): return []
+
         output = []
         try:
             with self.file_lock:
                 hidden = self.hidden()
                 for path, info, kind in self.snapshots():
                     identifier = self.fingerprint(path, info)
-                    if identifier not in hidden:
-                        output.append(SavedDownloadFile(fileId=identifier,filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000)))
+                    metadata, indexed_hidden = self.index.metadata(identifier)
+                    legacy_hidden = self.hidden(path.parent)
+                    if identifier not in hidden and identifier not in legacy_hidden and not indexed_hidden:
+                        output.append(SavedDownloadFile(fileId=identifier,filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000), **metadata))
             return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
         except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
 
@@ -272,9 +302,12 @@ class DownloadManager:
                 if self.fingerprint(path, path.lstat()) != identifier: raise FileNotFoundError()
                 self.unlink_file(path, identifier)
             else:
-                hidden = self.hidden()
-                hidden.add(identifier)
-                self.write_hidden(hidden)
+                if path.parent == self.root:
+                    hidden = self.hidden()
+                    hidden.add(identifier)
+                    self.write_hidden(hidden)
+                else:
+                    self.index.hide(identifier)
 
     def unlink_file(self, path, identifier):
         """Windows 在经过验证的句柄上删除，避免检查后同名替换的竞态。"""
@@ -367,8 +400,8 @@ class DownloadManager:
             if old is None: raise HTTPException(429)
             del self.jobs[old]
         now = int(time()*1000)
-        job = Job(DownloadTask(id=uuid4().hex, identity=body.identity, title=body.title, artist=body.artist,
-                              quality=body.quality, outputMode=body.outputMode, expectedSourceCodec=body.expectedSourceCodec, status='queued', createdAt=now, updatedAt=now))
+        job = Job(DownloadTask(id=uuid4().hex, identity=body.identity, title=body.title, artist=body.artist, album=body.album, cover=safe_cover(body.cover),
+                              quality=body.quality, outputMode=body.outputMode, expectedSourceCodec=body.expectedSourceCodec, status='queued', createdAt=now, updatedAt=now), naming=self.index.naming())
         self.jobs[job.public.id] = job
         job.worker = asyncio.create_task(self.run(job))
         # queued阶段即取消时协程可能尚未启动，回调仍负责去除Task引用。
@@ -419,7 +452,8 @@ class DownloadManager:
 
     def publish(self, job, publish_part, actual, kind, *, preserved=False):
         p = job.public
-        stem = safe_stem(' - '.join(s.strip() for s in (p.artist,p.title) if s and s.strip())
+        parts = (p.title,) if job.naming == 'title' else (p.title, p.artist) if job.naming == 'title_artist' else (p.artist, p.title)
+        stem = safe_stem(' - '.join(s.strip() for s in parts if s and s.strip())
                      or f'{p.identity.providerId}-{p.identity.platformId}')
         for index in range(1,10001):
             target = self.root / (stem + (f' ({index})' if index > 1 else '') + '.' + kind)
@@ -429,6 +463,7 @@ class DownloadManager:
                 break
             except FileExistsError: continue
         else: raise OSError('无可用文件名')
+        self.index.record(self.fingerprint(target, target.stat()), target, {'title': p.title, 'artist': p.artist, 'album': p.album, 'cover': safe_cover(p.cover)})
         self.update(job, status='failed' if preserved else 'completed', phase=job.public.phase if preserved else 'completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind, actualMedia=actual, finalSizeBytes=actual.sizeBytes, sourcePreserved=preserved)
 
     async def convert_and_save(self, job, part, source, existing=None):
@@ -676,6 +711,29 @@ def download_router():
         finally:
             monitor.cancel();await asyncio.gather(monitor,return_exceptions=True)
 
+    @router.get('/settings')
+    async def download_settings(request: Request):
+        if not trusted_local(request):
+            return file_error(403, '只允许本机页面读取下载设置')
+        m = manager(request)
+        error = None
+        probe = m.root / ('.music-core-check-' + uuid4().hex + '.tmp')
+        try:
+            m.root.mkdir(parents=True, exist_ok=True)
+            with probe.open('xb') as stream:
+                stream.write(b'')
+            probe.unlink()
+        except OSError as reason:
+            error = f'音乐库目录不可写：{reason}'
+        return {'directory': str(m.root), 'naming': m.index.naming(), 'error': error}
+
+    @router.put('/settings')
+    async def change_download_settings(body: NamingSettings, request: Request):
+        if not trusted_local(request):
+            return file_error(403, '只允许本机页面修改命名设置')
+        manager(request).index.naming(body.naming)
+        return {'naming': body.naming}
+
     @router.get('/files', response_model=list[SavedDownloadFile])
     async def files(request: Request):
         try: return manager(request).files()
@@ -722,6 +780,6 @@ def download_router():
         m = manager(request)
         p = m.get(identifier).public
         if p.status not in ('failed','cancelled'): raise HTTPException(409)
-        return m.view(m.create(DownloadRequest(identity=p.identity,title=p.title,artist=p.artist,quality=p.quality,outputMode=p.outputMode,expectedSourceCodec=p.expectedSourceCodec)))
+        return m.view(m.create(DownloadRequest(identity=p.identity,title=p.title,artist=p.artist,album=p.album,cover=p.cover,quality=p.quality,outputMode=p.outputMode,expectedSourceCodec=p.expectedSourceCodec)))
 
     return router
