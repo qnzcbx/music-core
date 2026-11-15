@@ -1,232 +1,76 @@
 # 开发环境与验证
 
-本文提供从依赖安装到启动客户端和后端的完整路径。所有示例均使用本机开发地址。
+Windows 快速启动、第一次安装依赖和双击入口见[项目 README](../../README.md)。
+本文补充 macOS / Linux 的启动差异、开发配置、测试和常见问题。
 
 ## 工具版本
 
-- Node.js：建议使用 22.12 或更新的 22.x。当前 Vite 7 支持 Node 20.19+ 或 22.12+；前端测试脚本使用 Node 的 `--experimental-strip-types`，使用 Node 22.12+ 可覆盖完整开发命令。
-- pnpm：锁文件为 pnpm lockfile v9，使用 pnpm 9 或更新版本；项目未在 package.json 中固定具体 pnpm 版本。当前验证环境为 pnpm 11.1.2。
-- Python：3.10 或更新版本。后端项目声明 requires-python `>=3.10`。
-- FFmpeg/FFprobe：仅需要转码或相关媒体验证时安装；不是基本搜索、播放和原格式下载的启动前提。
+| 工具 | 建议 |
+| --- | --- |
+| Node.js | 使用 22.x，建议 22.12 或更新，以覆盖前端开发和测试。 |
+| pnpm | 优先使用项目已验证的 11.1.2。安装依赖时使用 `pnpm install --frozen-lockfile`，不要删除或重建锁文件来绕过安装错误。 |
+| Python | 3.10 或更新。Windows 的 `server/requirements-dev.lock.txt` 是 Python 3.10 的开发依赖快照，不用于 macOS / Linux。 |
+| FFmpeg / FFprobe | 仅在需要转码或专项媒体验证时安装。搜索、播放和原格式下载不依赖它们。 |
 
-## 安装依赖
+## macOS / Linux 启动差异
 
-### Windows Git Bash
-
-在项目根目录打开 Git Bash：
-
-```bash
-# 后端：使用仓库提供的 Windows Python 3.10 开发依赖快照
-cd server
-python -m venv .venv
-./.venv/Scripts/python.exe -m pip install --upgrade pip
-./.venv/Scripts/python.exe -m pip install -r requirements-dev.lock.txt
-```
-
-requirements-dev.lock.txt 是 Windows Python 3.10 的精确开发环境快照，包含 pytest、Playwright 与浏览器验收依赖，不是跨平台通用锁文件。Git Bash 可直接运行 Windows 虚拟环境中的 python.exe，不需要使用 Linux 的 bin/activate。
-
-Windows PowerShell 也可使用相同虚拟环境：
-
-```powershell
-Set-Location server
-python -m venv .venv
-& ./.venv/Scripts/python.exe -m pip install --upgrade pip
-& ./.venv/Scripts/python.exe -m pip install -r requirements-dev.lock.txt
-```
-
-### macOS / Linux
-
-其他平台使用项目声明的依赖范围：
+从仓库根目录打开终端，安装并启动后端：
 
 ```bash
 cd server
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
-# 需要浏览器专项验证时，再安装可选依赖：
-python -m pip install -e ".[browser]"
-python -m playwright install chromium
-```
-
-前端在独立终端安装：
-
-```bash
-cd web
-pnpm install --frozen-lockfile
-```
-
-不要删除或重生成 pnpm-lock.yaml 来绕过安装错误。
-
-## 启动服务
-
-保持两个终端运行。PowerShell 后端：
-
-```powershell
-Set-Location server
-& ./.venv/Scripts/python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
-```
-
-Git Bash（Windows）在 server 目录运行：
-
-```bash
-cd server
-./.venv/Scripts/python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
-```
-
-macOS/Linux 在激活虚拟环境后运行：
-
-```bash
-cd server
-source .venv/bin/activate
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-前端：
+前端仍按[项目 README](../../README.md#启动)中第二个终端的步骤安装和启动。
 
-```bash
-cd web
-pnpm dev
-```
+## 本地服务地址
 
-Vite 默认监听 `127.0.0.1:5174`，并以 `strictPort` 拒绝自动换端口。后端默认监听 `127.0.0.1:8001`。打开 `http://127.0.0.1:5174`；后端健康检查为 `http://127.0.0.1:8001/api/health`，交互 API 文档为 `http://127.0.0.1:8001/docs`。
+| 用途 | 默认地址 |
+| --- | --- |
+| 前端页面 | [http://127.0.0.1:5174](http://127.0.0.1:5174) |
+| 后端健康检查 | [http://127.0.0.1:8001/api/health](http://127.0.0.1:8001/api/health) |
+| FastAPI 交互文档 | [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) |
 
-Vite 将 `/api` 请求代理到 `MUSIC_CORE_API_TARGET`，默认是 `http://127.0.0.1:8001`。可在启动 Vite 的终端临时设置覆盖值，或在 web 目录的本地 Vite env 文件中设置。Vite 只加载此前缀的变量。
+Vite 默认将 `/api` 请求代理到 `http://127.0.0.1:8001`。后端换地址时，在**启动 Vite 的终端**设置 `MUSIC_CORE_API_TARGET`，或在 `web/` 的本地 Vite 环境文件中设置。FastAPI 读取进程环境变量，不会自动读取 `.env`。
 
-## 来源及环境配置
+## 可选配置
 
-服务端读取操作系统环境变量，不会自动加载 .env 文件。PowerShell 可在启动后端的同一终端设置：
-
-```powershell
-$env:MUSIC_CORE_QQ_COOKIE = "本机临时值"
-$env:MUSIC_CORE_QQ_RESOLVER_ORDER = "official,vkeys,tang,xunhuisi"
-$env:MUSIC_CORE_API_TARGET = "http://127.0.0.1:8001"
-```
-
-Git Bash 可在启动后端的同一终端设置：
-
-```bash
-export MUSIC_CORE_QQ_COOKIE='本机临时值'
-export MUSIC_CORE_QQ_RESOLVER_ORDER='official,vkeys,tang,xunhuisi'
-export MUSIC_CORE_API_TARGET='http://127.0.0.1:8001'
-```
-
-只设置确实需要的变量。不要把 Cookie、Token、签名媒体 URL 或个人目录写入文档、提交到仓库或复制到问题报告；真实凭据应通过本机环境注入。.env 与 .env.* 已被 Git 忽略，但 FastAPI 不会因此自动读取它们。
-
-常用配置：
+默认启动不需要手动设置下列变量。除 `MUSIC_CORE_API_TARGET` 外，在启动后端的环境中设置。调整后重启读取该配置的服务。
 
 | 变量 | 用途 |
 | --- | --- |
-| `MUSIC_CORE_SOURCE_CONFIG` | 指定来源 JSON 配置路径；默认使用 `server/app/config/sources.json`。 |
-| `MUSIC_CORE_QQ_COOKIE` | 可选的 QQ 请求 Cookie，属于敏感信息。 |
-| `MUSIC_CORE_QQ_RESOLVER_ORDER` | QQ 已实现解析路线顺序；默认 `official,vkeys,tang,xunhuisi`。 |
-| `MUSIC_CORE_NETEASE_RESOLVER_ORDER` | 网易云已实现解析路线顺序；默认 `native,gdstudio-preview,jfjt`。 |
-| `MUSIC_CORE_LOCAL_MODE` | 仅设为 `1` 时启用本机永久音乐库、文件/目录管理；默认正式网页模式，下载成品交浏览器保存。 |
-| `MUSIC_CORE_DOWNLOAD_DIR` | 显式部署覆盖；设置时网页目录更改被锁定。更改此环境变量需重启后端。没有覆盖时使用持久化目录，新安装 Windows 默认系统音乐目录本身。 |
-| `MUSIC_CORE_DATA_DIR` | 独立应用数据目录，默认项目 `.runtime/app-data`；保存 downloads.sqlite3。切换音乐库时保持此目录不变。 |
-| `MUSIC_CORE_FFMPEG` | 可选 FFmpeg 可执行文件路径；FFprobe 需与它同目录或位于 PATH。 |
-| `MUSIC_CORE_DEV_PLAYER` | 设为 `1` 后启用服务端开发播放器页面。 |
-| `MUSIC_CORE_API_TARGET` | Vite 的 `/api` 代理目标；默认后端地址如上。 |
+| `MUSIC_CORE_SOURCE_CONFIG` | 覆盖来源配置，默认使用 `server/app/config/sources.json`。 |
+| `MUSIC_CORE_QQ_COOKIE` | 可选 QQ 凭据。只在本机环境中设置，不写入仓库或问题报告。 |
+| `MUSIC_CORE_QQ_RESOLVER_ORDER` | QQ 解析顺序，默认 `official,vkeys,tang,xunhuisi`。 |
+| `MUSIC_CORE_NETEASE_RESOLVER_ORDER` | 网易云解析顺序，默认 `native,gdstudio-preview,jfjt`。 |
+| `MUSIC_CORE_LOCAL_MODE` | 设为 `1` 时启用本机音乐库和目录管理。默认归浏览器保存，见[项目 README](../../README.md#启动)。 |
+| `MUSIC_CORE_DOWNLOAD_DIR` | 覆盖本机音乐库目录。设置后页面不能修改该目录。 |
+| `MUSIC_CORE_DATA_DIR` | 应用数据目录，默认 `.runtime/app-data`。它与音乐保存目录独立，切换音乐库时不必改动。 |
+| `MUSIC_CORE_FFMPEG` | 指定 FFmpeg 可执行文件。FFprobe 须在同一目录或 PATH 中。 |
+| `MUSIC_CORE_DEV_PLAYER` | 设为 `1` 时启用后端开发播放器。 |
+| `MUSIC_CORE_API_TARGET` | Vite 的后端代理目标，默认 `http://127.0.0.1:8001`。 |
 
-来源配置必须列出四个受支持来源 ID（kuwo、qq、netease、migu），且默认选中列表非空且不重复。配置错误会回退到内置默认值，并可从健康状态看到 degraded。修改配置后需重启后端。配置解析路线不会授予访问第三方服务的权限；使用前需遵守平台条款、版权要求和所在地法律。来源可能限流、失效或改变品质响应，不保证每首歌始终可搜索、播放或下载。
+自定义来源配置必须包含 `kuwo`、`qq`、`netease`、`migu`，默认选中列表必须非空且不重复。配置无效时回退至内置值，健康检查显示 `degraded`。
 
 ## FFmpeg 与 FFprobe
 
-Windows 的 Uvicorn `--reload` 环境可能使用不支持 asyncio 子进程的 Selector 循环。此时只将转换标记为不可用，已经确认的原格式仍可下载；要实际转码需要支持子进程的运行环境，不能把原格式检测成功当成转换可用。
+需要 FLAC 转 MP3 时，将 FFmpeg 和 FFprobe 加入 PATH，或按上表指定 `MUSIC_CORE_FFMPEG`。可以用 `ffmpeg -version` 和 `ffprobe -version` 检查是否可运行。转码还要求 FFmpeg 有可用的 MP3 编码器。
 
-普通在线播放、原格式下载不要求安装 FFmpeg。当前可选转码为经验证的 FLAC 转 MP3；服务端还会用 FFprobe 检查源/目标媒体并检查转码输出。安装后应确保 ffmpeg 与 ffprobe 可在 PATH 中找到，或通过 `MUSIC_CORE_FFMPEG` 指定 FFmpeg，并让 FFprobe 位于同目录或 PATH。可在终端执行 `ffmpeg -version` 和 `ffprobe -version` 确认安装。没有可用编码器或检查失败时，对应转码选项不可用或下载任务会失败。
+Windows 上，Uvicorn 的 `--reload` 开发模式可能不支持启动 FFmpeg 子进程。此时只禁用转换，已确认可用的原格式仍可保存。若要验收实际转换，请用支持子进程的后端运行方式。
 
 ## 检查与回归
 
-后端在 server 目录运行。Git Bash（Windows）：
-
-```bash
-./.venv/Scripts/python.exe -m pytest
-```
-
-PowerShell 可用 `& ./.venv/Scripts/python.exe -m pytest`；macOS/Linux 激活虚拟环境后用 `python -m pytest`。前端在 web 目录运行：
-
-```bash
-pnpm test
-pnpm typecheck
-pnpm build
-```
-
-build 命令先执行 TypeScript 类型检查，再生成 Vite 生产构建。在线 Provider 和浏览器专项验证依赖外部来源/Chromium，不属于基础构建；当前长期脚本及使用限制见[后端专用说明](../../server/README.md)。专项输出默认位于被 Git 忽略的项目根目录 .runtime 下。
+- 后端在 `server/` 运行 `python -m pytest`，使用安装依赖时的虚拟环境。Windows Git Bash 可直接用 `./.venv/Scripts/python.exe -m pytest`。
+- 前端在 `web/` 运行 `pnpm test` 和 `pnpm build`。构建已包含类型检查，只检查类型时运行 `pnpm typecheck`。
+- 仅在跑浏览器专项时安装浏览器依赖和 Chromium。macOS / Linux 可在虚拟环境中运行 `python -m pip install -e ".[browser]"` 与 `python -m playwright install chromium`。长期脚本和运行条件见[后端专用说明](../../server/README.md)。
 
 ## 常见问题
 
-- **5174 端口已占用：** Vite 使用 strictPort，不会改用别的端口。停止占用进程后重启，或调整本地 Vite 配置并同步访问地址。
-- **前端请求后端失败：** 确认后端在 8001 启动、健康检查可访问；如果地址不同，在启动 Vite 的环境中设置 MUSIC_CORE_API_TARGET。
-- **Windows 找不到 Python/虚拟环境：** 确认 python 命令指向 Python 3.10+，然后在 server 目录重建 .venv 并按对应平台安装依赖。
-- **pnpm 安装或 Vite 启动失败：** 检查 Node 版本满足项目工具链要求，并用仓库锁文件执行 frozen-lockfile 安装。
-- **来源显示 degraded：** 检查自定义来源 JSON 是否包含四个来源 ID 及有效默认选项，然后重启服务。
-- **转码不可用：** 检查 ffmpeg、ffprobe 和 MP3 编码器是否安装可用；不需要转码时可继续使用其他可用格式/品质。
-
-
-## 下载库与命名
-
-保存目录是后端所在机器上的位置。普通本机操作者可通过设置页的“更改目录”即时保存，无需 CLI 或重启。显式部署覆盖的 PowerShell 示例（设置后网页目录更改会锁定）：
-
-```powershell
-$env:MUSIC_CORE_DOWNLOAD_DIR = Join-Path ([Environment]::GetFolderPath('MyMusic')) 'Music Core'
-# 也可使用其他已挂载磁盘上的目录，例如操作者自己的音乐库。
-# 可选：独立数据目录只配置一次，之后切换音乐库不要更改它。
-$env:MUSIC_CORE_DATA_DIR = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Music Core'
-cd server
-.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
-```
-
-在显式本机模式下，环境变量不会自动从 .env 加载；仅变更部署环境覆盖需要重启，网页更改立即对新任务生效。默认仅更改保存目录，旧文件不移动、不改名，原 fileId 在文件未变化时继续可用。首次发现的旧项目 downloads 和操作者配置的目录会登记进索引；只扫描这些已知库，不搜索其他文件夹。手动复制进当前库的音频会在下次列表刷新/重启发现；实际移动后原 ID 失效，新位置生成新 ID，不按歌名猜配或续播。
-
-设置页可选择歌曲名、歌手 - 歌曲名（默认）、歌曲名 - 歌手，保存到 SQLite；仅影响新建任务，重试作为新任务使用当时设置。运行中的任务保留创建时的命名规则。原样、转码和有效原文件保底走相同安全命名及不覆盖发布流程。目录不可写时设置页明确提示，下载报保存错误，不回退其他目录。任务状态本身仍为进程内状态，持久化的是成品索引、展示元数据及命名偏好。备份/迁移时同时保留应用数据目录，不能仅迁移音频后期待旧 fileId 不变。
-
-
-## 图形化目录管理与旧下载迁移（06.1）
-
-Windows 新安装无显式部署覆盖且没有旧安装/索引时，调用 SHGetKnownFolderPath 获取“音乐”目录本身，不追加子目录。已存在的安装保留原位置；非 Windows 保留项目 downloads。已有文件只扫描已知音乐库的当前目录，不递归子目录。音乐或下载快捷项同样使用系统 Known Folder API，不读取浏览器下载设置。
-
-本机正常入口：安装依赖后双击项目根目录的 `打开音乐客户端.vbs`。它通过虚拟环境 Python 在后台执行 `tools/launch_local.py`，启动或复用后端、前端服务，由本机进程读取受 OS 权限保护的私有能力，向后端换取 60 秒有效、一次性使用的启动票据，再打开设置页。页面将票据交回后端，建立 12 小时 HttpOnly、SameSite=Strict 的管理会话并清除 URL 片段。长期私有能力不进入浏览器、普通 HTTP 响应或剪贴板。无需用户找授权文件、复制令牌、打开终端或重启服务。
-
-直接输入普通网址不颁发管理能力，显示只读；有部署覆盖仍锁定。后端拒绝未授权的票据申请、过期或重放票据、带代理转发头的管理请求；不以回环 IP 单独授权。目录路径和更改按钮在同一行。默认仅更改保存位置，只有选择迁移时才展开来源范围。旧的 library-admin.html 不再是使用入口，也不再由后端生成。
-
-启动器默认连接 127.0.0.1:8001 和 127.0.0.1:5174/settings，可通过 MUSIC_CORE_API_TARGET、MUSIC_CORE_ADMIN_WEB_URL 配置其他回环地址；MUSIC_CORE_DATA_DIR 应与后端一致。Windows 私有能力文件 ACL 限制为运行后端的 OS 用户，非 Windows 为 0600。服务日志在 `.runtime/local-launch`，启动失败显示 GUI 错误，不关闭或重启已有服务。非 Windows 可用 `python tools/launch_local.py` 调用相同入口。
-
-从本机入口进入后可选择“音乐”“下载”或粘贴后端机器绝对路径。先检查可写性，再确认。仅更改目录不搬歌；勾选“同时迁移旧下载”会先显示旧目录、目标目录和迁移数量。任务创建时固定目录与命名，后续修改不影响已经排队或正在下载的任务。路径为文件、不可写或相对路径均不替换当前有效设置。
-
-迁移只处理带项目发布来源标记且指纹仍匹配的记录。06 旧索引中只有发布下载时写入的非空元数据可升级为来源证据；扫描到的个人音频、没有来源记录的历史文件不迁移。先复制到目标盘临时文件并 fsync、SHA256 比对，再原子不覆盖发布、提交位置/身份映射，最后删除源实例。同名自动编号。发生部分失败时报告逐文件结果；源文件或已验证副本仍可用。正在下载或仍有文件读取时拒绝迁移，提示停止后再试。
-
-成功迁移保留元数据和隐藏状态，通过 aliases 表保存原 fileId 到新指纹的映射，列表继续暴露最初 ID，故原本地续播能定位到同一份媒体。手动移动文件不等同于此受控迁移，仍遵循“原 ID 失效、新位置新 ID”的规则。请保留/备份应用数据目录，否则别名和来源记录无法恢复。
-
-
-## 正式网页下载到当前设备（07）
-
-默认不设置 MUSIC_CORE_LOCAL_MODE，即正式网页模式。用户从搜索页确认品质/格式后，沿用现有准备任务；附件检查通过并发起原生浏览器下载后，歌曲行恢复普通下载图标，短暂提示“开始下载”，不推测浏览器是否拦截或实际写盘。下载任务页区分“准备完成 / 下载”和“已发起下载 / 重新下载”；有效期内复用成品，明确过期后仅在用户主动操作时按原歌曲、版本及品质重新准备。失败可重试，转换失败的有效 FLAC 通过独立“保存原文件”操作交付。本标签页记录已发起状态，刷新不自动重复下载，不提供常驻交付通知。不需要管理授权，不显示服务器绝对目录，下载设置只显示“下载位置由浏览器管理”及命名单选。浏览器保存目录由电脑/手机浏览器配置，网页不能读取或扫描它。
-
-后端成品使用应用数据目录下 web-downloads 的独立进程临时目录，不登记到永久库。成品按任务 ID 附件流式交付，支持 HEAD/Range 和有效期内重试，默认发布后 1 小时过期；有读取时延后删除。后台清理过期成品，重启时只清理已退出进程的过期专用目录；不扫描/删除音乐库。过期链接返回 410，需要重新准备下载。任务是原有进程内状态，重启后旧网页任务链接不保证继续有效。
-
-需要原有本机音乐库时显式设 MUSIC_CORE_LOCAL_MODE=1，再按本机入口使用；根目录启动器只在新起本机服务时设置该变量，遇到已运行的网页模式服务不会擅自重启，需为本机模式使用独立端口。永久索引、旧文件和 fileId 不删除或回退。正式网页模式不开放文件删除、音乐库播放、目录修改和本机授权接口。
-
-
-## 页面路由与 404
-
-Vue Router 使用 history 模式，未知页面由 NotFoundView 显示 404，浏览器保留输入的完整地址。开发服务器及生产构建预览使用 SPA 页面回退；页面 HTTP 响应为 200，404 为前端界面语义。`pnpm build` 后执行 `pnpm preview` 可验收直达及刷新。预览保留原 API 代理，缺失静态文件返回真实 404，不进入页面回退。仓库当前不包含外部静态托管配置；实际托管须分别处理 API、静态文件与 SPA 页面路径，不能将所有请求无条件回退 index.html。
-
-浏览器回归可复用 `server/scripts/verify_vue_queue.py --controlled --not-found`，覆盖生产预览的路由、主题、手机视口和持续播放。
-
-
-## 首页背景：墨息与字间琴音
-
-设置中的“首页背景”默认墨息，独立保存为 localStorage 的 media-lab.home-background.v1。字间琴音使用仓库内 web/vendor/voice-between-0.2.1.tgz，相对 file 依赖及锁文件共同固定版本，Vue peer 要求 ^3.5.0，当前宿主 3.5.43。正常安装使用 pnpm install --frozen-lockfile，无需组件开发项目或重新打包。
-
-仅在首页选中字间琴音时异步挂载 VoiceBetween，现有搜索框通过 bindInputElement 绑定，由组件统一处理物理按键、拼音预编辑与上屏兜底，声音由乐器自己的静音开关控制；切回墨息或离开首页卸载。桌面/手机视口验收复用 server/scripts/verify_vue_queue.py --controlled --home-voice，以严格用户激活策略检查首字波形、静音、输入过滤、偏好与播放连续性。真实 Windows 拼音及手机实体触屏需另行人工确认。
-
-首页嵌入使用 VoiceBetween 的 showControls=false、transparent 属性：隐藏琴体外的两行控件/读数并透明化外层背景；琴身面板与演奏键保留。0.1.1 同时修复声音开启图标的初始渲染，不提前创建音频上下文。
-
-0.1.2 恢复钢琴琴体上的 −/+ 音量胶囊与三颗电平灯；只调节乐器自身输出，不修改宿主歌曲的 audio.volume。外部控制条仍按首页 showControls=false 隐藏。
-
-0.1.3 调整透明嵌入的接触影和裁切，并略放大古琴；宿主兼容 Vue v-model 的无 data 组合提交 input，避免 Chromium 中文输入不发声。验收使用 CDP 原生 IME 通道，不再依赖人工补发最终 input。
-
-根据后续修正，0.1.4 首页物理键盘采用演示页逐键发声：keydown/keyup 通过正式 API 转交，同次 input/汉字提交去重。没有物理键位的手机输入仍按已提交文字回退发声。仅当前首页搜索框参与，不安装全局监听或抢占搜索快捷键。
-
-当前使用 voice-between 0.2.1 本地包，Tab 仅保留焦点导航，Alt+1–3 选择音色、Alt+K 切换键位提示。首页只传入搜索元素，不再重复转交键盘和提交事件。
+- **5174 端口已占用。** Vite 不会自动换端口。释放端口，或修改 Vite 端口并使用新的页面地址。
+- **页面提示连不上后端。** 先打开上面的健康检查地址。若后端使用了其他端口，核对 Vite 的 `MUSIC_CORE_API_TARGET`。
+- **虚拟环境装不上依赖。** 先确认 Python 版本。Windows 使用仓库的开发依赖快照时优先用 Python 3.10，macOS / Linux 按本文使用项目声明的依赖。
+- **转码不可用，但能保存原格式。** 检查 FFmpeg、FFprobe 和 MP3 编码器。Windows 使用 `--reload` 时，还要检查后端的子进程支持。
+- **设置里改不了下载目录。** 默认网页模式由浏览器决定保存位置。要在应用里管理本机目录，请按[项目 README](../../README.md#启动)用本机入口打开。若设置了 `MUSIC_CORE_DOWNLOAD_DIR`，页面仍不可改。更改本机目录默认只影响新下载，只有勾选迁移才会搬动符合条件的旧下载。

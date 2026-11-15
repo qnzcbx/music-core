@@ -10,9 +10,9 @@ defineEmits<{ toggle: [] }>();
 </script>
 <template>
   <aside class="app-sidebar" aria-label="应用导航" :data-expanded="expanded">
-    <RouterLink to="/" class="shell-brand" aria-label="随心听 首页" title="随心听 首页">
+    <RouterLink to="/" class="shell-brand" aria-label="拾音 首页" title="拾音 首页">
       <DiscIcon aria-hidden="true" />
-      <span class="sidebar-label wordmark">随心听</span>
+      <span class="sidebar-label wordmark">拾音</span>
     </RouterLink>
     <nav aria-label="主导航">
       <RouterLink

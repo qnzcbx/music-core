@@ -1,4 +1,4 @@
-"""16 下载界面 其余来源适度在线回归，只输出下载任务和本地文件摘要。"""
+"""下载界面 其余来源适度在线回归，只输出下载任务和本地文件摘要。"""
 import asyncio
 import argparse
 import hashlib

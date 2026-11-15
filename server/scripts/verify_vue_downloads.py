@@ -1,4 +1,4 @@
-"""16 下载界面 新Vue下载接线：真实文件与人工并发、故障分别验收。"""
+"""下载界面 新Vue下载接线：真实文件与人工并发、故障分别验收。"""
 import argparse
 import asyncio
 import hashlib

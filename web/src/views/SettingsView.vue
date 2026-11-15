@@ -59,7 +59,7 @@ const {
         <label
           v-for="choice in [
             ['ink', '墨息'],
-            ['voice', '字间琴音'],
+            ['voice', '字里弦间'],
           ] as const"
           :key="choice[0]"
         >

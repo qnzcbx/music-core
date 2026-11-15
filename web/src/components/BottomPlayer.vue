@@ -99,7 +99,7 @@ function seek(event: Event) {
       </button>
       <div class="player-meta">
         <span class="track-title">
-          {{ selected?.title || selected?.name || "随心听" }}
+          {{ selected?.title || selected?.name || "拾音" }}
         </span>
         <span class="player-artist">
           {{ selected?.artist || (selected ? "" : "听我想听") }}

@@ -59,7 +59,7 @@ def verify_home_voice(browser, url, app, out):
         go('/settings')
         page.get_by_role('radio', name='深色', exact=True).check()
         before_preferences = snapshot()
-        page.get_by_role('radio', name='字间琴音', exact=True).check()
+        page.get_by_role('radio', name='字里弦间', exact=True).check()
         assert snapshot() == before_preferences
         assert not any('HomeVoiceBetween-' in request for request in loaded)
         go('/')
