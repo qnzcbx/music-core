@@ -9,8 +9,113 @@ ROOT=Path(__file__).resolve().parents[2]
 OUT=Path(os.environ.get('MUSIC_CORE_VERIFY_OUT',ROOT/'.runtime/verify-infinite-search'))
 URL=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5181')
 
+
+def verify_clear_search(page, url, out):
+    """正常页面与可控迟到响应共用现有浏览器；只有竞态请求使用夹具。"""
+    from urllib.parse import urlsplit, parse_qs
+    requests, opened = [], []
+    page.add_init_script("localStorage.setItem('music-core.search.sources.v1',JSON.stringify(['qq']))")
+    page.on('request', lambda r: requests.append(r.post_data_json) if r.url.endswith('/api/search') else None)
+    def observe(response):
+        if response.url.endswith('/api/playback/open') and response.status == 200:
+            opened.append(response.json())
+    page.on('response', observe)
+    shots = out / 'screenshots'
+    shots.mkdir(parents=True, exist_ok=True)
+    results = {}
+    def go(path):
+        page.evaluate('path => document.querySelector("#app").__vue_app__.config.globalProperties.$router.push(path)', path)
+    def empty():
+        page.wait_for_function('location.pathname === "/search" && !new URLSearchParams(location.search).has("q")')
+        assert page.locator('#query').input_value() == ''
+        assert page.locator('#query').evaluate('e=>document.activeElement===e')
+        assert page.locator('.song-row').count() == 0
+        assert '0 首' in page.locator('.results-count').inner_text()
+        assert page.locator('.search-pagination').inner_text().strip() == ''
+        assert not page.locator('.search-view [role=alert]:visible').count()
+        assert '搜索后，歌曲会出现在这里。' in page.locator('.search-view').inner_text()
+    try:
+        page.goto(url.rstrip('/') + '/search?q=逃亡 尤长靖')
+        page.wait_for_load_state('networkidle')
+        row = page.locator('.song-row[data-provider="qq"][data-platform-id="0047EPNp3buJRe"]')
+        row.wait_for(timeout=30000)
+        row.locator('.action-play').click()
+        page.wait_for_function('!document.querySelector("audio").paused && document.querySelector("audio").currentTime>1', timeout=40000)
+        go('/search?q=一生所爱&keep=1&tag=a&tag=b#retained')
+        page.locator('.song-row').first.wait_for(timeout=30000)
+        page.wait_for_function('document.querySelector("#query").value === "一生所爱"')
+        before = page.evaluate('({length:history.length,position:history.state.position,back:history.state.back,sources:localStorage.getItem("music-core.search.sources.v1"),time:document.querySelector("audio").currentTime,src:document.querySelector("audio").src})')
+        page.evaluate('window.clearTestAudio=document.querySelector("audio")')
+        page.screenshot(path=str(shots/'clear-before.png'))
+        count = len(requests)
+        page.get_by_role('button', name='清空输入', exact=True).click()
+        empty()
+        page.wait_for_timeout(250)
+        after = page.evaluate('({length:history.length,position:history.state.position,back:history.state.back,sources:localStorage.getItem("music-core.search.sources.v1"),time:document.querySelector("audio").currentTime,src:document.querySelector("audio").src,same:document.querySelector("audio")===window.clearTestAudio,paused:document.querySelector("audio").paused})')
+        assert after['length'] == before['length'] and after['position'] == before['position'] and after['back'] == before['back']
+        assert after['sources'] == before['sources'] and after['src'] == before['src']
+        assert after['same'] and not after['paused'] and after['time'] > before['time']
+        parsed = urlsplit(page.url)
+        assert parse_qs(parsed.query) == {'keep':['1'],'tag':['a','b']} and parsed.fragment == 'retained'
+        assert len(requests) == count
+        page.screenshot(path=str(shots/'clear-empty-playing.png'))
+        results['realSearchClear'] = {'url':page.url,'before':{k:v for k,v in before.items() if k!='src'},'after':{k:v for k,v in after.items() if k!='src'},'noNewRequest':True}
+        held = []
+        def intercept(route):
+            body = route.request.post_data_json
+            if body['query'].startswith('慢'):
+                held.append((route, body))
+            else:
+                route.continue_()
+        page.route('**/api/search', intercept)
+        race_results = []
+        for word in ['慢结果', '慢错误']:
+            go('/search?q=' + word)
+            for _ in range(200):
+                if held: break
+                page.wait_for_timeout(25)
+            assert held
+            page.get_by_role('button', name='清空输入', exact=True).click()
+            empty()
+            route, body = held.pop(0)
+            try:
+                if word == '慢结果':
+                    route.fulfill(json={'items':[{'identity':{'providerId':'qq','platformId':'LateResult'},'title':'不应回填','artists':['夹具']}],'nextCursor':'2:15'})
+                else:
+                    route.fulfill(status=503,json={'error':{'message':'不应回填错误'}})
+            except Error:
+                pass  # 被 AbortController 取消的请求可能已无法履行。
+            page.wait_for_timeout(250)
+            empty()
+            race_results.append({'query':word,'lateResponseDidNotRestoreState':True})
+        results['races'] = race_results
+        page.locator('#query').fill('牵丝戏')
+        page.locator('#query').press('Enter')
+        page.locator('.song-row').first.wait_for(timeout=30000)
+        assert '牵丝戏' in page.locator('.page-title').inner_text()
+        results['newSearchWorks'] = True
+        page.set_viewport_size({'width':390,'height':844})
+        page.get_by_role('button', name='清空输入', exact=True).click()
+        empty()
+        assert page.locator('audio').evaluate('a=>a===window.clearTestAudio&&!a.paused')
+        page.screenshot(path=str(shots/'clear-empty-mobile.png'))
+        assert all(body['query'].strip() for body in requests)
+        results['noEmptySearch'] = True
+        go('/')
+        page.locator('.home-view').wait_for()
+        page.locator('#query').fill('首页草稿')
+        page.get_by_role('button', name='清空输入', exact=True).click()
+        assert urlsplit(page.url).path == '/' and page.locator('#query').input_value() == ''
+        results['homeClearUnchanged'] = True
+        (out/'clear-result.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
+        print('CLEAR_SEARCH_PASS: URL replace, params/hash, empty state, focus, playback, slow results/errors, new query, mobile, home')
+    finally:
+        for session in opened:
+            page.request.post(url.rstrip('/')+'/api/playback/'+session['playbackId']+'/close')
+
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--url',default=URL);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--clear',action='store_true');parser.add_argument('--controlled',action='store_true');parser.add_argument('--url',default=URL);args=parser.parse_args()
     OUT.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'))
@@ -19,6 +124,10 @@ def main():
         page.on('console',lambda m:console.append(m.text) if m.type=='error' else None)
         page.on('request',lambda r:requests.append(r.post_data_json) if r.url.endswith('/api/search') else None)
         page.on('response',lambda r:responses.append(r.json()) if r.url.endswith('/api/search') and r.status==200 else None)
+        if args.clear:
+            verify_clear_search(page,args.url,OUT)
+            browser.close()
+            return
         if args.controlled:
             page.add_init_script("localStorage.setItem('music-core.search.sources.v1',JSON.stringify(['kuwo','qq','netease','migu']))")
             def document(body):

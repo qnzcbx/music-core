@@ -8,7 +8,12 @@ const { searchState } = useCoreClient()
 // 根生命周期持有搜索状态，普通路由切换不会重建请求。
 watch([() => route.path, () => route.query.q, () => searchState.sources.value.join('|')], () => {
   const q = routeSearchQuery(route.query.q)
-  if (route.path !== '/search' || !q || !searchState.sources.value.length) return
+  if (route.path !== '/search') return
+  if (!q) {
+    searchState.clear()
+    return
+  }
+  if (!searchState.sources.value.length) return
   const signature = JSON.stringify([q, [...searchState.sources.value].sort()])
   const currentSignature = JSON.stringify([searchState.query.value, [...searchState.resultSources.value].sort()])
   if (searchState.searchRevision.value && currentSignature === signature) return

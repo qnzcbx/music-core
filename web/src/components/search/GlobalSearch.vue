@@ -28,6 +28,16 @@ watch(
 const inputElement = ref<HTMLInputElement>();
 watch(inputElement, (element) => emit('inputReady', element ?? null), { flush: 'post' });
 onBeforeUnmount(() => emit('inputReady', null));
+async function clearInput() {
+  draft.value = '';
+  if (route.path !== '/search') return;
+  // 先取消并使旧响应失效，避免 replace 完成之前慢请求回填结果。
+  searchState.clear();
+  const query = { ...route.query };
+  delete query.q;
+  await router.replace({ path: route.path, query, hash: route.hash });
+  inputElement.value?.focus();
+}
 function submit() {
   if (composing.value) return;
   const q = draft.value.trim();
@@ -73,7 +83,7 @@ function submit() {
       class="clear-btn"
       aria-label="清空输入"
       title="清空"
-      @click="draft = ''"
+      @click="clearInput"
     >
       <XIcon aria-hidden="true" />
     </button>

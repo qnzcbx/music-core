@@ -20,6 +20,11 @@ export function useCoreSearch(){
   generation++;for(const request of running.values())request.abort();running.clear();completed.clear();
   songs.value=[];cursors.value={};perSourceStatus.value={};resultSources.value=[];busy.value=false;searchRevision.value=String(generation);
  }
+ function clear(){
+  query.value='';
+  activeQuery='';
+  reset();
+ }
  async function requestPage(source:string,cursor:string|null,version:number){
   const key=requestKey(source,cursor);
   if(version!==generation||running.has(source)||completed.has(key))return;
@@ -57,5 +62,5 @@ export function useCoreSearch(){
  watch(()=>sources.value.join('|'),reset,{flush:'sync'});
  onScopeDispose(()=>{generation++;for(const request of running.values())request.abort();});
  void load().catch(()=>{});
- return {query,sources,resultSources,songs,busy,loadingMore,error,searchRevision,providers,providerError,loadProviders:load,cursors,perSourceStatus,search,loadMore,retry,canLoadMore:computed(()=>eligibleSources.value.length>0)};
+ return {query,sources,resultSources,songs,busy,loadingMore,error,searchRevision,providers,providerError,loadProviders:load,cursors,perSourceStatus,search,clear,loadMore,retry,canLoadMore:computed(()=>eligibleSources.value.length>0)};
 }
