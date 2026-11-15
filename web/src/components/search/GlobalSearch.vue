@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import SearchIcon from "~icons/lucide/search";
-import XIcon from "~icons/lucide/x";
-import { routeSearchQuery } from "../../app/router/search-route";
-import { useCoreClient } from "../../composables/useCoreClient";
+import { onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import SearchIcon from '~icons/lucide/search';
+import XIcon from '~icons/lucide/x';
+import { routeSearchQuery } from '../../app/router/search-route';
+import { useCoreClient } from '../../composables/useCoreClient';
 const { searchState } = useCoreClient();
 defineProps<{ hero?: boolean }>();
-const emit = defineEmits<{ draftChange: [text: string] }>();
+const emit = defineEmits<{
+  draftChange: [text: string];
+  inputReady: [element: HTMLInputElement | null];
+}>();
 const composing = ref(false);
 const route = useRoute(),
   router = useRouter();
 const draft = ref(routeSearchQuery(route.query.q));
 // 中文输入完成后再更新首页水墨文字，避免拼音中间态反复重绘。
 watch([draft, composing], ([text, pending]) => {
-  if (!pending) emit("draftChange", text);
+  if (!pending) emit('draftChange', text);
 });
 watch(
   () => route.fullPath,
@@ -22,13 +25,16 @@ watch(
     draft.value = routeSearchQuery(route.query.q);
   },
 );
+const inputElement = ref<HTMLInputElement>();
+watch(inputElement, (element) => emit('inputReady', element ?? null), { flush: 'post' });
+onBeforeUnmount(() => emit('inputReady', null));
 function submit() {
   if (composing.value) return;
   const q = draft.value.trim();
   if (!q) return;
   draft.value = q;
-  if (route.path !== "/search" || routeSearchQuery(route.query.q) !== q)
-    void router.push({ path: "/search", query: { q } });
+  if (route.path !== '/search' || routeSearchQuery(route.query.q) !== q)
+    void router.push({ path: '/search', query: { q } });
   else void searchState.search();
 }
 </script>
@@ -39,8 +45,13 @@ function submit() {
     role="search"
     @submit.prevent="submit"
   >
-    <label for="query" class="sr-only">搜索曲目</label>
+    <label
+      for="query"
+      class="sr-only"
+      >搜索曲目</label
+    >
     <input
+      ref="inputElement"
       id="query"
       v-model="draft"
       type="search"
@@ -66,10 +77,10 @@ function submit() {
     >
       <XIcon aria-hidden="true" />
     </button>
-    <button 
-      type="submit" 
-      :disabled="!draft.trim()" 
-      aria-label="搜索" 
+    <button
+      type="submit"
+      :disabled="!draft.trim()"
+      aria-label="搜索"
       title="搜索"
     >
       <SearchIcon aria-hidden="true" />
@@ -90,7 +101,7 @@ function submit() {
     border-color 0.18s,
     box-shadow 0.18s;
 }
-input[type="search"]::-webkit-search-cancel-button {
+input[type='search']::-webkit-search-cancel-button {
   -webkit-appearance: none;
   display: none;
 }

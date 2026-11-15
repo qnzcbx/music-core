@@ -456,13 +456,18 @@ def verify_not_found(page, url, app):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--resume',action='store_true');parser.add_argument('--empty-queue',action='store_true');parser.add_argument('--not-found',action='store_true');parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='未启动受控客户端时使用的 Vue 地址');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--controlled',action='store_true');parser.add_argument('--resume',action='store_true');parser.add_argument('--empty-queue',action='store_true');parser.add_argument('--not-found',action='store_true');parser.add_argument('--home-voice',action='store_true');parser.add_argument('--url',default=os.environ.get('MUSIC_CORE_WEB_URL','http://127.0.0.1:5174'),help='未启动受控客户端时使用的 Vue 地址');args=parser.parse_args()
     server=None;vite=None;thread=None;app=None;upstream=None;url=args.url.rstrip('/')
     if args.controlled:
         upstream=FaultUpstream()
         output=io.BytesIO()
         with wave.open(output,'wb') as audio:
-            audio.setparams((1,2,8000,0,'NONE','not compressed'));audio.writeframes(upstream.audio[44:44+8000*2]*30 if args.not_found else upstream.audio[44:44+8000*2*8])
+            audio.setparams((1,2,8000,0,'NONE','not compressed'))
+            if args.not_found or args.home_voice:
+                seconds = 60 if args.home_voice else 30
+                audio.writeframes(upstream.audio[44:44+8000*2] * seconds)
+            else:
+                audio.writeframes(upstream.audio[44:44+8000*2*8])
         upstream.audio=output.getvalue()
         async def resolve(identity,options=None):return await upstream.resolve(identity)
         async def search(*args):return SearchPage(items=tuple(SongCandidate(identity=TrackIdentity(providerId='kuwo',platformId=str(i)),title=f'人工测试{i}',artists=('人工',)) for i in (1,2,3)))
@@ -477,7 +482,7 @@ def main():
             time.sleep(.05)
         if not server.started:raise RuntimeError('队列受控服务启动失败')
         app.state.kuwo=SimpleNamespace(resolve=resolve,search=search,get_lyrics=get_lyrics)
-        if args.not_found:
+        if args.not_found or args.home_voice:
             command = ['node', str(ROOT/'web/node_modules/vite/bin/vite.js'), 'preview', '--host', '127.0.0.1', '--port', str(web_port), '--strictPort']
         else:
             command = ['cmd','/c',f'pnpm dev --host 127.0.0.1 --port {web_port} --strictPort']
@@ -491,8 +496,13 @@ def main():
     screenshots=OUT/'screenshots';screenshots.mkdir(parents=True,exist_ok=True)
     try:
         with sync_playwright() as pw:
-            browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'),args=['--autoplay-policy=no-user-gesture-required'])
+            browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('CHROMIUM_PATH'),args=['--autoplay-policy=document-user-activation-required'] if args.home_voice else ['--autoplay-policy=no-user-gesture-required'])
             page=browser.new_page(viewport={'width':1440,'height':1000},has_touch=True);errors=[];console=[];opened=[];requests=[]
+            if args.home_voice:
+                from verify_home_voice import verify_home_voice
+                verify_home_voice(browser, url, app, OUT)
+                browser.close()
+                return
             if args.not_found:
                 verify_not_found(page, url, app)
                 browser.close()

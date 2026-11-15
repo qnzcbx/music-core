@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useHomeBackground } from '../features/home/background';
 import { inject, ref, onUnmounted } from 'vue';
 import { APPEARANCE, type Appearance } from '../appearance/theme';
 import { useCoreClient } from '../composables/useCoreClient';
@@ -6,6 +7,7 @@ import { usePlayerVisuals } from '../composables/usePlayerTransition';
 import DownloadSettings from '../components/DownloadSettings.vue';
 import SearchBar from '../components/SearchBar.vue';
 import PlayerLayoutSelector from '../components/PlayerLayoutSelector.vue';
+const { background: homeBackground, selectBackground: selectHomeBackground } = useHomeBackground();
 const appearance = inject<Appearance>(APPEARANCE)!;
 const mode = ref(appearance.mode);
 onUnmounted(
@@ -48,6 +50,24 @@ const {
             name="settings-theme"
             :checked="mode === choice[0]"
             @change="appearance.select(choice[0])"
+          />
+          {{ choice[1] }}
+        </label>
+      </fieldset>
+      <h3>首页背景</h3>
+      <fieldset aria-label="首页背景">
+        <label
+          v-for="choice in [
+            ['ink', '墨息'],
+            ['voice', '字间琴音'],
+          ] as const"
+          :key="choice[0]"
+        >
+          <input
+            type="radio"
+            name="home-background"
+            :checked="homeBackground === choice[0]"
+            @change="selectHomeBackground(choice[0])"
           />
           {{ choice[1] }}
         </label>

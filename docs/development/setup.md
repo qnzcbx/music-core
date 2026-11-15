@@ -211,3 +211,20 @@ Windows 新安装无显式部署覆盖且没有旧安装/索引时，调用 SHGe
 Vue Router 使用 history 模式，未知页面由 NotFoundView 显示 404，浏览器保留输入的完整地址。开发服务器及生产构建预览使用 SPA 页面回退；页面 HTTP 响应为 200，404 为前端界面语义。`pnpm build` 后执行 `pnpm preview` 可验收直达及刷新。预览保留原 API 代理，缺失静态文件返回真实 404，不进入页面回退。仓库当前不包含外部静态托管配置；实际托管须分别处理 API、静态文件与 SPA 页面路径，不能将所有请求无条件回退 index.html。
 
 浏览器回归可复用 `server/scripts/verify_vue_queue.py --controlled --not-found`，覆盖生产预览的路由、主题、手机视口和持续播放。
+
+
+## 首页背景：墨息与字间琴音
+
+设置中的“首页背景”默认墨息，独立保存为 localStorage 的 media-lab.home-background.v1。字间琴音使用仓库内 web/vendor/voice-between-0.2.1.tgz，相对 file 依赖及锁文件共同固定版本，Vue peer 要求 ^3.5.0，当前宿主 3.5.43。正常安装使用 pnpm install --frozen-lockfile，无需组件开发项目或重新打包。
+
+仅在首页选中字间琴音时异步挂载 VoiceBetween，现有搜索框通过 bindInputElement 绑定，由组件统一处理物理按键、拼音预编辑与上屏兜底，声音由乐器自己的静音开关控制；切回墨息或离开首页卸载。桌面/手机视口验收复用 server/scripts/verify_vue_queue.py --controlled --home-voice，以严格用户激活策略检查首字波形、静音、输入过滤、偏好与播放连续性。真实 Windows 拼音及手机实体触屏需另行人工确认。
+
+首页嵌入使用 VoiceBetween 的 showControls=false、transparent 属性：隐藏琴体外的两行控件/读数并透明化外层背景；琴身面板与演奏键保留。0.1.1 同时修复声音开启图标的初始渲染，不提前创建音频上下文。
+
+0.1.2 恢复钢琴琴体上的 −/+ 音量胶囊与三颗电平灯；只调节乐器自身输出，不修改宿主歌曲的 audio.volume。外部控制条仍按首页 showControls=false 隐藏。
+
+0.1.3 调整透明嵌入的接触影和裁切，并略放大古琴；宿主兼容 Vue v-model 的无 data 组合提交 input，避免 Chromium 中文输入不发声。验收使用 CDP 原生 IME 通道，不再依赖人工补发最终 input。
+
+根据后续修正，0.1.4 首页物理键盘采用演示页逐键发声：keydown/keyup 通过正式 API 转交，同次 input/汉字提交去重。没有物理键位的手机输入仍按已提交文字回退发声。仅当前首页搜索框参与，不安装全局监听或抢占搜索快捷键。
+
+当前使用 voice-between 0.2.1 本地包，Tab 仅保留焦点导航，Alt+1–3 选择音色、Alt+K 切换键位提示。首页只传入搜索元素，不再重复转交键盘和提交事件。

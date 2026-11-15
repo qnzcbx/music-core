@@ -1,17 +1,31 @@
 <script setup lang="ts">
-import GlobalSearch from "../../../components/search/GlobalSearch.vue";
-import SearchBar from "../../../components/SearchBar.vue";
-import { useCoreClient } from "../../../composables/useCoreClient";
-const emit = defineEmits<{ draftChange: [text: string] }>();
+import GlobalSearch from '../../../components/search/GlobalSearch.vue';
+import SearchBar from '../../../components/SearchBar.vue';
+import { useCoreClient } from '../../../composables/useCoreClient';
+const emit = defineEmits<{
+  draftChange: [text: string];
+  inputReady: [element: HTMLInputElement | null];
+}>();
 const {
   searchState: { sources, providers, providerError, loadProviders },
 } = useCoreClient();
 </script>
 <template>
   <div class="home-search">
-    <GlobalSearch hero @draft-change="emit('draftChange', $event)" />
-    <SearchBar v-model:sources="sources" :providers="providers" />
-    <p v-if="providerError" class="home-source-error" role="status">
+    <GlobalSearch
+      hero
+      @draft-change="emit('draftChange', $event)"
+      @input-ready="emit('inputReady', $event)"
+    />
+    <SearchBar
+      v-model:sources="sources"
+      :providers="providers"
+    />
+    <p
+      v-if="providerError"
+      class="home-source-error"
+      role="status"
+    >
       {{ providerError }} <button @click="loadProviders">重新加载</button>
     </p>
   </div>

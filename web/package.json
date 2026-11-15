@@ -16,6 +16,7 @@
     "gsap": "^3.15.0",
     "ink-breath": "file:vendor/ink-breath-0.2.1.tgz",
     "reka-ui": "^2.11.0",
+    "voice-between": "file:vendor/voice-between-0.2.1.tgz",
     "vue": "^3.5.0",
     "vue-router": "^4.6.4"
   },

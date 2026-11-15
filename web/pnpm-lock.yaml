@@ -23,6 +23,9 @@ importers:
       reka-ui:
         specifier: ^2.11.0
         version: 2.11.0(vue@3.5.43(typescript@5.9.2))
+      voice-between:
+        specifier: file:vendor/voice-between-0.2.1.tgz
+        version: file:vendor/voice-between-0.2.1.tgz(vue@3.5.43(typescript@5.9.2))
       vue:
         specifier: ^3.5.0
         version: 3.5.43(typescript@5.9.2)
@@ -979,6 +982,13 @@ packages:
       yaml:
         optional: true
 
+  voice-between@file:vendor/voice-between-0.2.1.tgz:
+    resolution: {integrity: sha512-88eLIDpwa9WVqnwQSHVxe0hwg4n3F7MKvF3UJ9pOQ4EKRpFVVo/KQG9KcITjAkCq2/WR3/ACURviAKf1ldP/Ow==, tarball: file:vendor/voice-between-0.2.1.tgz}
+    version: 0.2.1
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      vue: ^3.5.0
+
   vscode-uri@3.2.0:
     resolution: {integrity: sha512-m2gXo3bn0G1kT9InzMf07fTbqMbGtyckj3bH5ktLO+1Ssv+yiATZ4dhwaQv9UZWxJh6E9IFGnQyjgWVDWVBDrg==}
 
@@ -1729,6 +1739,10 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.7.0
       lightningcss: 1.32.0
+
+  voice-between@file:vendor/voice-between-0.2.1.tgz(vue@3.5.43(typescript@5.9.2)):
+    dependencies:
+      vue: 3.5.43(typescript@5.9.2)
 
   vscode-uri@3.2.0: {}
 
