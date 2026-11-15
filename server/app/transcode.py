@@ -90,12 +90,15 @@ async def owned_process(args,*,timeout=15,output=None,max_bytes=None):
 
 async def encoder_capability():
     executable,probe=tools()
-    if not executable or not probe:return {'available':False,'reason':'本机未安装完整 FFmpeg 工具，仍可保留原格式'}
+    if not executable or not probe:return {'available':False,'reason':'本机未安装完整 FFmpeg 工具，保留原格式'}
     try:
         output=await owned_process([executable,'-hide_banner','-encoders'])
         available=re.search(rb'\bA\S*\s+libmp3lame\s',output) is not None
-        return {'available':available,'reason':'' if available else '本机暂不支持 MP3 转换，仍可保留原格式'}
-    except (OSError,CoreError,asyncio.TimeoutError):return {'available':False,'reason':'转换工具暂不可用，仍可保留原格式'}
+        return {'available':available,'reason':'' if available else '本机暂不支持 MP3 转换，保留原格式'}
+    except NotImplementedError:
+        # Windows reload 的 Selector 循环不支持子进程；只降级可选转换能力。
+        return {'available':False,'reason':'当前运行环境不支持音频转换，保留原格式'}
+    except (OSError,CoreError,asyncio.TimeoutError):return {'available':False,'reason':'转换工具暂不可用，保留原格式'}
 
 
 async def probe_file(probe,path):

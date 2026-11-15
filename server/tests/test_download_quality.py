@@ -141,3 +141,71 @@ def test_kuwo_quality_preserves_official_denial():
         with pytest.raises(CoreError) as raised:await provider.resolve(TRACK,ResolveOptions(purpose='download',providerQualityId='high'))
         assert raised.value.code==ErrorCode.ACCESS_DENIED and len(calls)==1
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('quality', ['auto', 'high', 'lossless'])
+@pytest.mark.parametrize('failure', ['unsupported_loop', 'missing_tools', 'missing_encoder'])
+def test_flac_options_keep_original_when_conversion_unavailable(tmp_path, monkeypatch, quality, failure):
+    import app.transcode as transcode
+    from app.downloads import DownloadSettings
+
+    async def unsupported(*args, **kwargs):
+        raise NotImplementedError('event loop has no subprocess transport')
+
+    monkeypatch.setattr(transcode, 'tools', lambda: ('ffmpeg', 'ffprobe'))
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', unsupported)
+    if failure == 'missing_tools':
+        monkeypatch.setattr(transcode, 'tools', lambda: (None, None))
+    elif failure == 'missing_encoder':
+        async def no_encoder(*args, **kwargs):
+            return b'Encoders: no libmp3 encoder'
+        monkeypatch.setattr(transcode, 'owned_process', no_encoder)
+
+    async def resolve(identity, options):
+        return ResolvedMedia(id='flac', identity=identity, resolvedAt=1,
+                             upstreamUrl='https://cdn.test/private',
+                             representation=inspect_audio(flac()).model_copy(update={'sizeBytes':50000000}))
+
+    app = create_app(download_settings=DownloadSettings(directory=tmp_path))
+    with TestClient(app) as client:
+        app.state.qq = SimpleNamespace(resolve=resolve)
+        response = client.post('/api/downloads/options', json={
+            'identity': {'providerId':'qq', 'platformId':'0023CVP23SH17s'}, 'quality':quality})
+        assert response.status_code == 200
+        result = response.json()
+        assert result['availability'] == 'available' and result['errorCode'] is None
+        assert result['representation']['codec'] == 'flac'
+        assert result['representation']['lossless'] is True
+        assert result['conversion']['available'] is False
+        assert result['conversion']['reason']
+
+
+def test_encoder_capability_does_not_hide_unexpected_errors(monkeypatch):
+    import app.transcode as transcode
+    monkeypatch.setattr(transcode, 'tools', lambda: ('ffmpeg', 'ffprobe'))
+
+    async def unexpected(*args, **kwargs):
+        raise RuntimeError('programming error')
+
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', unexpected)
+    with pytest.raises(RuntimeError):
+        asyncio.run(transcode.encoder_capability())
+
+
+@pytest.mark.parametrize('status,headers,total', [
+    (206, {'content-range':'bytes 0-65535/50000000', 'content-length':'65536'}, 50000000),
+    (200, {'content-length':'50000000'}, 50000000),
+    (200, {}, None),
+])
+def test_probe_reports_entity_total_not_received_prefix(monkeypatch, status, headers, total):
+    import app.core.media_probe as probe
+    async def allow(*args):
+        pass
+    monkeypatch.setattr(probe, 'validate_target', allow)
+    raw = flac() + b'\0' * (65536 - len(flac()))
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(status, headers=headers, stream=Stream(raw)))) as client:
+            result = await probe.verify_media(client, 'https://cdn.test/media', detail=True)
+            assert result.codec == 'flac' and result.sizeBytes == total
+    asyncio.run(scenario())

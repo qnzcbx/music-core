@@ -3,6 +3,7 @@ import { ref, watch, nextTick, onScopeDispose } from "vue";
 import XIcon from "~icons/lucide/x";
 import { useCoreClient } from "../composables/useCoreClient";
 import { checkDownloadQuality } from "../api/downloads";
+import { downloadQualitySummary } from "../utils/download-quality";
 import { trackIdentity } from "../utils/player-queue";
 import type { DownloadQuality, DownloadQualityOption, OutputMode } from "../types/core";
 const { downloads } = useCoreClient();
@@ -107,13 +108,7 @@ function unavailable(option: DownloadQualityOption | null) {
   );
 }
 function describe(option: DownloadQualityOption) {
-  const rep = option.representation;
-  if (!rep) return "暂未发现可用资源";
-  const parts = [rep.codec?.toUpperCase() || rep.container?.toUpperCase() || "格式待确认"];
-  if (rep.bitrateBps) parts.push(`${Math.round(rep.bitrateBps / 1000)} kbps`);
-  if (rep.sampleRateHz) parts.push(`${(rep.sampleRateHz / 1000).toFixed(1)} kHz`);
-  parts.push(rep.sizeBytes ? `${(rep.sizeBytes / 1048576).toFixed(1)} MB（响应大小）` : "大小未知");
-  return parts.join(" · ");
+  return downloadQualitySummary(option.representation);
 }
 onScopeDispose(() => {
   revision++;
@@ -242,6 +237,7 @@ onScopeDispose(() => {
   max-height: calc(100dvh - 32px);
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
   margin: auto;
   padding: 24px;
   border: 1px solid var(--app-border-soft);
@@ -249,6 +245,9 @@ onScopeDispose(() => {
   background: var(--app-surface-raised);
   color: var(--app-text);
   box-shadow: var(--app-shadow-panel);
+}
+.quality-dialog::-webkit-scrollbar {
+  display: none;
 }
 .quality-dialog::backdrop {
   background: #0005;
@@ -265,7 +264,7 @@ onScopeDispose(() => {
   margin: 0;
 }
 .quality-dialog button {
-  font: inherit;
+  /* font: inherit; */
   cursor: pointer;
   color: inherit;
 }
@@ -286,7 +285,7 @@ onScopeDispose(() => {
   font-size: 13px;
   color: var(--app-text-muted);
   overflow-wrap: anywhere;
-  margin: 12px 0 24px;
+  margin: 8px 0 14px;
 }
 fieldset {
   border: 0;
@@ -302,7 +301,7 @@ label {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 12px 12px;
   border-radius: 10px;
   cursor: pointer;
 }
@@ -324,15 +323,15 @@ small {
   display: block;
   font-size: 12px;
   color: var(--app-text-muted);
-  margin-top: 6px;
-  line-height: 1.6;
+  margin-top: 2px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 .quality-hint {
   color: var(--app-text-muted);
   font-size: 12px;
   line-height: 1.6;
-  margin: 20px 0;
+  margin: 10px 0;
 }
 footer {
   display: flex;
@@ -357,12 +356,7 @@ input:focus-visible {
 
 <style scoped>
 .save-options {
-  border-top: 1px solid var(--app-border-soft);
-  padding-top: 18px;
-  margin-top: 20px;
-}
-.save-options legend {
-  padding-top: 16px;
+  margin-top: 12px;
 }
 label:has(input:disabled) {
   opacity: 0.5;

@@ -132,6 +132,8 @@ export MUSIC_CORE_API_TARGET='http://127.0.0.1:8001'
 
 ## FFmpeg 与 FFprobe
 
+Windows 的 Uvicorn `--reload` 环境可能使用不支持 asyncio 子进程的 Selector 循环。此时只将转换标记为不可用，已经确认的原格式仍可下载；要实际转码需要支持子进程的运行环境，不能把原格式检测成功当成转换可用。
+
 普通在线播放、原格式下载不要求安装 FFmpeg。当前可选转码为经验证的 FLAC 转 MP3；服务端还会用 FFprobe 检查源/目标媒体并检查转码输出。安装后应确保 ffmpeg 与 ffprobe 可在 PATH 中找到，或通过 `MUSIC_CORE_FFMPEG` 指定 FFmpeg，并让 FFprobe 位于同目录或 PATH。可在终端执行 `ffmpeg -version` 和 `ffprobe -version` 确认安装。没有可用编码器或检查失败时，对应转码选项不可用或下载任务会失败。
 
 ## 检查与回归

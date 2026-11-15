@@ -28,6 +28,8 @@ def main():
             task={'id':'new-task','identity':body['identity'],'title':body['title'],'artist':body['artist'],'quality':body['quality'],'status':'queued','createdAt':1,'updatedAt':1};tasks.append(task);route.fulfill(status=202,json=task)
         page.route('**/api/search',lambda r:r.fulfill(json={'items':[{'identity':{'providerId':'kuwo','platformId':str(i)},'title':f'交互歌曲{i}','artists':['人工']} for i in (1,2)]}))
         page.route('**/api/downloads/options',option);page.route('**/api/downloads',downloads);page.route('**/api/downloads/files',lambda r:r.fulfill(json=files))
+        # 本夹具验收本地成品与通知，不能依赖被测服务当前的 browser/local 配置。
+        page.route('**/api/downloads/settings', lambda r: r.fulfill(json={'mode':'local','canManage':False,'deploymentLocked':False}))
         page.goto(args.url.rstrip('/')+'/search?q=交互');page.wait_for_load_state('networkidle')
         first=page.locator('.song-row[data-platform-id="1"]');second=page.locator('.song-row[data-platform-id="2"]')
         page.evaluate('window.firstAudio=document.querySelector("audio")')

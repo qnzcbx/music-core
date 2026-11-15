@@ -17,15 +17,19 @@ def main():
         page.route('**/api/search',lambda r:r.fulfill(json={'items':[{'identity':{'providerId':'kuwo','platformId':'1'},'title':'保存方式验收','artists':['人工'],'durationSeconds':240}]}))
         def options(r):
             q=r.request.post_data_json.get('quality','auto');flac=q=='auto'
-            r.fulfill(json={'quality':q,'availability':'available','representation':{'codec':'flac' if flac else 'mp3','lossless':flac,'sizeBytes':50000000,'bitrateBps':None if flac else 320000},'conversion':{'available':state['available'],'reason':'本机暂不可转换，仍可保留原格式'},'errorCode':None})
+            r.fulfill(json={'quality':q,'availability':'available','representation':{'codec':'flac' if flac else 'mp3','lossless':flac,'sizeBytes':50000000,'sampleRateHz':44100,'bitrateBps':None if flac else 320000},'conversion':{'available':state['available'],'reason':'本机暂不可转换，仍可保留原格式'},'errorCode':None})
         def operations(r):
             if r.request.method=='GET':r.fulfill(json=tasks);return
             body=r.request.post_data_json;posts.append(body)
             task={'id':'converting','identity':body['identity'],'quality':body['quality'],'outputMode':body['outputMode'],'expectedSourceCodec':body['expectedSourceCodec'],'title':'保存方式验收','artist':'人工','status':'downloading','phase':'transcoding','receivedBytes':50000000,'totalBytes':50000000,'createdAt':1,'updatedAt':1};tasks.append(task);r.fulfill(status=202,json=task)
         page.route('**/api/downloads/options',options);page.route('**/api/downloads',operations);page.route('**/api/downloads/files',lambda r:r.fulfill(json=files))
         page.route('**/api/downloads/converting/cancel',lambda r:(tasks[0].update(status='cancelled',updatedAt=2),r.fulfill(json=tasks[0])))
+        # 本夹具验收本地成品与通知，不能依赖被测服务当前的 browser/local 配置。
+        page.route('**/api/downloads/settings', lambda r: r.fulfill(json={'mode':'local','canManage':False,'deploymentLocked':False}))
         page.goto(args.url.rstrip('/')+'/search?q=保存');page.wait_for_load_state('networkidle')
         page.locator('.action-download').click();page.wait_for_timeout(150)
+        summary = page.locator('.quality-dialog').inner_text()
+        assert 'FLAC · 47.7 MB' in summary and 'kHz' not in summary and '响应大小' not in summary
         assert page.locator('input[value="mp3_320"]').is_disabled() and page.locator('input[value="original"]').is_enabled()
         page.get_by_role('button',name='关闭音质选择').click();state['available']=True
         page.locator('.action-download').click();page.wait_for_timeout(150)
