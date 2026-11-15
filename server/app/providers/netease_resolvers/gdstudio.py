@@ -16,6 +16,12 @@ async def resolve(client,song_id,*,quality=None):
             request=httpx.Request('GET','https://music-api.gdstudio.xyz/api.php',
                 params={'types':'url','id':song_id,'source':'netease','br':{'standard':128,'high':320,'lossless':999}.get(quality,999)},headers={'User-Agent':'Mozilla/5.0'})
             response=await client.send(request,stream=True,follow_redirects=False,auth=None)
+            # 官方 cf-mitigated 标记证明拿到的是端点挑战页，而非歌曲权限响应。
+            # 不尝试解挑战；只允许既有后续路线。无标记的 403 仍按拒绝停止。
+            if (response.status_code == 403
+                    and response.headers.get('cf-mitigated', '').lower() == 'challenge'
+                    and response.headers.get('content-type', '').split(';')[0].strip().lower() == 'text/html'):
+                raise CoreError(ErrorCode.UPSTREAM_FAILURE)
             if response.status_code in (401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
             if response.status_code!=200:raise CoreError(ErrorCode.UPSTREAM_FAILURE)
             body=bytearray()

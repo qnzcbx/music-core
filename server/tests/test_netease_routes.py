@@ -112,3 +112,69 @@ def test_total_budget_cancels_current_route(monkeypatch):
     monkeypatch.setattr(module.asyncio,'wait_for',short_budget)
     with pytest.raises(CoreError) as error:asyncio.run(p.resolve(TRACK))
     assert error.value.code==ErrorCode.UPSTREAM_TIMEOUT and closed==[True] and calls==['native']
+
+
+@pytest.mark.parametrize('failure,continues', [
+    ('timeout', True), ('server_error', True), ('no_media', True),
+    ('endpoint_challenge', True), ('unknown_403', False), ('permission_json', False),
+    ('json_with_challenge_header', False), ('html_without_challenge_header', False),
+])
+@pytest.mark.parametrize('quality', [None, 'high', 'lossless'])
+def test_gd_fault_scope_and_jfjt_fallback(monkeypatch, failure, continues, quality):
+    from app.models import ResolveOptions
+    from urllib.parse import parse_qs
+    calls = []
+
+    async def trusted(*args):
+        pass
+    monkeypatch.setattr(media_probe, 'validate_target', trusted)
+    block = bytearray(34)
+    block[10:18] = ((44100 << 44) | (1 << 41) | (15 << 36) | 44100).to_bytes(8, 'big')
+    raw = b'fLaC' + b'\x80' + (34).to_bytes(3, 'big') + block
+
+    def upstream(request):
+        host = request.url.host
+        calls.append(host)
+        if host == 'music.163.com':
+            if request.url.path.endswith('/detail'):
+                return httpx.Response(200, json={'code':200,'songs':[{'id':167691,'name':'宿敌','ar':[{'name':'许嵩'}]}]})
+            return httpx.Response(200, json={'code':200,'data':[{'id':167691,'code':-110,'url':None}]})
+        if host == 'music-api.gdstudio.xyz':
+            if failure == 'timeout':
+                raise httpx.ReadTimeout('fixture endpoint timeout')
+            if failure == 'server_error':
+                return httpx.Response(503)
+            if failure == 'no_media':
+                return httpx.Response(200, json={'id':167691,'url':''})
+            if failure == 'endpoint_challenge':
+                return httpx.Response(403, headers={'cf-mitigated':'challenge','content-type':'text/html; charset=UTF-8'}, text='<title>Just a moment...</title>')
+            if failure == 'html_without_challenge_header':
+                return httpx.Response(403, headers={'content-type':'text/html'}, text='Access denied')
+            if failure == 'json_with_challenge_header':
+                return httpx.Response(403, headers={'cf-mitigated':'challenge'}, json={'code':403})
+            if failure == 'permission_json':
+                return httpx.Response(200, json={'code':403,'id':167691})
+            return httpx.Response(403)
+        if host == 'dm.jfjt.cc':
+            form = parse_qs(request.content.decode())
+            assert form['url'] == ['167691']
+            assert form['level'] == [{'high':'exhigh','lossless':'lossless'}.get(quality, 'standard')]
+            return httpx.Response(200, json={'success':True,'data':{'id':167691,'name':'宿敌','ar_name':'许嵩','url':URL}})
+        assert host == 'm801.music.126.net'
+        return httpx.Response(206, headers={'content-range':f'bytes 0-{len(raw)-1}/{len(raw)}'}, stream=httpx.ByteStream(raw))
+
+    async def execute():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            provider = NeteaseProvider(client, route_order=('native','gdstudio-preview','jfjt'))
+            options = ResolveOptions(purpose='download', providerQualityId=quality)
+            if continues:
+                media = await provider.resolve(TRACK, options)
+                assert media.identity == TRACK and provider.last_resolution['resolver'] == 'jfjt'
+                assert media.representation.codec == 'flac'
+                assert 'dm.jfjt.cc' in calls
+            else:
+                with pytest.raises(CoreError) as error:
+                    await provider.resolve(TRACK, options)
+                assert error.value.code == ErrorCode.ACCESS_DENIED
+                assert calls == ['music.163.com','music-api.gdstudio.xyz']
+    asyncio.run(execute())
