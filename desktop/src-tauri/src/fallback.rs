@@ -1,0 +1,594 @@
+use crate::provider::{common, Media};
+use serde::Deserialize;
+use serde_json::Value;
+use std::{collections::HashSet, future::Future, time::Duration};
+
+// 原生始终由 choose 先执行；此处只集中维护备用顺序和支持的路线名。
+const DEFAULT_ROUTES: &[(&str, &[&str])] = &[
+    ("qq", &["vkeys", "tang", "xunhuisi"]),
+    ("netease", &["gdstudio-preview", "jfjt"]),
+];
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    #[serde(default)]
+    pub routes: Vec<Grant>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Grant {
+    pub provider: String,
+    pub route: String,
+    #[serde(default)]
+    pub tracks: Option<Vec<String>>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            routes: DEFAULT_ROUTES
+                .iter()
+                .flat_map(|(source, routes)| {
+                    routes.iter().map(|route| Grant {
+                        provider: (*source).into(),
+                        route: (*route).into(),
+                        tracks: None,
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self, String> {
+        match std::env::var("MUSIC_CORE_DESKTOP_FALLBACKS") {
+            Ok(raw) => Self::parse(&raw),
+            Err(std::env::VarError::NotPresent) => Ok(Self::default()),
+            Err(_) => Err("桌面备用路线配置编码无效".into()),
+        }
+    }
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        if raw.len() > 65536 {
+            return Err("备用路线配置过大".into());
+        }
+        let config: Self = serde_json::from_str(raw).map_err(|_| "备用路线配置格式无效")?;
+        let mut seen = HashSet::new();
+        for grant in &config.routes {
+            let allowed = DEFAULT_ROUTES
+                .iter()
+                .find(|(source, _)| *source == grant.provider)
+                .map(|(_, routes)| *routes)
+                .unwrap_or(&[]);
+            if !allowed.contains(&grant.route.as_str())
+                || !seen.insert((&grant.provider, &grant.route))
+                || grant.tracks.as_ref().is_some_and(|tracks| {
+                    tracks
+                        .iter()
+                        .any(|id| !common::valid_id(&grant.provider, id))
+                })
+            {
+                return Err("备用路线名称、重复项或曲目范围无效".into());
+            }
+        }
+        Ok(config)
+    }
+    fn routes(&self, source: &str, id: &str) -> Vec<String> {
+        self.routes
+            .iter()
+            .filter(|g| {
+                g.provider == source
+                    && g.tracks
+                        .as_ref()
+                        .is_none_or(|tracks| tracks.iter().any(|t| t == id))
+            })
+            .map(|g| g.route.clone())
+            .collect()
+    }
+}
+
+// 空媒体与明确权限拒绝分开；网络、传输和解码错误不切换解析服务。
+fn eligible(error: &str) -> bool {
+    matches!(
+        error,
+        "QQ 未提供匿名可播放媒体，请选择其他曲目" | "该歌曲未提供匿名可播放媒体"
+    )
+}
+
+pub async fn choose<T, N, NF, B, BF>(
+    native: N,
+    routes: &[String],
+    mut backup: B,
+) -> Result<(T, String), String>
+where
+    N: FnOnce() -> NF,
+    NF: Future<Output = Result<T, String>>,
+    B: FnMut(String) -> BF,
+    BF: Future<Output = Result<T, String>>,
+{
+    let mut last = match native().await {
+        Ok(media) => return Ok((media, "native".into())),
+        Err(error) if eligible(&error) => error,
+        Err(error) => return Err(error),
+    };
+    for route in routes {
+        match tokio::time::timeout(Duration::from_secs(7), backup(route.clone())).await {
+            Ok(Ok(media)) => return Ok((media, route.clone())),
+            Ok(Err(error)) => {
+                // 无法校验的结果只淘汰当前路线；明确限制不能换服务继续。
+                if error.contains("权限")
+                    || error.contains("试听")
+                    || error.contains("加密")
+                    || error.contains("限制")
+                {
+                    return Err(error);
+                }
+                last = error;
+            }
+            Err(_) => last = "备用解析超时，请稍后重试".into(),
+        }
+    }
+    Err(last)
+}
+
+pub async fn resolve(
+    client: &reqwest::Client,
+    config: &Config,
+    identity: &Value,
+) -> Result<(Media, String), String> {
+    let source = identity["providerId"].as_str().ok_or("歌曲来源无效")?;
+    let id = identity["platformId"].as_str().ok_or("歌曲身份无效")?;
+    let routes = config.routes(source, id);
+    tokio::time::timeout(
+        Duration::from_secs(28),
+        choose(
+            || crate::provider::resolve(client, identity),
+            &routes,
+            |route| async move {
+                // 只有实际进入备用路线才创建无凭据客户端。
+                let external = reqwest::Client::builder()
+                    .user_agent("Mozilla/5.0")
+                    .redirect(reqwest::redirect::Policy::none())
+                    .connect_timeout(Duration::from_secs(4))
+                    .build()
+                    .map_err(|_| "备用解析客户端初始化失败")?;
+                backup(&external, source, id, &route).await
+            },
+        ),
+    )
+    .await
+    .map_err(|_| "播放解析总时间已用尽，请稍后重试")?
+}
+
+fn permitted(data: &Value) -> Result<(), String> {
+    for field in ["code", "status"] {
+        if matches!(data[field].as_i64(), Some(301 | 401 | 403))
+            || matches!(data[field].as_str(), Some("301" | "401" | "403"))
+        {
+            return Err("备用服务明确拒绝访问权限".into());
+        }
+    }
+    if data.get("code").is_some_and(|code| {
+        !code.is_null()
+            && !matches!(code.as_i64(), Some(0 | 200))
+            && !matches!(code.as_str(), Some("0" | "200"))
+    }) {
+        return Err("备用服务未返回成功响应".into());
+    }
+    for field in [
+        "freeTrialInfo",
+        "freeListenType",
+        "drm",
+        "encrypted",
+        "requiresLogin",
+        "requiresPayment",
+        "regionBlocked",
+    ] {
+        if data
+            .get(field)
+            .is_some_and(|v| !v.is_null() && v != false && v != 0 && v != "0")
+        {
+            return Err("备用媒体存在试听或权限限制".into());
+        }
+    }
+    Ok(())
+}
+
+pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String, String> {
+    permitted(data)?;
+    let payload = match route {
+        "vkeys" | "jfjt" => &data["data"],
+        _ => data,
+    };
+    permitted(payload)?;
+    if route == "jfjt" && data["success"] != true {
+        return Err("备用服务暂不可用".into());
+    }
+    // 请求里的 ID 或详情链接回显不算响应身份；URL-only 不准进入桌面播放器。
+    let echoed = if source == "qq" {
+        payload.get("song_mid").or(payload.get("mid"))
+    } else {
+        payload.get("id")
+    };
+    if echoed.and_then(common::id).as_deref() != Some(id) {
+        return Err("备用响应缺少匹配的原平台歌曲身份".into());
+    }
+    if let Some(title) = payload
+        .get("song_name")
+        .or(payload.get("title"))
+        .or(payload.get("name"))
+        .and_then(Value::as_str)
+    {
+        if ["伴奏", "伴唱", "翻唱", "live", "现场"]
+            .iter()
+            .any(|word| title.to_lowercase().contains(word))
+        {
+            return Err("备用响应版本需要独立核实，不能替换原曲".into());
+        }
+    }
+    let url = match route {
+        "tang" => [
+            "song_play_url_sq",
+            "song_play_url_pq",
+            "song_play_url_hq",
+            "song_play_url",
+            "song_play_url_standard",
+            "song_play_url_fq",
+        ]
+        .iter()
+        .find_map(|k| payload[*k].as_str().filter(|s| !s.is_empty())),
+        "xunhuisi" => payload["music_url"].as_str(),
+        _ => payload["url"].as_str(),
+    }
+    .filter(|s| !s.is_empty())
+    .ok_or("备用服务未提供媒体")?;
+    common::validate_media(source, url)?;
+    Ok(url.into())
+}
+
+async fn backup(
+    client: &reqwest::Client,
+    source: &str,
+    id: &str,
+    route: &str,
+) -> Result<Media, String> {
+    let request = match route {
+        "vkeys" => client
+            .get("https://api.vkeys.cn/music/tencent/song/link")
+            .query(&[("mid", id), ("quality", "14")]),
+        "tang" => client
+            .get("https://tang.api.s01s.cn/music_open_api.php")
+            .query(&[("mid", id)]),
+        "xunhuisi" => client
+            .get("https://api.xunhuisi.store/API/QQMusic/Song.php")
+            .query(&[("mid", id), ("type", "json")]),
+        "gdstudio-preview" => client
+            .get("https://music-api.gdstudio.xyz/api.php")
+            .query(&[
+                ("types", "url"),
+                ("id", id),
+                ("source", "netease"),
+                ("br", "999"),
+            ]),
+        "jfjt" => client
+            .post("https://dm.jfjt.cc/Song_V1")
+            .header("Referer", "https://dm.jfjt.cc/")
+            .form(&[("url", id), ("level", "standard"), ("type", "json")]),
+        _ => return Err("备用路线无效".into()),
+    };
+    let data = common::json(request).await?;
+    let url = parse(source, route, id, &data)?;
+    probe(client, &url).await?;
+    Ok(Media {
+        url,
+        headers: reqwest::header::HeaderMap::new(),
+    })
+}
+
+async fn probe(client: &reqwest::Client, url: &str) -> Result<(), String> {
+    let mut response = client
+        .get(url)
+        .header("Range", "bytes=0-4095")
+        .header("Accept-Encoding", "identity")
+        .send()
+        .await
+        .map_err(|_| "备用媒体读取失败")?;
+    if matches!(response.status().as_u16(), 401 | 403) {
+        return Err("备用媒体访问权限不足".into());
+    }
+    if !matches!(response.status().as_u16(), 200 | 206) {
+        return Err("备用媒体不可用".into());
+    }
+    if response.status().as_u16() == 206
+        && !response
+            .headers()
+            .get("content-range")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|range| range.starts_with("bytes 0-") && range.contains('/'))
+    {
+        return Err("备用媒体范围响应无效".into());
+    }
+    let mime = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if mime.contains("html") || mime.contains("json") {
+        return Err("备用地址未返回音频".into());
+    }
+    let mut bytes = Vec::new();
+    while bytes.len() < 4096 {
+        let Some(chunk) = response.chunk().await.map_err(|_| "备用媒体读取失败")? else {
+            break;
+        };
+        bytes.extend_from_slice(&chunk[..chunk.len().min(4096 - bytes.len())]);
+    }
+    if bytes.starts_with(b"ID3")
+        || bytes.starts_with(b"fLaC")
+        || bytes.starts_with(b"OggS")
+        || bytes.get(4..8) == Some(b"ftyp")
+        || (bytes.len() > 1 && bytes[0] == 255 && bytes[1] & 224 == 224)
+    {
+        Ok(())
+    } else {
+        Err("备用地址未返回可识别音频".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    #[tokio::test]
+    async fn native_first_and_denials_never_call_backup() {
+        for result in [
+            Ok(123),
+            Err("QQ 歌曲访问权限不足".into()),
+            Err("来源网络请求失败".into()),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let count = calls.clone();
+            let value = choose(
+                || async { result },
+                &["tang".into()],
+                move |_| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    async { Ok(456) }
+                },
+            )
+            .await;
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            if let Ok((value, route)) = value {
+                assert_eq!(value, 123);
+                assert_eq!(route, "native");
+            }
+        }
+    }
+    #[tokio::test]
+    async fn timeout_has_a_bounded_end() {
+        let value = choose(
+            || async {
+                Err::<u8, _>("QQ 未提供匿名可播放媒体，请选择其他曲目".into())
+            },
+            &["tang".into()],
+            |_| async { std::future::pending().await },
+        )
+        .await;
+        assert_eq!(value.unwrap_err(), "备用解析超时，请稍后重试");
+    }
+    #[test]
+    fn builtin_defaults_and_explicit_overrides() {
+        let config = Config::default();
+        assert_eq!(
+            config.routes("qq", "0027oMO61wWi55"),
+            vec!["vkeys", "tang", "xunhuisi"]
+        );
+        assert_eq!(
+            config.routes("netease", "123"),
+            vec!["gdstudio-preview", "jfjt"]
+        );
+        assert!(config.routes("kuwo", "123").is_empty());
+        assert!(Config::parse(r#"{"routes":[]}"#)
+            .unwrap()
+            .routes("qq", "123")
+            .is_empty());
+        let override_config=Config::parse(r#"{"routes":[{"provider":"qq","route":"tang"},{"provider":"qq","route":"vkeys","tracks":["123"]}]}"#).unwrap();
+        assert_eq!(override_config.routes("qq", "123"), vec!["tang", "vkeys"]);
+        assert_eq!(override_config.routes("qq", "456"), vec!["tang"]);
+        assert!(override_config.routes("netease", "123").is_empty());
+    }
+    #[tokio::test]
+    async fn invalid_vkeys_result_does_not_block_tang_but_restrictions_do() {
+        for error in [
+            "备用响应缺少匹配的原平台歌曲身份",
+            "备用响应版本需要独立核实，不能替换原曲",
+            "备用媒体访问权限不足",
+            "备用媒体存在试听或权限限制",
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let count = calls.clone();
+            let value = choose(
+                || async {
+                    Err::<u8, _>("QQ 未提供匿名可播放媒体，请选择其他曲目".into())
+                },
+                &["vkeys".into(), "tang".into()],
+                move |route| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        if route == "vkeys" {
+                            Err(error.into())
+                        } else {
+                            Ok(1)
+                        }
+                    }
+                },
+            )
+            .await;
+            if error.contains("权限") {
+                assert!(value.is_err());
+                assert_eq!(calls.load(Ordering::SeqCst), 1);
+            } else {
+                assert_eq!(value.unwrap(), (1, "tang".into()));
+                assert_eq!(calls.load(Ordering::SeqCst), 2);
+            }
+        }
+    }
+    #[test]
+    fn independent_grants_and_strict_identity() {
+        let config =
+            Config::parse(r#"{"routes":[{"provider":"qq","route":"tang","tracks":["123"]}]}"#)
+                .unwrap();
+        assert_eq!(config.routes("qq", "123"), vec!["tang"]);
+        assert!(config.routes("netease", "123").is_empty());
+        assert!(config.routes("qq", "456").is_empty());
+        assert!(Config::parse(
+            r#"{"routes":[{"provider":"qq","route":"unknown","tracks":["123"]}]}"#
+        )
+        .is_err());
+        let url = "https://isure.stream.qqmusic.qq.com/audio.m4a";
+        assert!(parse("qq", "vkeys", "123", &json!({"data":{"url":url}})).is_err());
+        assert!(parse(
+            "qq",
+            "tang",
+            "123",
+            &json!({"song_mid":"456","song_play_url":url})
+        )
+        .is_err());
+        assert!(parse(
+            "qq",
+            "tang",
+            "123",
+            &json!({"song_mid":"123","song_name":"原曲 Live","song_play_url":url})
+        )
+        .is_err());
+        assert!(parse(
+            "qq",
+            "tang",
+            "123",
+            &json!({"code":403,"song_mid":"123","song_play_url":url})
+        )
+        .is_err());
+        assert_eq!(
+            parse(
+                "qq",
+                "tang",
+                "123",
+                &json!({"song_mid":"123","song_name":"原曲","song_play_url":url})
+            )
+            .unwrap(),
+            url
+        );
+        assert_eq!(
+            parse(
+                "qq",
+                "xunhuisi",
+                "123",
+                &json!({"mid":"123","title":"原曲","music_url":url})
+            )
+            .unwrap(),
+            url
+        );
+        assert!(parse(
+            "qq",
+            "xunhuisi",
+            "123",
+            &json!({"link":"https://y.qq.com/n/ryqq/songDetail/123","title":"原曲","music_url":url})
+        )
+        .is_err());
+        let net = "https://m701.music.126.net/audio.mp3";
+        assert_eq!(
+            parse(
+                "netease",
+                "gdstudio-preview",
+                "123",
+                &json!({"id":123,"url":net})
+            )
+            .unwrap(),
+            net
+        );
+        assert_eq!(
+            parse(
+                "netease",
+                "jfjt",
+                "123",
+                &json!({"success":true,"data":{"id":123,"name":"原曲","url":net}})
+            )
+            .unwrap(),
+            net
+        );
+        assert!(parse(
+            "netease",
+            "jfjt",
+            "123",
+            &json!({"success":true,"data":{"id":123,"url":net,"freeTrialInfo":{}}})
+        )
+        .is_err());
+    }
+    #[tokio::test]
+    #[ignore = "固定真实样本；需要网络及已获授权的服务使用范围"]
+    async fn online_fixed_samples() {
+        let config = Config::from_env().unwrap();
+        println!(
+            "fallback_config_present={}",
+            std::env::var_os("MUSIC_CORE_DESKTOP_FALLBACKS").is_some()
+        );
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0")
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        for (source, id) in [
+            ("qq", "0027oMO61wWi55"),
+            ("qq", "0037WF7I0yUPLu"),
+            ("qq", "0039MnYb0qxYhV"),
+            ("netease", "2668397359"),
+            ("netease", "186016"),
+        ] {
+            let identity = json!({"providerId":source,"platformId":id});
+            let before = crate::provider::resolve(&client, &identity).await;
+            println!(
+                "{id} native={}",
+                if before.is_ok() {
+                    "media_resolved"
+                } else {
+                    before.as_ref().err().unwrap()
+                }
+            );
+            match resolve(&client, &config, &identity).await {
+                Ok((media, route)) => {
+                    let sessions = crate::sessions::Sessions::new();
+                    let sid = sessions.insert_media(media);
+                    let port = crate::transport::start(crate::transport::Transport {
+                        sessions: sessions.clone(),
+                        client: client.clone(),
+                    })
+                    .await
+                    .unwrap();
+                    for range in ["bytes=0-1023", "bytes=300000-301023"] {
+                        let response = client
+                            .get(format!("http://127.0.0.1:{port}/api/playback/{sid}/stream"))
+                            .header("Range", range)
+                            .send()
+                            .await
+                            .unwrap();
+                        println!(
+                            "{id} route={route} range={range} status={} content-range={:?}",
+                            response.status(),
+                            response.headers().get("content-range")
+                        );
+                        assert_eq!(response.status(), 206);
+                        assert_eq!(response.bytes().await.unwrap().len(), 1024);
+                    }
+                    sessions.close(&sid);
+                }
+                Err(error) => println!("{id} final_error={error}"),
+            }
+        }
+    }
+}

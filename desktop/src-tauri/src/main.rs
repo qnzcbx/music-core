@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod fallback;
 mod provider;
 mod sessions;
 mod transport;
@@ -9,6 +10,7 @@ struct Desktop {
     sessions: sessions::Sessions,
     client: reqwest::Client,
     port: u16,
+    fallbacks: fallback::Config,
 }
 
 #[tauri::command]
@@ -22,7 +24,8 @@ async fn desktop_request(
         "/api/search" => provider::search(&state.client, &body).await,
         "/api/playback/open" => {
             let identity = &body["identity"];
-            let media = provider::resolve(&state.client, identity).await?;
+            let (media, resolver) =
+                fallback::resolve(&state.client, &state.fallbacks, identity).await?;
             let id = state.sessions.insert_media(media);
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -30,7 +33,7 @@ async fn desktop_request(
                 .as_millis() as u64;
             Ok(
                 json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{}/stream",state.port,id),
-                "expiresInSeconds":120,"media":{"id":id,"identity":identity,"protocol":"progressive",
+                "resolver":resolver,"expiresInSeconds":120,"media":{"id":id,"identity":identity,"protocol":"progressive",
                 "representation":{},"resolvedAt":now,"validUntil":null}}),
             )
         }
@@ -60,6 +63,7 @@ async fn desktop_request(
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            let fallbacks = fallback::Config::from_env().map_err(std::io::Error::other)?;
             let sessions = sessions::Sessions::new();
             let client = reqwest::Client::builder()
                 .user_agent("Mozilla/5.0")
@@ -83,6 +87,7 @@ fn main() {
                 sessions,
                 client,
                 port,
+                fallbacks,
             });
             Ok(())
         })

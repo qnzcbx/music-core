@@ -1,5 +1,7 @@
 # Windows 桌面版（第一阶段）
 
+当前行为已更新：未配置时启用内置备用路线，无需逐曲目填写 ID；配置覆盖及本轮安装验收见文末“默认备用路线”。前面各阶段描述保留为历史记录。
+
 共用 `web/src`；生产程序内嵌 `web/dist`，不启动 Python、Node 或 Vite。
 开发机需要 Node.js 22.12+、pnpm、Rust stable MSVC、Visual Studio C++ 桌面开发工作负载及 Windows SDK、WebView2 Runtime。安装后的用户不需要开发工具。保留 Tauri 默认 WebView2 下载策略，不打包 FFmpeg。
 
@@ -114,3 +116,126 @@ server/.venv/Scripts/python.exe desktop/verify_webview.py
 - 本机安装器退出码 0；从安装目录实际运行更新后的拾音，通过同一 WebView2 验收脚本的四来源播放 / 中间跳转 / 旧会话 410 / 跨来源切回 / 快速切歌；额外确认最后选中咪咕 `600919000007741344`，按钮为暂停且音频时间继续增长。结果、截图在 `.runtime/desktop-stage2-installed/`。
 - 本阶段没有再次在无 Node/Python 的干净机器上安装；用户报告的第一阶段干净机器安装成功保留在前文。安装后的程序无需 Python；Python/Playwright 只负责开发验收脚本。
 - 本阶段实际验证的是当前网络和匿名可访问样本。QQ 空 purl、咪咕仅试听、加密媒体以及来源限流/权限拒绝均不会改走其他解析服务；这些条件仍可能使特定曲目不可播放。上游重定向仍拒绝，不保证所有平台 CDN 地址都可用。歌词、下载等功能保持未迁移。
+
+## 第三阶段：可配置的同平台备用解析
+
+基线 `13dc7d9`，保留前两阶段记录。本轮未修改 Python 后端行为、歌词、下载或本机音乐库；展示顺序统一为酷我 → QQ 音乐 → 网易云 → 咪咕。
+
+### 先核对的网页版路线
+
+以 `server/app/main.py` 实际创建来源的参数为准，而非类构造器的默认值：QQ 应用默认 `official,vkeys,tang,xunhuisi`，并开启 request-bound；网易云应用默认 `native,gdstudio-preview,jfjt`。类本身默认仅原生。Python 只对来源失败、超时、无媒体继续，权限、身份、格式错误停止。酷我仅有站内 www/mobi，咪咕为站内详情/listen-url，没有可迁移的第三方路线。
+
+| 路线 | 现有协议及触发条件 | Rust 状态 / 差异 |
+| --- | --- | --- |
+| QQ vkeys | GET mid，默认 quality=14；响应 data 的 MID 可缺失，Python 应用允许请求绑定 | 已接入，默认关闭；桌面必须有匹配 MID，URL-only 拒绝；真实固定样本因缺 MID 拒绝 |
+| QQ Tang | GET mid；校验 song_mid，原曲播放字段优先，不选伴奏字段 | 已接入；本轮真实原版《发如雪》通过 |
+| QQ 巡回寺 | GET mid/type=json；Python 允许请求绑定，详情链接仅为回显证据 | 已接入；桌面要求独立 MID，只有 link 不能过关；协议夹具通过，未独立在线验收 |
+| 网易云 GD | GET types=url/id/source=netease/br；Python ID 可缺失；特定 cf-mitigated 挑战允许后续路线，不解挑战 | 已接入；要求响应 ID 匹配；403 保守停止，不作挑战处理；协议夹具通过，未独立在线验收 |
+| 网易云 jfjt | POST url=原平台ID/level=standard/type=json；Python 还查官方详情核对标题歌手 | 已接入；桌面更保守地要求响应本身带匹配 ID，拒绝 URL-only、试听及明显版本替换；协议夹具通过，未独立在线验收 |
+
+“接口存在”不等于任何曲目都有服务使用资格。配置仅限定已有服务及精确曲目，不接受任意服务地址、跨平台替代、关键词匹配或通配符。
+
+### 配置和边界
+
+进程环境变量 `MUSIC_CORE_DESKTOP_FALLBACKS` 为 JSON。默认不设置，保持第二阶段仅原生行为。`routes` 数组决定备用顺序；每项 `provider`、`route` 和精确 `tracks` 指定已确认允许该服务处理的曲目范围。原生永远先执行；不可通过配置前置第三方。配置错误在启动时明确报错，不悄悄启用其他路线。
+
+本轮用户指定样本的有限复现（PowerShell，从仓库根目录启动）：
+
+```powershell
+$env:MUSIC_CORE_DESKTOP_FALLBACKS='{"routes":[{"provider":"qq","route":"tang","tracks":["0027oMO61wWi55","0037WF7I0yUPLu"]}]}'
+Start-Process desktop/src-tauri/target/release/music-core-desktop.exe
+Remove-Item Env:MUSIC_CORE_DESKTOP_FALLBACKS
+```
+
+它不会永久修改安装版设置，也不是为所有周杰伦曲目授权或保证可播。仅应为已核实服务使用条件和曲目适用范围的 ID 增加配置；不把会员、登录、地域或 DRM 限制当作可兜底条件。空地址本身不推断为会员限制，也不证明获得使用资格。
+
+- 只在原生明确返回空媒体时进入已配置备用；原生网络错误、有地址但坏媒体、回环会话/转发/播放器错误不会改走第三方，避免掩盖桌面回归。
+- 备用响应必须回传匹配原平台 MID/ID；缺失、错配、明显伴奏/翻唱/Live/现场版本或明确权限/试听/加密标志均拒绝。与网页版宽松的 request-bound 行为有意不同。
+- 每条备用路线最多 7 秒、一次请求链，无自动重试；整个解析最多 28 秒。原生成功完全不调用备用服务。每次实际备用调用创建无 Cookie、无认证、无来源默认头的独立客户端。
+- 仅接受原平台已允许的 CDN 域名；不自动追随重定向。发布会话前有界读取最多 4096 字节，确认音频特征；整首媒体仍通过原 Rust 回环会话按块传输，Range 不伪造。
+- Open 响应只额外提供 `resolver` 路线名，不提供私有上游地址或头。配置中不存放凭据，验收输出不记录媒体 URL。
+
+### 同一组真实样本前后对照
+
+关键词“发如雪 周杰伦”固定 QQ ID，不以 Live、合唱版或同名曲替代原版：
+
+| QQ platformId / 版本 | 原生（接入前） | Python 应用现有配置 | Rust 配置后 |
+| --- | --- | --- | --- |
+| 0027oMO61wWi55 / 周杰伦《发如雪》，《十一月的萧邦》，299 秒 | 空 purl，无匿名播放地址；尚未进入媒体传输 | Tang，confirmed，媒体前缀验证通过 | Tang，同 MID；起始和中段均 206 + Content-Range |
+| 0037WF7I0yUPLu / 周杰伦、李安 Live，229 秒 | 原生有媒体，206 | official | native，配置了 Tang 仍原生优先；起始及中段均 206 |
+| 0039MnYb0qxYhV / 第二阶段保留的不可用对照身份 | 空 purl | vkeys，request_bound，媒体前缀通过 | vkeys 缺少响应 MID，明确拒绝，不冒充同版本成功 |
+
+第一项失败属于“匿名接口没有给地址”，不是“Rust 有地址但代理或播放器损坏”。第三项是桌面身份保证的保留限制，不能据此宣称该曲付费或服务整体不可用。明确权限拒绝、DRM 和试听停止由可控测试覆盖，本轮未使用受限制账号或试图获取受限媒体。
+
+### 验证
+
+- Rust 11 项离线测试通过，3 项在线探测默认忽略；新增原生成功/权限/网络错误不调备用、超时 7 秒内收尾、独立授权范围、错 MID、缺身份、版本替换、权限/试听拒绝以及五路线协议响应夹具。
+- 显式执行 `cargo test online_fixed_samples -- --ignored --nocapture`：同一组三 ID 得到上表结果，成功的两项通过共用 Rust 会话读取 `bytes=0-1023` 和 `bytes=300000-301023`，206 / Content-Range / 1024 字节均核实。
+- Web 类型检查、生产构建及 60 项回归通过（保留原有 59 项，新增 QQ 备用解析晚到后切回原生仍保持正确曲目并释放迟到 Lease）。Python 相关 QQ/网易云路线回归 102 项通过。
+- 本轮新增 `desktop/verify_fallback.py`，连接真实 release WebView2 的临时 CDP 端口；只记录歌曲身份、最终路线和 seek 结果，截图和结果保存到忽略的 `.runtime/desktop-stage3/`。
+
+要执行桌面脚本，按第二阶段方法为测试进程临时设置 CDP 端口，同时设置上面的有限备用配置，启动 release 后运行 `server/.venv/Scripts/python.exe desktop/verify_fallback.py`。普通用户播放无需 Python 或 Vite。
+
+最终 Windows release 实测通过：8001、5174、5181 无监听；同 ID 预检确认 Tang / native 路线后，通过原界面的试听按钮播放原版《发如雪》，拖到约一半并观察时间继续增长；再切回原生 Live 对照曲，同样跳转后继续播放，旧会话 HEAD 为 410。只有一个 HTMLAudioElement。Tauri 的 invoke 属性不可写，脚本不再尝试改写内部调用，而是先用独立短期会话核实该 ID 的解析路线并立即释放，再执行 UI 播放；结果字段明确称为 `preflightResolver`，不声称拦截到了 UI 的 IPC 响应。
+
+本轮交付更新的独立 release EXE；没有重打 NSIS 或更新已安装应用。前文的安装包与安装后验收仍属于第二阶段。备用配置默认关闭，未独立在线验收的巡回寺、GD、jfjt 不标记为覆盖率提升；本轮只对 Tang 的固定《发如雪》原版样本验实改善。
+
+## 默认备用路线（任务 16，2026-11-16）
+
+继续保留第三阶段未提交实现。本节替代前文“默认关闭、全局逐曲目白名单”的当前行为；历史验收证据不覆盖。
+
+`fallback.rs` 的 `DEFAULT_ROUTES` 集中维护默认备用顺序和有效路线名称：QQ 为原生 official → vkeys → tang → xunhuisi，网易云为原生 native → gdstudio-preview → jfjt。原生由统一协调器先执行，配置不能把第三方放到原生之前。酷我、咪咕不变。Python 和网页行为不变。
+
+### 普通启动及配置覆盖
+
+**普通启动不需要设置任何备用环境变量或歌曲 ID。** 未设置 `MUSIC_CORE_DESKTOP_FALLBACKS` 就使用上述内置顺序；配置中省略某路线的 `tracks` 表示该路线不作额外逐曲目范围限制。若服务确有曲目范围，只给该路线设置 `tracks`；空数组表示该路线不适用于任何曲目。
+
+显式 JSON 是整体替换，不与内置路线合并。例如仅启用 Tang、无需歌曲 ID：
+
+```json
+{"routes":[{"provider":"qq","route":"tang"}]}
+```
+
+完全关闭备用并恢复纯原生：
+
+```powershell
+$env:MUSIC_CORE_DESKTOP_FALLBACKS='{"routes":[]}'
+Start-Process desktop/src-tauri/target/release/music-core-desktop.exe
+Remove-Item Env:MUSIC_CORE_DESKTOP_FALLBACKS
+```
+
+配置在启动时读取，需要关闭旧实例再启动；无需修改系统永久环境变量。普通启动不执行这段关闭示例。
+
+### 无效路线结果与明确限制
+
+缺少响应 MID、错 ID、版本替换、坏媒体、协议格式异常均拒绝当前结果，不把它绑定成会话；随后允许按顺序尝试下一条备用。明确权限、试听、加密限制依旧停止，HTTP 401/403 仍按现有保守规则处理。原生成功不创建备用请求；原生网络/会话/传输/解码问题不以备用掩盖。7 秒单路线 / 28 秒总时限、无凭据隔离、原平台 CDN 限制、有界媒体检查和共享会话保持不变。
+
+新增回归明确验证 vkeys 缺身份后 Tang 能接续，而权限/试听拒绝不会继续；原生成功不调用任何备用、错误配置和可选单路线曲目范围均有覆盖。所有旧身份及媒体拒绝测试保留。
+
+### 同组样本实测（无备用配置与显式关闭）
+
+| 来源 / platformId | 改前普通启动 | 本轮无备用配置 | 显式 routes=[] |
+| --- | --- | --- | --- |
+| QQ 0027oMO61wWi55，原版《发如雪》 | 原生空 purl；上一轮需手动配置 Tang | Tang，起始和中段均 206 / Content-Range | 原生空媒体错误 |
+| QQ 0037WF7I0yUPLu，Live 对照 | 原生可播 | native，起始和中段均 206 | native |
+| QQ 0039MnYb0qxYhV | 原生空媒体；上轮 vkeys 缺 MID 被拒绝 | Tang，起始和中段均 206 | 原生空媒体错误 |
+| 网易云 2668397359 | 原生可播 | native，起始和中段均 206 | native |
+| 网易云 186016 | 原生未返回成功媒体结果 | 同样失败，未标记改善 | 同样失败 |
+
+`online_fixed_samples` 分别在移除环境变量与显式 `routes=[]` 的新进程执行，输出 `fallback_config_present=false/true`。每个成功样本验证 0–1023 和 300000–301023 两段请求、Content-Range 及 1024 字节响应；输出不包含上游媒体地址或敏感头。
+
+独立 Windows release 普通启动通过实际 WebView2 验收：不设置备用配置，原版《发如雪》同 MID 预检命中 Tang，随后界面播放、拖到中间继续播放；切回 Live 对照曲命中 native，旧会话为 410。另用显式 `routes=[]` 重启 release，原版恢复原生空媒体错误。证据分别在 `.runtime/desktop-stage4-default/` 和 `.runtime/desktop-stage4-disabled/`。验收脚本只使用临时 CDP 参数，不将它写入安装配置。
+
+检查通过：Rust 格式检查及 13 项离线测试（3 项在线探测默认忽略）、Web 类型检查和生产构建、60 项前端回归。本轮未修改 Python，保留前轮 102 项路线回归证据。仍只有 Tang 获得新增第三方真实播放与进度证据；vkeys 当前样本缺身份不能作为可播放成功，巡回寺、GD、jfjt 的第三方成功仍只有协议夹具证据。网易云原生可播不代表 GD/jfjt 在线通过。
+
+### 本轮新包及安装后的默认播放
+
+`pnpm --dir desktop exec tauri build --bundles nsis` 成功生成本轮 Windows x64 新包：`desktop/src-tauri/target/release/bundle/nsis/拾音_0.1.0_x64-setup.exe`，**3,395,032 字节（3.24 MiB）**；release EXE **13,095,424 字节**。仍沿用 0.1.0 阶段版本，不能仅凭文件名区分旧包，以本节大小及本轮构建结果为准。
+
+本轮安装器退出码 0，已更新原有本机安装目录。确认正在运行的是安装目录中的 EXE，非工作区 EXE。清除进程的 `MUSIC_CORE_DESKTOP_FALLBACKS` 后启动新安装程序（仅验收时添加临时 CDP 参数），通过实际 WebView2：
+
+- 原版《发如雪》QQ `0027oMO61wWi55`，同身份预检为 Tang；界面播放、拖到中间后时间继续增长。
+- 切回 QQ `0037WF7I0yUPLu` Live 对照，预检为 native；播放与跳进度继续，旧会话 HEAD 返回 410。
+- 只有一个共享 HTMLAudioElement，8001、5174、5181 无监听，未启动 FastAPI 或 Vite。结果和截图在 `.runtime/desktop-stage4-installed/`。
+
+这是本轮新安装包上的验收，与前两阶段旧包记录分别保留；本轮没有再次验证无 Node/Python 的干净机器安装。普通安装启动不需要备用配置、逐曲目 ID 或测试端口，验收 Python/Playwright 不属于用户运行依赖。

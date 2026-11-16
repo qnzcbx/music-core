@@ -147,8 +147,8 @@ mod tests {
 pub fn catalog() -> Value {
     json!([
         ("kuwo", "酷我"),
-        ("netease", "网易云音乐"),
         ("qq", "QQ 音乐"),
+        ("netease", "网易云音乐"),
         ("migu", "咪咕音乐")
     ]
     .iter()

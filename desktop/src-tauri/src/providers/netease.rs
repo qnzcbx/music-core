@@ -51,7 +51,10 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
     if matches!(row["code"].as_i64(), Some(301 | 401 | 403)) {
         return Err("网易云歌曲访问权限不足".into());
     }
-    if row["code"] != 200 || row["url"].as_str().is_none_or(str::is_empty) {
+    if row["code"] != 200 {
+        return Err("网易云未返回成功的媒体解析结果".into());
+    }
+    if row["url"].as_str().is_none_or(str::is_empty) {
         return Err("该歌曲未提供匿名可播放媒体".into());
     }
     if !row["freeTrialInfo"].is_null() {

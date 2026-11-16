@@ -61,6 +61,9 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
         return Err("QQ 返回歌曲身份不匹配".into());
     }
     let row = &rows[0];
+    if matches!(row["result"].as_i64(), Some(301 | 401 | 403)) {
+        return Err("QQ 歌曲访问权限不足".into());
+    }
     let purl = row["purl"]
         .as_str()
         .filter(|s| !s.is_empty())

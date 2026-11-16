@@ -4,6 +4,21 @@ import assert from 'node:assert/strict';
 import {RecoveryPlayer} from '../src/player/recovery-player.mjs';
 
 const identity={providerId:'kuwo',platformId:'1'};
+test('QQ 备用解析晚到时保持切回的原生曲目并释放迟到会话', async () => {
+  const s=setup();
+  await s.player.select(identity);
+  const release=s.delay();
+  const pending=s.player.select({providerId:'qq',platformId:'0027oMO61wWi55'});
+  await tick();
+  await s.player.select(identity);
+  const active=s.player.session.playbackId;
+  release(); await pending;
+  assert.deepEqual(s.player.identity,identity);
+  assert.equal(s.player.session.playbackId,active);
+  assert.equal(s.audio.src,`/api/playback/${active}/stream`);
+  assert(s.closed.includes('lease1'));
+  await s.player.dispose();
+});
 test('跨来源同数字 ID 与快速切歌晚到会话隔离', async () => {
   const s=setup();
   await s.player.select(identity);
