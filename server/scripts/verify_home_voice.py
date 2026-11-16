@@ -22,14 +22,35 @@ AUDIO_PROBE = r"""() => {
 }"""
 
 
+# 生产 Vue 不在元素上保留 __vueParentComponent。验收通过现有 VNode 树取得
+# defineExpose 的正式接口，不为测试在产品中增加调试节点或全局状态。
+VOICE_HANDLE = r"""() => {
+  const visit = node => {
+    if (!node) return;
+    if (node.component?.exposed?.getState) return node.component.exposed;
+    const mounted = visit(node.component?.subTree);
+    if (mounted) return mounted;
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        const found = visit(child);
+        if (found) return found;
+      }
+    }
+  };
+  return visit(document.querySelector('#app')?.__vue_app__?._container?._vnode);
+}"""
+
+
 def verify_home_voice(browser, url, app, out):
     out = Path(out)
     screenshots = out / 'screenshots'
     screenshots.mkdir(parents=True, exist_ok=True)
+    verify_text_melody(browser, url, out)
     results = []
     for width, height in [(1440, 1000), (390, 844)]:
         context = browser.new_context(viewport={'width': width, 'height': height}, has_touch=width < 600)
         context.add_init_script('(' + AUDIO_PROBE + ')()')
+        context.add_init_script('window.findVoiceHandle = ' + VOICE_HANDLE)
         page = context.new_page()
         errors, loaded = [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -38,12 +59,12 @@ def verify_home_voice(browser, url, app, out):
             page.evaluate('path => document.querySelector("#app").__vue_app__.config.globalProperties.$router.push(path)', path)
             page.wait_for_url(lambda current: unquote(current) == url + path)
         def count():
-            return int(page.locator('.home-instrument #noteCounter').inner_text().split('·')[-1].strip())
+            return page.evaluate('findVoiceHandle().getState().counter')
         def wait_piano():
-            page.locator('.home-instrument #noteCounter').wait_for(state='attached')
-            page.wait_for_function('document.querySelector(".typing-piano-host")?.dataset.controls === "hidden"')
-            assert page.locator('.home-instrument .instrument-controls:visible,.home-instrument .piano-caption:visible').count() == 0
-            assert page.locator('.home-instrument #soundOn path').count() == 1
+            page.locator('.typing-piano-host .shell').wait_for(state='attached')
+            page.wait_for_function('!!findVoiceHandle()?.getState()')
+            assert page.locator('.home-instrument .instrument-controls,.home-instrument .piano-caption,.home-instrument #instrumentMode,.home-instrument #noteCounter,.home-instrument #lastPlayed,.home-instrument #velocityFill,.home-instrument #soundToggle').count() == 0
+            assert page.locator('.home-instrument [data-control="mute"]').count() == 1
             if page.locator('.home-instrument .stage-piano').count():
                 assert page.locator('.home-instrument .fascia-console').is_visible()
                 assert page.locator('.home-instrument .fascia-console button:visible').count() > 0
@@ -59,7 +80,7 @@ def verify_home_voice(browser, url, app, out):
         go('/settings')
         page.get_by_role('radio', name='深色', exact=True).check()
         before_preferences = snapshot()
-        page.get_by_role('radio', name='字里弦间', exact=True).check()
+        page.get_by_role('radio', name='弦外之音', exact=True).check()
         assert snapshot() == before_preferences
         assert not any('HomeVoiceBetween-' in request for request in loaded)
         go('/')
@@ -112,19 +133,19 @@ def verify_home_voice(browser, url, app, out):
         # Tab 仅导航；音色和键位提示的快捷键由已安装组件绑定处理。
         query = page.locator('#query')
         query.click()
-        before_timbre = page.locator('.home-instrument #timbreText').inner_text()
+        before_timbre = page.evaluate('findVoiceHandle().getState().timbre')
         page.keyboard.press('Tab')
-        assert page.locator('.home-instrument #timbreText').inner_text() == before_timbre
+        assert page.evaluate('findVoiceHandle().getState().timbre') == before_timbre
         query.click()
-        for key, name in [('2', '毛毡'), ('3', '八音盒'), ('1', '三角')]:
+        for key, name in [('2', 'felt'), ('3', 'celesta'), ('1', 'grand')]:
             page.keyboard.press('Alt+' + key)
-            assert name in page.locator('.home-instrument #timbreText').inner_text()
-        labels = page.locator('.home-instrument #labelToggle').get_attribute('aria-pressed')
+            assert name == page.evaluate('findVoiceHandle().getState().timbre')
+        labels = page.locator('.home-instrument [data-control="labels"]').get_attribute('aria-pressed')
         page.keyboard.press('Alt+k')
-        assert page.locator('.home-instrument #labelToggle').get_attribute('aria-pressed') != labels
+        assert page.locator('.home-instrument [data-control="labels"]').get_attribute('aria-pressed') != labels
         assert count() == 2
         # 首页不展示控件；通过组件原 API 回归内部静音契约，不增加宿主静音状态。
-        page.locator('.home-instrument #soundToggle').dispatch_event('click')
+        page.evaluate('findVoiceHandle().setMuted(true)')
         muted_starts = page.evaluate('voiceStarts')
         page.locator('#query').click()
         page.keyboard.type('人工')
@@ -188,14 +209,18 @@ def verify_home_voice(browser, url, app, out):
             for direction, lights, gain in [('down',2,0.64),('down',1,0.38),('down',1,0.38),('up',2,0.64),('up',3,0.88),('up',3,0.88)]:
                 page.locator('.home-instrument [data-control="volume-'+direction+'"]').click()
                 assert page.locator('.home-instrument [data-volume-led].led-white').count() == lights
+                # AudioParam 按音频渲染量子应用调度值，不能紧随点击只读一次。
+                page.wait_for_function('expected => Math.abs(voiceContexts.filter(context => context.state !== "closed").at(-1).gains[0].gain.value - expected) < .0001', arg=gain)
                 actual = page.evaluate('voiceContexts.filter(context => context.state !== "closed").at(-1).gains[0].gain.value')
                 assert abs(actual - gain) < 0.0001, (actual,gain)
             assert page.locator('audio').evaluate('audio => audio.volume') == music_volume
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         page.screenshot(path=str(screenshots / f'voice-{width}-light.png'))
         if width == 1440:
             page.set_viewport_size({'width':900,'height':900})
             page.locator('.home-instrument .shell[data-active-instrument="guqin"]').wait_for()
-            assert page.locator('.home-instrument .instrument-controls:visible,.home-instrument .piano-caption:visible').count() == 0
+            assert page.locator('.home-instrument .instrument-controls,.home-instrument .piano-caption,.home-instrument #instrumentMode,.home-instrument #noteCounter,.home-instrument #lastPlayed,.home-instrument #velocityFill,.home-instrument #soundToggle').count() == 0
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             page.screenshot(path=str(screenshots / 'voice-guqin-light.png'))
             page.set_viewport_size({'width':width,'height':height})
 
@@ -230,7 +255,7 @@ def verify_home_voice(browser, url, app, out):
         assert not errors, errors
         results.append({'width':width,'firstTrustedInputProducedWaveform':True,'noPianoClickBeforeFirstNote':True,
                         'imePreeditSoundsFinalCommitNoEcho':True,'nativeChromiumIMEFirstChineseWaveform':True,'pasteClearProgramFillSilent':True,
-                        'mutePreventsNewAudioButSearchWorks':True,'nativeNavigationKeys':True,'physicalPinyinEachKeyNoCommitEcho':True,'controlsHiddenAndBackgroundTransparent':True,'bodyVolumeCapsuleRestored':width == 1440,
+                        'mutePreventsNewAudioButSearchWorks':True,'nativeNavigationKeys':True,'physicalPinyinEachKeyNoCommitEcho':True,'demoPanelAbsentFromDOMAndBackgroundTransparent':True,'bodyVolumeCapsuleRestored':width == 1440,
                         'backgroundPersistsAndOtherPreferencesPreserved':True,'lazyLoadedOnlyWhenSelectedOnHome':True,
                         'disposedAfterLeavingAndSwitching':True,'musicPlaybackUnchanged':True,'pageErrors':errors})
         context.close()
@@ -238,3 +263,111 @@ def verify_home_voice(browser, url, app, out):
               'audioEvidence':'native running AudioContext and nonzero analyser waveform; no hardware listening claim'}
     (out/'voice-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(result,ensure_ascii=False))
+
+
+
+def verify_text_melody(browser, url, out):
+    """复用同一生产预览与受控媒体，验收正式安装包的琴面播放入口。"""
+    context = browser.new_context(viewport={'width': 1440, 'height': 1000})
+    context.add_init_script('(' + AUDIO_PROBE + ')()')
+    context.add_init_script('window.findVoiceHandle = ' + VOICE_HANDLE)
+    context.add_init_script("localStorage.setItem('media-lab.home-background.v1', 'voice')")
+    page = context.new_page()
+    errors, searches = [], []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.on('request', lambda request: searches.append(request.url) if '/api/search' in request.url else None)
+    screenshots = Path(out) / 'screenshots'
+    def go(path):
+        page.evaluate('path => document.querySelector("#app").__vue_app__.config.globalProperties.$router.push(path)', path)
+        page.wait_for_url(lambda current: unquote(current) == url + path)
+    def count():
+        return page.evaluate('findVoiceHandle().getState().counter')
+    def wait_ready():
+        page.locator('.typing-piano-host .shell').wait_for(state='attached')
+    play = page.locator('.home-instrument [data-control="replay"]')
+    query = page.locator('#query')
+    page.goto(url + '/')
+    page.wait_for_load_state('networkidle')
+    wait_ready()
+    assert page.locator('.deck-brand-silk').inner_text() == 'VOICE BETWEEN'
+    assert page.locator('.deck-model-silk').inner_text() == 'STAGE PIANO'
+    assert page.locator('.home-instrument .instrument-controls,.home-instrument .piano-caption,.home-instrument #instrumentMode,.home-instrument #noteCounter,.home-instrument #lastPlayed,.home-instrument #velocityFill,.home-instrument #soundToggle').count() == 0
+    k, button = page.locator('[data-control="labels"]').bounding_box(), play.bounding_box()
+    assert button['x'] > k['x'] and abs(button['y'] - k['y']) < 1
+    assert play.locator('..').locator('.deck-led').count() == 1
+    assert page.evaluate('voiceContexts.length') == 0 and count() == 0
+    play.click()
+    assert count() >= 1
+    page.wait_for_function('voiceContexts.length === 1 && voiceContexts[0].state === "running"')
+    page.wait_for_function("""() => voiceContexts[0].meters.some(m => {
+        const samples = new Float32Array(m.fftSize); m.getFloatTimeDomainData(samples);
+        return samples.some(n => Math.abs(n) > .00001);
+    })""")
+    page.wait_for_function("document.querySelector('.typing-piano-host').shadowRoot.querySelector('[data-control=replay]').textContent === '▶'")
+    assert count() == 7 and query.input_value() == ''
+    # 保存位置与尺寸，用 0.2.2 已验收的琴体截图做同坐标比较。
+    metrics = {name: page.locator(selector).bounding_box() for name, selector in {
+        'instrument': '.home-instrument', 'piano': '#pianoOuter', 'console': '.fascia-console',
+        'keyboard': '#piano', 'play': '[data-control="replay"]', 'labels': '[data-control="labels"]',
+    }.items()}
+    (Path(out) / 'desktop-layout.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
+    page.screenshot(path=str(screenshots / 'melody-desktop.png'))
+    query.fill('一生所爱')
+    before, search_before = count(), len(searches)
+    play.click()
+    assert play.inner_text() == '■'
+    assert not query.evaluate('el => el === document.activeElement')
+    page.wait_for_function("document.querySelector('.typing-piano-host').shadowRoot.querySelector('[data-control=replay]').textContent === '▶'")
+    assert count() == before + 4
+    assert query.input_value() == '一生所爱' and page.url == url + '/' and len(searches) == search_before
+    query.fill('一生所爱' * 12)
+    play.click()
+    play.click()
+    stopped = page.evaluate('voiceStarts')
+    page.wait_for_timeout(800)
+    assert page.evaluate('voiceStarts') == stopped and play.inner_text() == '▶'
+    play.click()
+    page.locator('[data-control="mute"]').click()
+    muted = page.evaluate('voiceStarts')
+    play.click()
+    page.wait_for_timeout(800)
+    assert page.evaluate('voiceStarts') == muted
+    assert page.locator('[data-control="mute"]').get_attribute('aria-pressed') == 'false'
+    page.locator('[data-control="mute"]').click()
+    # 有播放队列的真实宿主页面：组件按钮不会触碰唯一 Audio、来源、音量或队列。
+    go('/search?q=人工')
+    page.locator('.song-row[data-platform-id="1"] .action-play').click()
+    page.wait_for_function('!document.querySelector("audio").paused')
+    page.evaluate('window.melodyAudio = document.querySelector("audio")')
+    source = page.locator('audio').evaluate('el => el.src')
+    volume = page.locator('audio').evaluate('el => el.volume')
+    # 播放器会异步把真实时长写入队列元数据；等正常更新结束再做不变性快照。
+    page.wait_for_function('JSON.parse(localStorage.getItem("music-core.queue.v1")).queue[0].metadata.durationSeconds === document.querySelector("audio").duration')
+    queue = page.evaluate('JSON.parse(localStorage.getItem("music-core.queue.v1")).queue')
+    go('/')
+    wait_ready()
+    query.fill('一生所爱' * 12)
+    play.click()
+    page.wait_for_timeout(250)
+    assert page.locator('audio').evaluate('el => el === window.melodyAudio && !el.paused')
+    assert page.locator('audio').evaluate('el => el.src') == source
+    assert page.locator('audio').evaluate('el => el.volume') == volume
+    assert page.evaluate('JSON.parse(localStorage.getItem("music-core.queue.v1")).queue') == queue
+    go('/settings')
+    page.wait_for_function('voiceContexts.every(context => context.state === "closed")')
+    after_leave = page.evaluate('voiceStarts')
+    page.wait_for_timeout(900)
+    assert page.evaluate('voiceStarts') == after_leave
+    assert page.locator('audio').evaluate('el => el === window.melodyAudio && !el.paused')
+    assert page.locator('audio').evaluate('el => el.src') == source
+    assert page.locator('audio').evaluate('el => el.volume') == volume
+    assert page.evaluate('JSON.parse(localStorage.getItem("music-core.queue.v1")).queue') == queue
+    assert not errors, errors
+    result = {'emptyFirstClickHasRunningContextAndWaveform': True, 'sevenNoteArpeggio': True,
+              'textSnapshotMelodyNoSearchOrInputFocus': True, 'stopAndMuteCancelRemainingNotes': True,
+              'leaveHomeDisposesAudioAndScheduling': True, 'playingSongAudioSourceVolumeQueueUnchanged': True,
+              'brand': 'VOICE BETWEEN', 'model': 'STAGE PIANO', 'buttonRightOfK': True,
+              'softwareChromiumOnly': True, 'physicalWindowsIME': False, 'physicalPhoneTouch': False,
+              'pageErrors': errors}
+    (Path(out) / 'text-melody-result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    context.close()

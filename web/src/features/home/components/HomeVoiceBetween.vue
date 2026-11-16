@@ -21,7 +21,7 @@ defineExpose({
   <VoiceBetween
     ref="piano"
     :theme="theme"
-    :show-controls="false"
+    text-melody-enabled
     transparent
   />
 </template>

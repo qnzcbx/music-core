@@ -45,7 +45,7 @@ const inkText = ref('');
     <div
       v-if="background === 'voice'"
       class="home-instrument"
-      aria-label="字里弦间"
+      aria-label="弦外之音"
     >
       <HomeVoiceBetween ref="piano" />
     </div>
