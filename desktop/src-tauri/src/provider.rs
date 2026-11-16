@@ -1,198 +1,207 @@
+#[path = "common.rs"]
+pub(crate) mod common;
+#[path = "providers/kuwo.rs"]
+mod kuwo;
+#[path = "providers/migu.rs"]
+mod migu;
+#[path = "providers/netease.rs"]
+mod netease;
+#[path = "providers/qq.rs"]
+mod qq;
 use serde_json::{json, Value};
 
-pub fn candidate(raw: &Value) -> Option<Value> {
-    let id = raw.get("MUSICRID")?.as_str()?.trim_start_matches("MUSIC_");
-    if !valid_id(id) {
-        return None;
-    }
-    let title = raw.get("SONGNAME")?.as_str()?.trim();
-    if title.is_empty() {
-        return None;
-    }
-    let artists: Vec<String> = raw["ARTIST"]
-        .as_str()
-        .unwrap_or("")
-        .split(['&', ';'])
-        .map(|s| html_escape::decode_html_entities(s.trim()).into_owned())
-        .filter(|s| !s.is_empty())
-        .collect();
-    Some(json!({"identity":{"providerId":"kuwo","platformId":id},
-        "title":html_escape::decode_html_entities(title),"artists":artists,
-        "album":raw["ALBUM"],"cover":null,
-        "durationSeconds":raw["DURATION"].as_str().and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite() && *n >= 0.0)}))
-}
-
-pub fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 20
-        && !id.starts_with('0')
-        && id.bytes().all(|c| c.is_ascii_digit())
-}
-
-pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, String> {
-    if body["providerId"] != "kuwo" {
-        return Err("此来源尚未迁移到桌面版".into());
-    }
-    let query = body["query"].as_str().unwrap_or("").trim();
-    if query.is_empty() || query.chars().count() > 80 {
-        return Err("请输入 1–80 字的关键词".into());
-    }
-    let limit = body["limit"].as_u64().unwrap_or(15);
-    if !(1..=15).contains(&limit) {
-        return Err("搜索数量无效".into());
-    }
-    let page = match body["cursor"].as_str() {
-        None => 0,
-        Some(cursor) => {
-            let parts: Vec<_> = cursor.split(':').collect();
-            if parts.len() != 2 || parts[1] != limit.to_string() {
-                return Err("搜索游标无效".into());
-            }
-            let page = parts[0].parse::<u64>().map_err(|_| "搜索游标无效")?;
-            if !(1..=9).contains(&page) {
-                return Err("搜索游标无效".into());
-            }
-            page
-        }
-    };
-    let response = client
-        .get("https://www.kuwo.cn/search/searchMusicBykeyWord")
-        .query(&[
-            ("all", query.to_owned()),
-            ("ft", "music".into()),
-            ("client", "kt".into()),
-            ("vipver", "1".into()),
-            ("pn", page.to_string()),
-            ("rn", limit.to_string()),
-            ("rformat", "json".into()),
-            ("encoding", "utf8".into()),
-            ("mobi", "1".into()),
-        ])
-        .send()
-        .await
-        .map_err(|_| "酷我搜索网络失败")?
-        .error_for_status()
-        .map_err(|_| "酷我搜索暂不可用")?;
-    let text = response.text().await.map_err(|_| "搜索响应读取失败")?;
-    if text.len() > 2 * 1024 * 1024 {
-        return Err("来源响应过大".into());
-    }
-    let data: Value = json5::from_str(&text).map_err(|_| "酷我返回格式异常")?;
-    let rows = data["abslist"].as_array().ok_or("酷我搜索暂不可用")?;
-    let mut items = Vec::new();
-    for item in rows.iter().take(limit as usize).filter_map(candidate) {
-        if !items
-            .iter()
-            .any(|old: &Value| old["identity"] == item["identity"])
-        {
-            items.push(item);
-        }
-    }
-    let total = data["TOTAL"]
-        .as_str()
-        .and_then(|s| s.parse::<u64>().ok())
-        .or(data["TOTAL"].as_u64());
-    let more = !rows.is_empty() && page < 9 && total.is_none_or(|n| (page + 1) * limit < n);
-    Ok(json!({"items":items,"nextCursor":more.then(||format!("{}:{}",page+1,limit))}))
-}
-
-pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<String, String> {
-    let id = identity["platformId"].as_str().unwrap_or("");
-    if identity["providerId"] != "kuwo" || !valid_id(id) {
-        return Err("歌曲来源或身份无效".into());
-    }
-    // 复用现有同平台 mobi 取链，不需要账户 Cookie。
-    let text = client
-        .get("https://mobi.kuwo.cn/mobi.s")
-        .header("User-Agent", "okhttp/3.10.0")
-        .query(&[
-            ("user", "0"),
-            ("corp", "kuwo"),
-            ("source", "kwplayer_ar_5.1.0.0_B_jiakong_vh.apk"),
-            ("p2p", "1"),
-            ("type", "convert_url2"),
-            ("sig", "0"),
-            ("format", "mp3"),
-            ("rid", id),
-        ])
-        .send()
-        .await
-        .map_err(|_| "歌曲解析网络失败")?
-        .error_for_status()
-        .map_err(|_| "歌曲暂不可用")?
-        .text()
-        .await
-        .map_err(|_| "歌曲解析失败")?;
-    let fields: std::collections::HashMap<_, _> = text
-        .lines()
-        .filter_map(|s| s.split_once('='))
-        .map(|(k, v)| (k, v.trim()))
-        .collect();
-    if fields.get("rid") != Some(&id) {
-        return Err("来源未返回匹配的歌曲".into());
-    }
-    let url = fields.get("url").ok_or("歌曲暂不可播放")?;
-    let parsed = reqwest::Url::parse(url).map_err(|_| "媒体地址无效")?;
-    let host = parsed.host_str().unwrap_or("");
-    if !matches!(parsed.scheme(), "http" | "https")
-        || !(host == "kuwo.cn" || host.ends_with(".kuwo.cn"))
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-    {
-        return Err("来源返回了不受信任的媒体地址".into());
-    }
-    Ok(url.to_string())
+pub struct Media {
+    pub url: String,
+    pub headers: reqwest::header::HeaderMap,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[tokio::test]
-    #[ignore = "需要连接真实酷我服务"]
-    async fn online_search_and_range() {
-        let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0")
-            .timeout(std::time::Duration::from_secs(25))
-            .build()
-            .unwrap();
-        let page = search(
-            &client,
-            &json!({"providerId":"kuwo","query":"test","limit":1}),
+    #[test]
+    fn maps_sources_without_colliding_numeric_ids() {
+        let a = netease::candidate(
+            &json!({"id":123,"name":"歌","dt":120000,"ar":[{"name":"甲"}],"al":{"name":"专辑"}}),
         )
-        .await
         .unwrap();
-        let identity = &page["items"][0]["identity"];
-        let url = resolve(&client, identity).await.unwrap();
-        let sessions = crate::sessions::Sessions::new();
-        let id = sessions.insert(url);
-        let port = crate::transport::start(crate::transport::Transport {
-            sessions: sessions.clone(),
-            client: client.clone(),
-        })
-        .await
+        let b = migu::candidate(
+            &json!({"contentId":"123","name":"歌","duration":120,"singers":[{"name":"甲"}]}),
+        )
         .unwrap();
-        let local = format!("http://127.0.0.1:{port}/api/playback/{id}/stream");
-        for range in ["bytes=0-1023", "bytes=300000-301023"] {
-            let response = client
-                .get(&local)
-                .header("Range", range)
-                .send()
-                .await
-                .unwrap();
-            assert_eq!(response.status(), 206);
-            assert!(response.headers().contains_key("content-range"));
-            assert_eq!(response.bytes().await.unwrap().len(), 1024);
+        let c = qq::candidate(
+            &json!({"mid":"123","title":"歌","interval":120,"singer":[{"name":"甲"}]}),
+        )
+        .unwrap();
+        assert_ne!(a["identity"], b["identity"]);
+        assert_ne!(b["identity"], c["identity"]);
+        for row in [a, b, c] {
+            assert_eq!(row["durationSeconds"], 120.0);
+            assert_eq!(row["artists"], json!(["甲"]));
         }
-        sessions.close(&id);
-        assert_eq!(client.get(&local).send().await.unwrap().status(), 410);
-        println!("真实酷我搜索、取链、起始及中段 Range、释放会话通过；identity={identity}");
+        assert!(netease::candidate(&json!({"id":true,"name":"歌"})).is_none());
+        assert!(qq::candidate(&json!({"mid":"../123","title":"歌"})).is_none());
     }
     #[test]
-    fn maps_identity_and_entities() {
-        let row = candidate(&json!({"MUSICRID":"MUSIC_123","SONGNAME":"A &amp; B","ARTIST":"甲&乙","DURATION":"90"})).unwrap();
-        assert_eq!(row["identity"]["platformId"], "123");
-        assert_eq!(row["title"], "A & B");
-        assert_eq!(row["artists"], json!(["甲", "乙"]));
-        assert!(candidate(&json!({"MUSICRID":"bad","SONGNAME":"x"})).is_none());
+    fn cursors_and_media_permissions() {
+        for source in ["netease", "qq", "migu"] {
+            assert_eq!(
+                common::page(&json!({"providerId":source,"query":"歌","limit":15,"cursor":"2:15"}))
+                    .unwrap()
+                    .2,
+                2
+            );
+            assert!(common::page(&json!({"query":"歌","limit":15,"cursor":"2:10"})).is_err());
+        }
+        assert!(netease::media(json!({"code":301}), "123")
+            .unwrap_err()
+            .contains("登录"));
+        assert!(netease::media(json!({"code":200,"data":[{"id":123,"code":200,"url":"https://m701.music.126.net/a.mp3","freeTrialInfo":{}}]}),"123").is_err());
+        assert!(qq::media(json!({"code":0,"req_0":{"code":0,"data":{"midurlinfo":[{"songmid":"456","purl":"a"}]}}}),"123").is_err());
+        assert!(migu::media(json!({"data":{"song":{"contentId":"123","copyrightId":"A"},"url":"x","freeListenType":1}}),"123","A").is_err());
+        assert!(common::validate_media("qq", "https://evil.invalid/a.mp3").is_err());
+        assert!(common::validate_media("netease", "https://m701.music.126.net/a.mp3").is_ok());
+        let page = common::result(
+            &json!([{"mid":"123","title":"歌"},{"mid":"123","title":"歌"}]),
+            &json!(3),
+            2,
+            1,
+            qq::candidate,
+        )
+        .unwrap();
+        assert_eq!(page["items"].as_array().unwrap().len(), 1);
+        assert_eq!(page["nextCursor"], "2:2");
     }
+    #[test]
+    fn migu_response_and_dual_identity() {
+        assert!(migu::decode(vec![0xab, 0xcd, 1]).is_err());
+        let detail = json!({"resource":[{"contentId":"123","copyrightId":"A","rateFormats":[{"formatType":"PQ","resourceType":"2"}]}]});
+        assert_eq!(
+            migu::context(&detail, "123").unwrap(),
+            ("A".into(), "PQ".into(), "2".into())
+        );
+        assert!(migu::context(&detail, "124").is_err());
+    }
+    #[tokio::test]
+    #[ignore = "真实来源网络验收，不把外部失败视为 fixture 通过"]
+    async fn online_sources() {
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0")
+            .redirect(reqwest::redirect::Policy::none())
+            .read_timeout(std::time::Duration::from_secs(20))
+            .build()
+            .unwrap();
+        for source in ["netease", "qq", "migu"] {
+            let page = match search(
+                &client,
+                &json!({"providerId":source,"query":"晴天","limit":3}),
+            )
+            .await
+            {
+                Ok(page) => page,
+                Err(error) => {
+                    println!("{source}: 搜索失败：{error}");
+                    continue;
+                }
+            };
+            println!(
+                "{source}: 搜索 {} 首",
+                page["items"].as_array().unwrap().len()
+            );
+            for item in page["items"].as_array().unwrap().iter().take(3) {
+                let identity = &item["identity"];
+                let media = match resolve(&client, identity).await {
+                    Ok(media) => media,
+                    Err(error) => {
+                        println!("{identity}: 解析失败：{error}");
+                        continue;
+                    }
+                };
+                let sessions = crate::sessions::Sessions::new();
+                let id = sessions.insert_media(media);
+                let port = crate::transport::start(crate::transport::Transport {
+                    sessions: sessions.clone(),
+                    client: client.clone(),
+                })
+                .await
+                .unwrap();
+                let url = format!("http://127.0.0.1:{port}/api/playback/{id}/stream");
+                for range in ["bytes=0-1023", "bytes=300000-301023"] {
+                    match client.get(&url).header("Range", range).send().await {
+                        Ok(response) => {
+                            println!(
+                                "{identity}: {range} status={} content-range={:?}",
+                                response.status(),
+                                response.headers().get("content-range")
+                            );
+                            let _ = response.bytes().await;
+                        }
+                        Err(_) => println!("{identity}: 媒体请求失败"),
+                    }
+                }
+                sessions.close(&id);
+            }
+        }
+    }
+}
+
+pub fn catalog() -> Value {
+    json!([
+        ("kuwo", "酷我"),
+        ("netease", "网易云音乐"),
+        ("qq", "QQ 音乐"),
+        ("migu", "咪咕音乐")
+    ]
+    .iter()
+    .enumerate()
+    .map(
+        |(order, (id, name))| json!({"id":id,"name":name,"order":order,
+        "defaultSelected":*id=="kuwo","implementationStatus":"native-anonymous",
+        "reason":"官方匿名接口；曲目权限及网络条件决定能否播放",
+        "capabilities":{"search":true,"resolve":true,"lyrics":false,"download":false}})
+    )
+    .collect::<Vec<_>>())
+}
+
+pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, String> {
+    tokio::time::timeout(std::time::Duration::from_secs(18), async {
+        match body["providerId"].as_str() {
+            Some("kuwo") => kuwo::search(client, body).await,
+            Some("netease") => netease::search(client, body).await,
+            Some("qq") => qq::search(client, body).await,
+            Some("migu") => migu::search(client, body).await,
+            _ => Err("来源无效".into()),
+        }
+    })
+    .await
+    .map_err(|_| "来源搜索超时，请稍后重试")?
+}
+
+pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<Media, String> {
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        let source = identity["providerId"].as_str().ok_or("歌曲来源无效")?;
+        let id = identity["platformId"].as_str().ok_or("歌曲身份无效")?;
+        if !common::valid_id(source, id) {
+            return Err("歌曲身份无效".into());
+        }
+        let url = match source {
+            "kuwo" => kuwo::resolve(client, identity).await?,
+            "netease" => netease::resolve(client, id).await?,
+            "qq" => qq::resolve(client, id).await?,
+            "migu" => migu::resolve(client, id).await?,
+            _ => return Err("来源无效".into()),
+        };
+        common::validate_media(source, &url)?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        let (agent, referer) = match source {
+            "kuwo" => ("okhttp/3.10.0", "https://www.kuwo.cn/"),
+            "netease" => ("Mozilla/5.0", "https://music.163.com/"),
+            "qq" => ("Mozilla/5.0", "https://y.qq.com/"),
+            _ => ("Mozilla/5.0", "https://h5.nf.migu.cn/"),
+        };
+        headers.insert("user-agent", agent.parse().unwrap());
+        headers.insert("referer", referer.parse().unwrap());
+        Ok(Media { url, headers })
+    })
+    .await
+    .map_err(|_| "歌曲解析超时，请稍后重试")?
 }

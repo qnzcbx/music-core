@@ -43,7 +43,7 @@ async fn stream(
     let mut request = state
         .client
         .request(method.clone(), &session.url)
-        .header("User-Agent", "okhttp/3.10.0")
+        .headers(session.headers.clone())
         .header("Accept-Encoding", "identity");
     if let Some(range) = headers.get("range") {
         if !range.to_str().is_ok_and(valid_range) {
@@ -116,6 +116,45 @@ pub async fn start(state: Transport) -> std::io::Result<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn preserves_non_range_response_and_maps_rate_limit() {
+        let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = upstream.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                upstream,
+                Router::new()
+                    .route("/whole", get(|| async { "whole" }))
+                    .route("/limited", get(|| async { StatusCode::TOO_MANY_REQUESTS })),
+            )
+            .await
+            .unwrap();
+        });
+        let client = reqwest::Client::new();
+        assert!(
+            crate::provider::common::bytes(client.get(format!("http://{address}/limited")))
+                .await
+                .unwrap_err()
+                .contains("频繁")
+        );
+        let sessions = Sessions::new();
+        let id = sessions.insert(format!("http://{address}/whole"));
+        let port = start(Transport {
+            sessions,
+            client: client.clone(),
+        })
+        .await
+        .unwrap();
+        let response = client
+            .get(format!("http://127.0.0.1:{port}/api/playback/{id}/stream"))
+            .header("Range", "bytes=1-2")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(!response.headers().contains_key("content-range"));
+        assert_eq!(response.text().await.unwrap(), "whole");
+    }
     #[test]
     fn validates_single_ranges() {
         for range in ["bytes=0-1", "bytes=1024-", "bytes=-256"] {

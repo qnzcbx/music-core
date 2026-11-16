@@ -129,6 +129,11 @@ def main():
             browser.close()
             return
         if args.controlled:
+            # 来源目录也使用夹具，使失败隔离和迟到响应回归不依赖 FastAPI。
+            page.route('**/api/providers', lambda route: route.fulfill(json=[
+                {'id':source,'name':name,'order':order,'defaultSelected':source=='kuwo',
+                 'capabilities':{'search':True,'resolve':True,'download':False,'lyrics':False}}
+                for order,(source,name) in enumerate([('kuwo','酷我'),('qq','QQ音乐'),('netease','网易云音乐'),('migu','咪咕音乐')])]))
             page.add_init_script("localStorage.setItem('music-core.search.sources.v1',JSON.stringify(['kuwo','qq','netease','migu']))")
             def document(body):
                 source=body['providerId'];query=body['query'];number=int((body.get('cursor') or '0:15').split(':')[0])
@@ -194,8 +199,8 @@ def main():
             page.get_by_role('checkbox',name='QQ音乐',exact=True).uncheck();settle();assert '45 首' in page.locator('.results-count').inner_text()
             assert page.locator('#app-content').evaluate('el=>el.scrollTop===0')
             page.get_by_role('checkbox',name='网易云音乐',exact=True).uncheck();page.get_by_role('checkbox',name='咪咕音乐',exact=True).uncheck();settle()
-            before=len(requests);submit('短');settle();settle();assert len(requests)-before==3
-            page.wait_for_timeout(1000);assert len(requests)-before==3
+            before=len(requests);submit('短');settle();settle();assert len(requests)-before==3, requests[before:]
+            page.wait_for_timeout(1000);assert len(requests)-before==3, requests[before:]
             scroll();assert len(requests)-before==4;scroll();assert len(requests)-before==5
             page.get_by_text('已全部加载',exact=True).wait_for();scroll();assert len(requests)-before==5
         else:

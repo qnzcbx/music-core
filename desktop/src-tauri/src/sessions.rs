@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 #[derive(Clone)]
 pub struct Session {
     pub url: String,
+    pub headers: reqwest::header::HeaderMap,
     pub expires: Instant,
     pub cancel: CancellationToken,
 }
@@ -19,12 +20,20 @@ impl Sessions {
     pub fn new() -> Self {
         Self(Arc::new(Mutex::new(HashMap::new())))
     }
+    #[cfg(test)]
     pub fn insert(&self, url: String) -> String {
+        self.insert_media(crate::provider::Media {
+            url,
+            headers: reqwest::header::HeaderMap::new(),
+        })
+    }
+    pub fn insert_media(&self, media: crate::provider::Media) -> String {
         let id = uuid::Uuid::new_v4().simple().to_string();
         self.0.lock().unwrap().insert(
             id.clone(),
             Session {
-                url,
+                url: media.url,
+                headers: media.headers,
                 expires: Instant::now() + Duration::from_secs(120),
                 cancel: CancellationToken::new(),
             },

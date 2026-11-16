@@ -4,6 +4,23 @@ import assert from 'node:assert/strict';
 import {RecoveryPlayer} from '../src/player/recovery-player.mjs';
 
 const identity={providerId:'kuwo',platformId:'1'};
+test('跨来源同数字 ID 与快速切歌晚到会话隔离', async () => {
+  const s=setup();
+  await s.player.select(identity);
+  const release=s.delay();
+  const pending=s.player.select({providerId:'netease',platformId:'1'});
+  await tick();
+  await s.player.select({providerId:'qq',platformId:'1'});
+  await s.player.select({providerId:'migu',platformId:'1'});
+  release(); await pending;
+  assert.deepEqual(s.player.identity,{providerId:'migu',platformId:'1'});
+  assert.equal(s.audio.src,'/api/playback/lease3/stream');
+  for(const id of ['lease0','lease1','lease2']) assert(s.closed.includes(id));
+  await s.player.select(identity);
+  assert.deepEqual(s.player.identity,identity);
+  assert(s.closed.includes('lease3'));
+  await s.player.dispose();
+});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 class Audio extends EventTarget {
   constructor(){super();this.currentTime=0;this.duration=120;this.readyState=1;this.volume=1;this.muted=false;this.playbackRate=1;this.paused=true;this.seeking=false;this.error=null;}

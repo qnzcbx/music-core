@@ -18,15 +18,12 @@ async fn desktop_request(
     state: tauri::State<'_, Desktop>,
 ) -> Result<Value, String> {
     match path.as_str() {
-        "/api/providers" => Ok(
-            json!([{"id":"kuwo","name":"酷我","order":0,"defaultSelected":true,
-            "implementationStatus":"available","capabilities":{"search":true,"resolve":true,"lyrics":false,"download":false}}]),
-        ),
+        "/api/providers" => Ok(provider::catalog()),
         "/api/search" => provider::search(&state.client, &body).await,
         "/api/playback/open" => {
             let identity = &body["identity"];
-            let url = provider::resolve(&state.client, identity).await?;
-            let id = state.sessions.insert(url);
+            let media = provider::resolve(&state.client, identity).await?;
+            let id = state.sessions.insert_media(media);
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
