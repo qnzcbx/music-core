@@ -15,6 +15,7 @@ watch(
   <span class="cover-art">
     <span class="cover-fallback" aria-hidden="true"><span>♫</span></span>
     <img
+      :key="src ?? ''"
       v-if="src && !failed"
       :src="src"
       :alt="alt ?? ''"

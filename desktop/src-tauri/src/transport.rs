@@ -101,12 +101,20 @@ async fn stream(
     response.body(Body::from_stream(body)).unwrap()
 }
 
+#[cfg(test)]
 pub async fn start(state: Transport) -> std::io::Result<u16> {
+    start_with_covers(state, crate::covers::Covers::default()).await
+}
+pub async fn start_with_covers(
+    state: Transport,
+    covers: crate::covers::Covers,
+) -> std::io::Result<u16> {
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
     let port = listener.local_addr()?.port();
     let app = Router::new()
         .route("/api/playback/{id}/stream", get(stream))
-        .with_state(state);
+        .with_state(state)
+        .merge(covers.router());
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });

@@ -1,7 +1,7 @@
 use super::common;
 use serde_json::{json, Value};
 const ROOT: &str = "https://c.musicapp.migu.cn";
-fn request(client: &reqwest::Client, path: &str) -> reqwest::RequestBuilder {
+pub(crate) fn request(client: &reqwest::Client, path: &str) -> reqwest::RequestBuilder {
     client
         .get(format!("{ROOT}{path}"))
         .header("Origin", "https://h5.nf.migu.cn")
@@ -39,6 +39,22 @@ pub fn decode(mut bytes: Vec<u8>) -> Result<Value, String> {
     Ok(data)
 }
 pub fn candidate(row: &Value) -> Option<Value> {
+    let cover = row["imgItems"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .rev()
+        .find_map(|v| v["img"].as_str())
+        .or(row["img3"].as_str())
+        .or(row["img2"].as_str())
+        .or(row["img1"].as_str())
+        .and_then(|s| {
+            reqwest::Url::parse("https://d.musicapp.migu.cn")
+                .unwrap()
+                .join(s)
+                .ok()
+        })
+        .map(|u| u.to_string());
     let title = row.get("name").or(row.get("songName"))?;
     let singers = row
         .get("singers")
@@ -59,7 +75,7 @@ pub fn candidate(row: &Value) -> Option<Value> {
         singers,
         json!(album),
         row["duration"].as_f64(),
-        Value::Null,
+        json!(cover),
     )
 }
 pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, String> {

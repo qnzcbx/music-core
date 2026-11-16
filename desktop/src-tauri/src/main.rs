@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod covers;
 mod fallback;
+mod lyrics;
 mod provider;
 mod sessions;
 mod transport;
@@ -11,6 +13,7 @@ struct Desktop {
     client: reqwest::Client,
     port: u16,
     fallbacks: fallback::Config,
+    covers: covers::Covers,
 }
 
 #[tauri::command]
@@ -21,7 +24,12 @@ async fn desktop_request(
 ) -> Result<Value, String> {
     match path.as_str() {
         "/api/providers" => Ok(provider::catalog()),
-        "/api/search" => provider::search(&state.client, &body).await,
+        "/api/search" => {
+            let mut page = provider::search(&state.client, &body).await?;
+            state.covers.map_page(&mut page, state.port);
+            Ok(page)
+        }
+        "/api/lyrics" => lyrics::get(&state.client, &body).await,
         "/api/playback/open" => {
             let identity = &body["identity"];
             let (media, resolver) =
@@ -55,7 +63,7 @@ async fn desktop_request(
                     _ => {}
                 }
             }
-            Err("此功能尚未迁移到桌面版（歌词、下载、本机音乐库及目录管理暂不可用）".into())
+            Err("此功能尚未迁移到桌面版（下载、本机音乐库及目录管理暂不可用）".into())
         }
     }
 }
@@ -72,10 +80,14 @@ fn main() {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .read_timeout(std::time::Duration::from_secs(30))
                 .build()?;
-            let port = tauri::async_runtime::block_on(transport::start(transport::Transport {
-                sessions: sessions.clone(),
-                client: client.clone(),
-            }))?;
+            let covers = covers::Covers::default();
+            let port = tauri::async_runtime::block_on(transport::start_with_covers(
+                transport::Transport {
+                    sessions: sessions.clone(),
+                    client: client.clone(),
+                },
+                covers.clone(),
+            ))?;
             let cleanup = sessions.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -88,6 +100,7 @@ fn main() {
                 client,
                 port,
                 fallbacks,
+                covers,
             });
             Ok(())
         })

@@ -1,6 +1,10 @@
 use super::common;
 use serde_json::{json, Value};
 pub fn candidate(row: &Value) -> Option<Value> {
+    let album_mid = row["album"]["mid"].as_str().or(row["albummid"].as_str());
+    let cover = album_mid
+        .filter(|s| !s.is_empty() && s.len() <= 64 && s.bytes().all(|c| c.is_ascii_alphanumeric()))
+        .map(|mid| format!("https://y.gtimg.cn/music/photo_new/T002R500x500M000{mid}.jpg"));
     let id = row["mid"].as_str().or(row["songmid"].as_str())?;
     let title = row
         .get("title")
@@ -18,7 +22,7 @@ pub fn candidate(row: &Value) -> Option<Value> {
             .cloned()
             .unwrap_or(Value::Null),
         row["interval"].as_f64(),
-        Value::Null,
+        json!(cover),
     )
 }
 pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, String> {

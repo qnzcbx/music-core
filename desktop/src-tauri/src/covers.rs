@@ -1,0 +1,277 @@
+use axum::{
+    body::Body,
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::get,
+    Router,
+};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+use tokio::sync::OnceCell;
+type ImageResult = Result<(Vec<u8>, String), String>;
+struct Entry {
+    url: String,
+    created: Instant,
+    image: OnceCell<ImageResult>,
+}
+#[derive(Clone, Default)]
+pub struct Covers(Arc<Mutex<HashMap<String, Arc<Entry>>>>);
+
+pub fn valid_url(source: &str, value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let host = url.host_str().unwrap_or("");
+    let path = url.path();
+    let image = [".jpg", ".jpeg", ".png", ".webp"]
+        .iter()
+        .any(|ext| path.to_lowercase().ends_with(ext));
+    match source {
+        "qq" => {
+            image
+                && host == "y.gtimg.cn"
+                && url.scheme() == "https"
+                && regex::Regex::new(r"^/music/photo_new/T002R500x500M000[A-Za-z0-9]{1,64}\.jpg$")
+                    .unwrap()
+                    .is_match(path)
+                && url.query().is_none()
+        }
+        "netease" => {
+            image
+                && regex::Regex::new(r"^p[0-9]+\.music\.126\.net$")
+                    .unwrap()
+                    .is_match(host)
+        }
+        "kuwo" => image && host.ends_with(".kuwo.cn"),
+        "migu" => {
+            host == "d.musicapp.migu.cn"
+                && ((image && path.starts_with("/data/oss/resource/"))
+                    || regex::Regex::new(
+                        r"^/data/resource-service/file-down/[A-Za-z0-9/_-]{1,256}$",
+                    )
+                    .unwrap()
+                    .is_match(path))
+        }
+        _ => false,
+    }
+}
+impl Covers {
+    pub fn register(&self, source: &str, url: &str, port: u16) -> Option<String> {
+        if !valid_url(source, url) {
+            return None;
+        }
+        // 老搜索响应中的 HTTP 封面统一通过同一已确认 CDN 的 HTTPS 请求。
+        let mut parsed = reqwest::Url::parse(url).ok()?;
+        parsed.set_scheme("https").ok()?;
+        let url = parsed.as_str();
+        let mut entries = self.0.lock().unwrap();
+        entries.retain(|_, entry| entry.created.elapsed() < Duration::from_secs(3600));
+        if let Some((id, _)) = entries.iter().find(|(_, entry)| entry.url == url) {
+            return Some(format!("http://127.0.0.1:{port}/covers/{id}"));
+        }
+        if entries.len() >= 128 {
+            if let Some(id) = entries
+                .iter()
+                .min_by_key(|(_, e)| e.created)
+                .map(|(id, _)| id.clone())
+            {
+                entries.remove(&id);
+            }
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        entries.insert(
+            id.clone(),
+            Arc::new(Entry {
+                url: url.into(),
+                created: Instant::now(),
+                image: OnceCell::new(),
+            }),
+        );
+        Some(format!("http://127.0.0.1:{port}/covers/{id}"))
+    }
+    pub fn map_page(&self, page: &mut serde_json::Value, port: u16) {
+        if let Some(items) = page["items"].as_array_mut() {
+            for item in items {
+                let cover = item["cover"].as_str().and_then(|url| {
+                    self.register(
+                        item["identity"]["providerId"].as_str().unwrap_or(""),
+                        url,
+                        port,
+                    )
+                });
+                item["cover"] = serde_json::json!(cover);
+            }
+        }
+    }
+    pub fn router(self) -> Router {
+        Router::new()
+            .route("/covers/{id}", get(serve))
+            .with_state(self)
+    }
+}
+pub fn image_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[255, 216, 255]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+async fn read(url: &str) -> ImageResult {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|_| "封面请求失败")?;
+    let mut response = client
+        .get(url)
+        .header("Accept-Encoding", "identity")
+        .send()
+        .await
+        .map_err(|_| "封面请求失败")?;
+    if response.status() != 200
+        || response
+            .content_length()
+            .is_some_and(|n| n > 2 * 1024 * 1024)
+    {
+        return Err("封面响应无效或过大".into());
+    }
+    let mime = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .to_owned();
+    // 咪咕已确认的 file-down 图片端点用通用 MIME；仍须通过下方图片文件头检查。
+    let migu_binary = reqwest::Url::parse(url).is_ok_and(|u| {
+        u.host_str() == Some("d.musicapp.migu.cn")
+            && u.path().starts_with("/data/resource-service/file-down/")
+    }) && mime == "application/octet-stream";
+    if !["image/jpeg", "image/jpg", "image/png", "image/webp"].contains(&mime.as_str())
+        && !migu_binary
+    {
+        return Err("封面格式不支持".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| "封面读取失败")? {
+        if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            return Err("封面过大".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let kind = image_type(&bytes).ok_or("封面格式无效")?.to_owned();
+    Ok((bytes, kind))
+}
+async fn serve(State(covers): State<Covers>, Path(id): Path<String>) -> Response {
+    let entry = covers.0.lock().unwrap().get(&id).cloned();
+    let Some(entry) = entry else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if entry.created.elapsed() > Duration::from_secs(3600) {
+        return StatusCode::GONE.into_response();
+    }
+    match entry.image.get_or_init(|| read(&entry.url)).await {
+        Ok((bytes, kind)) => Response::builder()
+            .header("Content-Type", kind)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Cache-Control", "private, max-age=3600")
+            .header("X-Content-Type-Options", "nosniff")
+            .body(Body::from(bytes.clone()))
+            .unwrap(),
+        Err(_) => StatusCode::BAD_GATEWAY.into_response(),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bounded_registered_images_and_dedup() {
+        let covers = Covers::default();
+        let url = "https://y.gtimg.cn/music/photo_new/T002R500x500M0000024bjiL2aocxT.jpg";
+        assert_eq!(
+            covers.register("qq", url, 1234),
+            covers.register("qq", url, 1234)
+        );
+        assert!(covers
+            .register("qq", "https://127.0.0.1/private.jpg", 1234)
+            .is_none());
+        assert!(covers
+            .register("qq", "https://y.gtimg.cn/other.jpg", 1234)
+            .is_none());
+        assert_eq!(image_type(b"<html>"), None);
+        assert_eq!(image_type(b"\xff\xd8\xffimage"), Some("image/jpeg"));
+    }
+    #[tokio::test]
+    async fn cached_image_reads_share_one_upstream_request() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let count = Arc::new(AtomicUsize::new(0));
+        let calls = count.clone();
+        let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = upstream.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                upstream,
+                Router::new().route(
+                    "/image",
+                    get(move || {
+                        let calls = calls.clone();
+                        async move {
+                            calls.fetch_add(1, Ordering::SeqCst);
+                            ([("content-type", "image/jpeg")], vec![255u8, 216, 255, 0])
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let covers = Covers::default();
+        // 仅测试模块直接注入本地夹具，生产入口仍必须经过 register 的域名校验。
+        covers.0.lock().unwrap().insert(
+            "fixture".into(),
+            Arc::new(Entry {
+                url: format!("http://{addr}/image"),
+                created: Instant::now(),
+                image: OnceCell::new(),
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, covers.router()).await.unwrap();
+        });
+        let client = reqwest::Client::new();
+        let url = format!("http://{addr}/covers/fixture");
+        let (a, b) = tokio::join!(client.get(&url).send(), client.get(&url).send());
+        assert_eq!(a.unwrap().status(), 200);
+        assert_eq!(b.unwrap().headers()["access-control-allow-origin"], "*");
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            client
+                .get(format!("http://{addr}/covers/unknown"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            404
+        );
+    }
+}

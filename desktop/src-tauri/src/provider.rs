@@ -3,7 +3,7 @@ pub(crate) mod common;
 #[path = "providers/kuwo.rs"]
 mod kuwo;
 #[path = "providers/migu.rs"]
-mod migu;
+pub(crate) mod migu;
 #[path = "providers/netease.rs"]
 mod netease;
 #[path = "providers/qq.rs"]
@@ -157,7 +157,7 @@ pub fn catalog() -> Value {
         |(order, (id, name))| json!({"id":id,"name":name,"order":order,
         "defaultSelected":*id=="kuwo","implementationStatus":"native-anonymous",
         "reason":"官方匿名接口；曲目权限及网络条件决定能否播放",
-        "capabilities":{"search":true,"resolve":true,"lyrics":false,"download":false}})
+        "capabilities":{"search":true,"resolve":true,"lyrics":true,"download":false}})
     )
     .collect::<Vec<_>>())
 }

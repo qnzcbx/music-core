@@ -8,6 +8,7 @@ test('桌面 IPC 保留会话 URL 白名单，未迁移操作不落到 HTTP', as
     calls.push({ command, ...args });
     if (args.path === '/api/playback/open') return { streamUrl: mediaUrl };
     if (args.path.endsWith('/close')) return null;
+    if (args.path === '/api/lyrics') return {identity:args.body,status:'unavailable',lines:[]};
     throw '此功能尚未迁移到桌面版';
   } } } };
   const { apiFetch, isPlaybackUrl } = await import('../src/api/transport.ts');
@@ -21,5 +22,8 @@ test('桌面 IPC 保留会话 URL 白名单，未迁移操作不落到 HTTP', as
   assert.equal(isPlaybackUrl(mediaUrl), false);
   mediaUrl = 'https://private.invalid/song';
   assert.equal((await apiFetch('/api/playback/open')).status, 503);
+  const lyric = await apiFetch('/api/lyrics?providerId=qq&platformId=0027oMO61wWi55');
+  assert.deepEqual((await lyric.json()).identity,{providerId:'qq',platformId:'0027oMO61wWi55'});
+  assert.equal(calls.at(-1).path,'/api/lyrics');
   delete globalThis.window;
 });

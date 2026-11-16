@@ -8,12 +8,14 @@ from playwright.sync_api import sync_playwright
 parser = argparse.ArgumentParser()
 parser.add_argument('--endpoint', default='http://127.0.0.1:9223')
 parser.add_argument('--out', default='.runtime/desktop-stage2')
+parser.add_argument('--check-metadata',action='store_true')
 args = parser.parse_args()
 out = Path(args.out)
 out.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as pw:
     browser = pw.chromium.connect_over_cdp(args.endpoint)
     page = browser.contexts[0].pages[0]
+    page.goto('http://tauri.localhost/')
     page.wait_for_load_state('networkidle')
     def until(expression, arg=None, timeout=40):
         deadline = time.monotonic()+timeout
@@ -80,5 +82,14 @@ with sync_playwright() as pw:
     assert selected.get_attribute('data-platform-id') == targets[3][1]
     assert selected.locator('.action-play').get_attribute('title') == '暂停'
     assert page.request.head(previous).status==410
+    if args.check_metadata:
+        identity={'providerId':targets[3][0],'platformId':targets[3][1]}
+        lyric=page.evaluate('identity=>window.__TAURI__.core.invoke("desktop_request",{path:"/api/lyrics",body:identity})',identity)
+        cover=selected.locator('img').get_attribute('src')
+        page.get_by_role('button',name='打开沉浸式播放器',exact=True).click()
+        until('count=>document.querySelectorAll(".lyric-line").length===count',len(lyric['lines']))
+        until('url=>document.querySelector("[data-player-cover] img")?.src===url',cover)
+        until('url=>document.querySelector("[data-palette-key]")?.dataset.paletteKey===url',cover)
+        page.screenshot(path=str(out/'rapid-switch-metadata.png'))
     (out/'result.json').write_text(json.dumps({'actualWebView2':True,'records':records,'rapidSwitch':True},ensure_ascii=False,indent=2),encoding='utf-8')
     browser.close()

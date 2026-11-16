@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import {createLyricsLoader,currentLyricIndex} from '../src/player/lyrics-state.ts';
 import {createPlayerLayoutSelection} from '../src/appearance/player-layout.ts';
 const identity=id=>({providerId:'kuwo',platformId:id});
+test('跨来源相同数字 ID 的迟到歌词不能覆盖当前来源',async()=>{
+ let release;const states=[];
+ const loader=createLyricsLoader((id)=>id.providerId==='qq'?new Promise(r=>release=r):Promise.resolve({identity:id,status:'synced',lines:[]}),s=>states.push(s));
+ const pending=loader.select({providerId:'qq',platformId:'123'});
+ await loader.select({providerId:'netease',platformId:'123'});
+ release({identity:{providerId:'qq',platformId:'123'},status:'synced',lines:[]});await pending;
+ assert.deepEqual(states.at(-1).document.identity,{providerId:'netease',platformId:'123'});
+ loader.dispose();
+});
 const document=id=>({identity:identity(id),status:'synced',lines:[{startMs:1000,text:'人工原文',translation:'人工翻译'}]});
 test('歌词时间线处理首行之前、边界、结束、重复时间和连续Seek',()=>{
  const lines=[{startMs:1000,text:'甲'},{startMs:2000,endMs:3000,text:'乙'},{startMs:2000,endMs:3000,text:'丙'},{startMs:4000,text:'丁'}];

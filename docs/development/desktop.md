@@ -2,6 +2,8 @@
 
 当前行为已更新：未配置时启用内置备用路线，无需逐曲目填写 ID；配置覆盖及本轮安装验收见文末“默认备用路线”。前面各阶段描述保留为历史记录。
 
+任务 17 已迁移四来源逐行歌词与来源封面，最新实现和新安装包验收见文末“歌词和封面”。
+
 共用 `web/src`；生产程序内嵌 `web/dist`，不启动 Python、Node 或 Vite。
 开发机需要 Node.js 22.12+、pnpm、Rust stable MSVC、Visual Studio C++ 桌面开发工作负载及 Windows SDK、WebView2 Runtime。安装后的用户不需要开发工具。保留 Tauri 默认 WebView2 下载策略，不打包 FFmpeg。
 
@@ -239,3 +241,49 @@ Remove-Item Env:MUSIC_CORE_DESKTOP_FALLBACKS
 - 只有一个共享 HTMLAudioElement，8001、5174、5181 无监听，未启动 FastAPI 或 Vite。结果和截图在 `.runtime/desktop-stage4-installed/`。
 
 这是本轮新安装包上的验收，与前两阶段旧包记录分别保留；本轮没有再次验证无 Node/Python 的干净机器安装。普通安装启动不需要备用配置、逐曲目 ID 或测试端口，验收 Python/Playwright 不属于用户运行依赖。
+
+## 歌词和封面（任务 17，2026-11-16）
+
+### QQ 封面丢失的实际层级
+
+QQ 原版《发如雪》`0027oMO61wWi55` 的搜索响应带专辑 MID `0024bjiL2aocxT`；Live `0037WF7I0yUPLu` 为 `0025lZrx23oozS`。Python 按专辑 MID 构造官方封面，Rust 原先在 `qq::candidate` 固定传 `Value::Null`，因此封面在数据映射层就丢失，前端没有图片请求。这是首要原因，不能归咎于 CSP。
+
+已恢复 Python 相同的 QQ 专辑规则；封面来自原来源搜索，不使用备用媒体服务或同名曲。原版和 Live 两张官方图均 HTTP 200、JPEG，分别为 46,582 / 56,754 字节；上游没有 Access-Control-Allow-Origin。普通非匿名 img 显示和 Canvas 匿名像素读取分别检查，不把 src 非空算加载成功。
+
+四来源搜索封面统一在 Rust 注册为不透明令牌，复用现有动态端口的回环服务 `/covers/{token}`。QQ 按专辑 MID 生成请求；其他来源先保留真实封面字段，再按来源域名和路径校验。前端没有任意 URL 下载命令。相同图片共享令牌和一次并发读取的缓存，最多 128 条、1 小时；单图最多 2 MiB、等待最多 8 秒，拒绝跳转。失败或令牌过期使用原占位图，历史队列过期封面需重新搜索取得新令牌。
+
+实际响应差异：网易云搜索可能返回 HTTP 图片，升级为同一已确认 CDN 的 HTTPS；咪咕除 `/data/oss/resource/` 外，还返回 `/data/resource-service/file-down/` 的无扩展名图片，MIME 为 application/octet-stream、实际头为 JPEG。仅该已确认咪咕路径允许通用 MIME，所有图片仍检查 JPEG / PNG / WebP 文件头。回环图片带 CORS 头以供 Canvas 读取，未放宽 Tauri CSP。列表、底栏、播放页使用同一 cover 字段与现有 CoverArt；图片元素按 src 换 key，防止旧元素事件影响新封面。
+
+### 歌词数据与交互
+
+`lyrics.rs` 按原 providerId + platformId 请求 Python 已有四来源原生歌词端点：QQ Base64 LRC/trans、网易云 lrc/tlyric、酷我 lrclist、咪咕精确 contentId 详情中的 lrcUrl（仅允许官方固定歌词 CDN）。备用解析不改变取词身份。输入、响应体和行数有上限，取词最多 12 秒；歌词错误与音频会话独立。
+
+复用 LyricDocument / LyricLine：synced、plain、instrumental、unavailable 和请求错误分别保留；支持 LRC 多时间戳、offset、重复时间合并、下一行结束时间、20 ms 内唯一翻译对齐及未对齐翻译原文。保持现有逐行内容和前端高亮、滚动；本轮真实样本只取得逐行 LRC，未取得或宣称逐字时间戳，不按字符虚构时间。
+
+统一 API 层将桌面的歌词查询转成 IPC，网页继续 HTTP。已有 createLyricsLoader 按来源+ID 换代、AbortSignal 标记及代次丢弃迟到响应；IPC 上游请求可能继续到 12 秒截止，但旧结果不能写回。播放实际时间、暂停/恢复及 seek 沿用共享 HTMLAudioElement。
+
+### 真实来源样本
+
+| 来源 / 精确样本 | 歌词实测 | 封面显示 / Canvas 像素 |
+| --- | --- | --- |
+| QQ 原版《发如雪》0027oMO61wWi55 | synced，69 行 | 列表、底栏、播放页均通过；Canvas 及主题色成功 |
+| QQ Live 0037WF7I0yUPLu | synced，51 行，未套用原版歌词 | 独立专辑封面显示、像素读取通过 |
+| 酷我《晴天》228908 | 成功时 63 行；多次请求也出现上游无 lrclist 的错误，界面可重试 | 显示、像素读取通过 |
+| 网易云《晴天》2668397359 | synced，63 行 | HTTPS 官方图片显示、像素读取通过 |
+| 咪咕《晴天》600919000007741344 | synced，28 行 | 识别官方无扩展名 JPEG 后，显示、像素读取通过 |
+| 酷我 Test / Ade Busy 668816586（缺封面对照） | 本轮取词失败，没有冒充无词 | 搜索封面字段缺失，沿用占位；未用同名图补齐 |
+
+无词、纯文本、纯音乐和请求失败的区分另有离线协议/状态回归，未把这些夹具记为真实平台成功。酷我一次失败或一次成功均不外推整个平台。
+
+### 验证与本轮安装包
+
+- Web 类型检查、生产构建及 61 项回归通过；包含桌面歌词 IPC 身份映射、同数字 ID 跨来源迟到歌词隔离，以及既有歌词时间线、错误、取消、旧主题色不覆盖和空封面回退测试。
+- Rust 16 项离线回归通过，原有 13 项保留；新增 LRC/翻译/状态、图片白名单/格式/去重及并发缓存 HTTP 测试。4 项在线探测默认忽略，独立执行的结果单列，不将探测函数退出成功当作每个平台可用。
+- Python 原有 `test_lyrics.py` / `test_covers.py` 共 52 项回归通过，后端代码未修改。
+- 真实 release WebView2：QQ 原版列表/底栏/播放页的 img.complete、naturalWidth>0 均断言通过；播放页 data-palette-status=success，Canvas getImageData 可读。拖到约 55% 再回拖到约 20%，当前歌词时间与实际音频时间匹配，音频持续播放。截图与结果在 `.runtime/desktop-stage5-final/`。
+- 受控 WebView2：中断图片请求后原占位图可见；注入 Canvas SecurityError 后封面仍 naturalWidth>0，主题色 evidence=fallback，失败诊断 canvas-cors-denied。证据在 `.runtime/desktop-stage5-image-failure/` 和 `.runtime/desktop-stage5-pixel-failure/`，仅测试注入，非真实上游成功。
+- 新增 `desktop/verify_metadata.py`，连接实际 WebView2 临时 CDP 端口；`--pixel-failure` / `--image-failure` 用于上述受控失败。输出仅保存身份、状态和断言结果，不记录凭据或临时媒体地址。`verify_webview.py --check-metadata` 可追加快速跨来源切歌后的歌词、封面和配色一致性检查。
+
+本轮重打 NSIS `拾音_0.1.0_x64-setup.exe`，**3,792,332 字节（3.62 MiB）**，release EXE **14,848,000 字节**。安装器退出码 0，已更新本机安装目录。本轮新安装程序再次通过同一 QQ 原版列表/底栏/播放页封面、Canvas、歌词向前/向后跳转检查；四来源真实元数据结果见 `.runtime/desktop-stage5-installed/`。验证时没有 FastAPI/Vite，Python 仅为开发验收工具；未重新验证干净机器安装。版本号仍为 0.1.0，前文安装包大小属于历史阶段。
+
+安装版还通过 `verify_webview.py --check-metadata`：四来源实际播放与 seek、旧会话 410、快速跨来源切歌后，最终咪咕曲目的歌词行数与原身份取词结果一致，播放页封面及配色 key 均匹配当前曲目图片。结果/截图在 `.runtime/desktop-stage5-rapid/`；可控迟到响应由上述单元回归验证，没有把它伪称为真实上游延迟。

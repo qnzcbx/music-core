@@ -16,10 +16,16 @@ export const apiFetch: typeof fetch = async (input, init) => {
   const path = String(input);
   if (mediaUrls.has(path)) return fetch(path, init);
   if (init?.signal?.aborted) throw new DOMException('请求已取消', 'AbortError');
-  const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+  let body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+  let commandPath=path;
+  if(path.startsWith('/api/lyrics?')) {
+    const params=new URLSearchParams(path.slice(path.indexOf('?')+1));
+    body={providerId:params.get('providerId'),platformId:params.get('platformId')};
+    commandPath='/api/lyrics';
+  }
   try {
     const data = await (window as DesktopWindow).__TAURI__!.core.invoke<Record<string, unknown> | null>(
-      'desktop_request', { path, body },
+      'desktop_request', { path:commandPath, body },
     );
     if (path === '/api/playback/open' && typeof data?.streamUrl === 'string') {
       const url = new URL(data.streamUrl);
