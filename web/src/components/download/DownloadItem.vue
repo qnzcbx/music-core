@@ -30,7 +30,7 @@ const props = defineProps<{
   playing?: boolean;
   busy?: boolean;
 }>();
-const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; source: [] }>();
+const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; source: []; reveal: [] }>();
 const browserAction = computed(() =>
   props.task?.status !== 'completed' || props.delivery?.state === 'failed'
     ? '重试'
@@ -242,6 +242,7 @@ async function copy() {
           >转换失败，已保留 FLAC</span
         >
         <div class="download-actions">
+          <button v-if="!file && task?.deliveryMode==='desktop' && task.status==='completed'" @click="emit('reveal')">打开所在文件夹</button>
           <button
             v-if="!file && task && ['queued', 'resolving', 'downloading'].includes(task.status)"
             :disabled="pending"

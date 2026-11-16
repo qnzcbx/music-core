@@ -7,6 +7,7 @@ import {
   removeDownloadFile,
 } from '../api/downloads';
 import { requestJson, ApiError } from '../api/http';
+import { desktopDownloads, revealDownload } from '../api/downloads';
 import { downloadError } from '../utils/download-display';
 import { trackIdentity, queueKey } from '../utils/player-queue';
 import type { SearchEntry } from '../types/music';
@@ -178,7 +179,7 @@ export function useDownloads() {
     })();
     return inflight;
   }
-  async function perform(key: string, action: () => Promise<DownloadTask>, notice: string) {
+  async function perform(key: string, action: () => Promise<DownloadTask | null>, notice: string) {
     const running = operations.get(key);
     if (running) return running;
     revision++;
@@ -187,7 +188,7 @@ export function useDownloads() {
     const work = (async () => {
       try {
         const task = await action();
-        if (disposed) return;
+        if (disposed || !task) return;
         if (task.deliveryMode === 'browser')
           deliveries.value[task.id] = { state: 'preparing', text: '正在准备下载' };
         upsert(task);
@@ -365,6 +366,8 @@ export function useDownloads() {
     document.removeEventListener('visibilitychange', visible);
   });
   return {
+    desktopMode: desktopDownloads,
+    reveal: revealDownload,
     localMode,
     deliveries,
     deliver,

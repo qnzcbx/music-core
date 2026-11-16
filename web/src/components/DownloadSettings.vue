@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import { requestJson } from '../api/http';
 
 type Settings = {
-  mode?: 'local' | 'browser';
+  mode?: 'local' | 'browser' | 'desktop';
   directory?: string;
   naming: string;
   error: string | null;
@@ -160,6 +160,7 @@ async function change(naming: string) {
           {{ settings.error }}
         </p>
       </template>
+      <p v-else-if="settings.mode === 'desktop'">每次下载通过 Windows 保存对话框选择位置，可手动修改文件名。</p>
       <p v-else>下载位置由浏览器管理</p>
       <fieldset :disabled="saving || (settings.mode === 'local' && !settings.canManage)">
         <legend>新下载文件命名</legend>
@@ -181,7 +182,8 @@ async function change(naming: string) {
           {{ choice.label }}
         </label>
       </fieldset>
-      <p>仅影响之后创建的任务；同名文件自动编号，扩展名以实际保存格式为准。</p>
+      <p v-if="settings.mode === 'desktop'">仅影响之后打开的保存对话框；不会覆盖已有文件，扩展名以实际保存格式为准。任务仅在本次运行保留，暂不支持默认目录、音乐库和转码。</p>
+      <p v-else>仅影响之后创建的任务；同名文件自动编号，扩展名以实际保存格式为准。</p>
       <dialog
         ref="dialog"
         class="directory-dialog"

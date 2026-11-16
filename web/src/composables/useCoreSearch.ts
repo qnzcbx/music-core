@@ -38,7 +38,7 @@ export function useCoreSearch(){
     const id=JSON.stringify([row.identity.providerId,row.identity.platformId]);
     if(known.has(id))continue;known.add(id);
     songs.value.push({id,identity:row.identity,source:row.identity.providerId,platformId:row.identity.platformId,mid:row.identity.platformId,
-     title:row.title,name:row.title,artist:(row.artists??[]).join('、'),album:row.album??'',duration:row.durationSeconds??null,cover:row.cover??null,resolveState:'idle'});
+     trackAccess:row.downloadAllowed===undefined?undefined:{playback:{state:'unknown',reason:'',evidence:'metadata'},download:{state:row.downloadAllowed?'allowed':'denied',reason:row.downloadAllowed?'':'桌面下载暂未支持此来源或未确认该曲目可保存',evidence:'desktop-source-policy'}},title:row.title,name:row.title,artist:(row.artists??[]).join('、'),album:row.album??'',duration:row.durationSeconds??null,cover:row.cover??null,resolveState:'idle'});
    }
    completed.add(key);
    const next=page.nextCursor??null;

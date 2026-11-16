@@ -2,7 +2,7 @@
 import { ref, watch, nextTick, onScopeDispose } from "vue";
 import XIcon from "~icons/lucide/x";
 import { useCoreClient } from "../composables/useCoreClient";
-import { checkDownloadQuality } from "../api/downloads";
+import { checkDownloadQuality, desktopDownloads, supportedDownloadQualities } from "../api/downloads";
 import { downloadQualitySummary } from "../utils/download-quality";
 import { trackIdentity } from "../utils/player-queue";
 import type { DownloadQuality, DownloadQualityOption, OutputMode } from "../types/core";
@@ -14,12 +14,12 @@ const dialog = ref<HTMLDialogElement>(),
   result = ref<DownloadQualityOption | null>(null),
   error = ref("");
 const outputMode = ref<OutputMode>("original");
-const choices = [
+const choices = ([
   { id: "auto", name: "自动" },
   { id: "standard", name: "标准品质" },
   { id: "high", name: "高品质" },
   { id: "lossless", name: "无损品质" },
-] as const;
+] as const).filter((choice) => supportedDownloadQualities.includes(choice.id));
 let controller: AbortController | undefined,
   revision = 0,
   origin: HTMLElement | null = null;
@@ -31,7 +31,7 @@ watch(
   async (song) => {
     if (song) {
       origin = document.activeElement as HTMLElement;
-      quality.value = "auto";
+      quality.value = desktopDownloads ? "standard" : "auto";
       await nextTick();
       if (downloads.downloadSong.value && !dialog.value?.open) dialog.value?.showModal();
     } else {

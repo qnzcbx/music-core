@@ -18,7 +18,7 @@ pub fn candidate(raw: &Value) -> Option<Value> {
         .collect();
     Some(json!({"identity":{"providerId":"kuwo","platformId":id},
         "title":html_escape::decode_html_entities(title),"artists":artists,
-        "album":raw["ALBUM"],"cover":raw.get("hts_MVPIC").or(raw.get("albumpic")).or(raw.get("pic")),
+        "album":raw["ALBUM"],"cover":raw.get("hts_MVPIC").or(raw.get("albumpic")).or(raw.get("pic")),"downloadAllowed":crate::downloads::allowed(raw),
         "durationSeconds":raw["DURATION"].as_str().and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite() && *n >= 0.0)}))
 }
 

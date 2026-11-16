@@ -30,9 +30,12 @@ with sync_playwright() as pw:
     page.locator('#query').fill('晴天')
     page.locator('#query').press('Enter')
     until("document.querySelectorAll('.song-row').length >= 40", timeout=45)
+    page.get_by_text('搜索完成', exact=True).wait_for(timeout=45000)
+    until("['kuwo','netease','qq','migu'].every(source=>document.querySelector(`[data-provider=\"${source}\"]`))", timeout=45)
     print(page.locator('.song-row').evaluate_all("es=>es.slice(0,4).map(e=>({provider:e.dataset.provider,id:e.dataset.platformId}))"))
-    for toggle in page.locator('.versions-toggle[aria-expanded=false]').all():
-        toggle.click()
+    # 展开后选择器集合会缩短，逐次重取首项，避免 nth 索引跳过或等待已消失项。
+    while page.locator('.versions-toggle[aria-expanded=false]').count():
+        page.locator('.versions-toggle[aria-expanded=false]').first.click()
     def available(source):
         ids = page.locator(f'[data-provider="{source}"]').evaluate_all('es=>es.map(e=>e.dataset.platformId)')
         for identifier in ids[:10]:

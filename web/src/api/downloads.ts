@@ -1,7 +1,12 @@
 import { requestJson } from "./http";
+import { isDesktop } from './transport';
+export const desktopDownloads = isDesktop;
+export const supportedDownloadQualities = isDesktop ? ['standard'] : ['auto', 'standard', 'high', 'lossless'];
+export const revealDownload = (id: string) =>
+  requestJson<null>(`/api/downloads/${encodeURIComponent(id)}/reveal`, { method: 'POST' });
 import type { DownloadRequest, DownloadTask, SavedDownloadFile } from "../types/core";
 export const createDownload = (body: DownloadRequest, signal?: AbortSignal) =>
-  requestJson<DownloadTask>("/api/downloads", {
+  requestJson<DownloadTask | null>("/api/downloads", {
     method: "POST",
     body: JSON.stringify(body),
     signal,
