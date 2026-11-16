@@ -1,3 +1,4 @@
+import { apiFetch } from './transport';
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -18,7 +19,7 @@ export async function requestJson<T>(
   options.signal?.addEventListener("abort", cancel, { once: true });
   try {
     const {timeoutMs, errorMessage, ...requestOptions}=options;
-    const response = await fetch(path, {
+    const response = await apiFetch(path, {
       ...requestOptions,
       headers: { "Content-Type": "application/json", ...options.headers },
       signal: timeout.signal,

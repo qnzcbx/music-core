@@ -57,7 +57,11 @@ pnpm dev
 
 ## 开发者入口
 
-前端在 `web/`，使用 Vue 3、TypeScript 和 Vite。后端在 `server/`，使用 Python 和 FastAPI。
+`web/`：网页版和桌面版共用的 Vue 3 + TypeScript 界面。
+`desktop/`：Tauri 2 Windows 桌面外壳及 Rust 搜索、会话与媒体传输。
+`server/`：网页版及原有本机启动器使用的 Python/FastAPI 后端。
+
+桌面开发、构建和验收记录见[桌面开发说明](docs/development/desktop.md)。
 
 - [开发环境与验证](docs/development/setup.md)
 - [系统架构概览](docs/architecture/overview.md)

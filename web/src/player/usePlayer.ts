@@ -2,6 +2,7 @@ import { computed, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { RecoveryPlayer } from './recovery-player.mjs';
 import { playbackRequest } from '../api/playback';
+import { isPlaybackUrl } from '../api/transport';
 import { isLocalSong, type PlayableSong } from '../types/music';
 import { localStreamUrl, listDownloadFiles } from '../api/downloads';
 import type { SavedDownloadFile, DownloadTask } from '../types/core';
@@ -47,6 +48,7 @@ export function usePlayer() {
     );
   }
   const controller = new RecoveryPlayer(audio, {
+    validateStreamUrl: isPlaybackUrl,
     request: playbackRequest,
     notify: (state) => {
       if (local.value) return;

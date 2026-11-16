@@ -17,6 +17,8 @@ downloads/
 *.tmp
 .coverage
 htmlcov/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
 /docs/tasks/
 /docs/archive/
 AGENTS.md

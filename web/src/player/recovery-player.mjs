@@ -1,6 +1,7 @@
 // 单首歌曲的恢复协调器；只持有本地能力和稳定身份，不保存上游地址。
 export class RecoveryPlayer {
-  constructor(audio, {request = fetch, notify = () => {}} = {}) {
+  constructor(audio, {request = fetch, notify = () => {}, validateStreamUrl = url => /^\/api\/playback\/[A-Za-z0-9_-]+\/stream(?:\?[^#]*)?$/.test(url)} = {}) {
+    this.validateStreamUrl = validateStreamUrl;
     this.audio=audio; this.request=(...args)=>request(...args); this.notify=notify;
     this.identity=null; this.session=null; this.generation=0; this.bookmark=0;
     this.desiredPlaying=false; this.automaticUsed=false; this.operation=null; this.binding=false;
@@ -113,7 +114,7 @@ export class RecoveryPlayer {
         if(!valid())return;
         if(data.media?.identity?.providerId!==identity.providerId||data.media?.identity?.platformId!==identity.platformId)
           throw new Error('返回歌曲身份不一致');
-        if(!/^\/api\/playback\/[A-Za-z0-9_-]+\/stream(?:\?[^#]*)?$/.test(data.streamUrl))throw new Error('播放地址无效');
+        if(!this.validateStreamUrl(data.streamUrl))throw new Error('播放地址无效');
         this.capture(); saved.time=this.bookmark;
         saved.volume=this.audio.volume; saved.muted=this.audio.muted; saved.rate=this.audio.playbackRate;
         this.session=fresh; this.binding=true; this.audio.pause(); this.abort=new AbortController();
