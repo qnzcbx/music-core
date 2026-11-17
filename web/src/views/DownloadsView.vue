@@ -12,11 +12,23 @@ import {
   AlertDialogDescription,
   AlertDialogCancel,
 } from 'reka-ui';
-import type { SavedDownloadFile } from '../types/core';
+import type { DesktopSavedDownload, SavedDownloadFile } from '../types/core';
 import { queueKey } from '../utils/player-queue';
 const { downloads, player } = useCoreClient();
 const tab = ref<'files' | 'tasks'>('files');
 const tasks = computed(() => [...downloads.tasks.value].sort((a, b) => b.createdAt - a.createdAt));
+const savedError = ref('');
+async function revealSaved(file: DesktopSavedDownload) {
+  savedError.value = '';
+  try {
+    await downloads.revealSaved(file.id);
+  } catch (reason) {
+    savedError.value = reason instanceof Error ? reason.message : '无法打开文件位置';
+  }
+}
+function filename(path: string) {
+  return path.split(/[\\/]/).pop() || path;
+}
 function taskFor(file: SavedDownloadFile) {
   return tasks.value.find(
     (task) => (task.status === 'completed' || task.sourcePreserved) && task.fileId === file.fileId,
@@ -54,7 +66,11 @@ onMounted(() => {
 <template>
   <section class="downloads-view">
     <header class="downloads-heading">
-      <h1 class="page-title">{{ downloads.localMode.value ? '本地和下载' : '下载任务' }}</h1>
+      <h1 class="page-title">
+        {{
+          downloads.desktopMode ? '下载歌曲' : downloads.localMode.value ? '本地和下载' : '下载任务'
+        }}
+      </h1>
       <button
         class="refresh-downloads"
         aria-label="刷新下载列表"
@@ -66,7 +82,7 @@ onMounted(() => {
       </button>
     </header>
     <div
-      v-if="downloads.localMode.value"
+      v-if="downloads.desktopMode || downloads.localMode.value"
       class="download-tabs"
       role="tablist"
       aria-label="下载分类"
@@ -111,7 +127,42 @@ onMounted(() => {
     >
       <span>歌曲 / 歌手</span><span>大小</span><span>状态</span><span>操作</span>
     </div>
-    <template v-if="downloads.localMode.value && tab === 'files'">
+    <template v-if="downloads.desktopMode && tab === 'files'">
+      <p
+        v-if="savedError"
+        role="alert"
+      >
+        {{ savedError }}
+      </p>
+      <article
+        v-for="file in downloads.saved.value"
+        :key="file.id"
+        class="desktop-saved-row"
+        :data-saved-id="file.id"
+      >
+        <div class="desktop-saved-name">
+          <h3>{{ file.title }}</h3>
+          <p>{{ file.artist }}</p>
+          <small :title="file.path">{{ filename(file.path) }}</small>
+          <small>{{ new Date(file.savedAt).toLocaleString() }}</small>
+        </div>
+        <span>{{ (file.sizeBytes / 1048576).toFixed(1) }} MB</span>
+        <span
+          >{{ file.sourcePreserved ? '压缩失败，原文件已保存' : '已保存' }} ·
+          {{ file.format.toUpperCase() }}</span
+        >
+        <button @click="revealSaved(file)">打开所在文件夹</button>
+      </article>
+      <p
+        v-if="
+          !downloads.saved.value.length && !downloads.loading.value && !downloads.fileError.value
+        "
+        class="download-empty"
+      >
+        还没有下载的歌曲
+      </p>
+    </template>
+    <template v-else-if="downloads.localMode.value && tab === 'files'">
       <DownloadItem
         v-for="file in downloads.files.value"
         :key="file.fileId"
@@ -436,5 +487,47 @@ article {
 }
 .file-dialog .file-delete-warning {
   color: #b86b6b;
+}
+</style>
+
+<style scoped>
+.desktop-saved-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 150px auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 8px;
+  border-bottom: 1px solid var(--app-border-soft);
+  font-size: 13px;
+}
+.desktop-saved-name {
+  min-width: 0;
+}
+.desktop-saved-name h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.desktop-saved-name p {
+  margin: 0 0 4px;
+}
+.desktop-saved-name small {
+  display: block;
+  color: var(--app-text-muted);
+  overflow-wrap: anywhere;
+}
+.desktop-saved-row button {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--app-link);
+  cursor: pointer;
+}
+@media (max-width: 700px) {
+  .desktop-saved-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
 }
 </style>

@@ -21,7 +21,7 @@ const task = (deliveryMode, status = 'completed', fields = {}) => ({
 
 function icon(rows, files = [], delivering = []) {
   const downloads = {
-    tasks: vue.ref(rows), files: vue.ref(files),
+    tasks: vue.ref(rows), files: vue.ref(files), saved: vue.ref([]), desktopMode: false,
     delivering: vue.ref(new Set(delivering)), localMode: vue.ref(false),
   };
   const exports = {};
@@ -101,4 +101,13 @@ test('不同曲目和同 ID 不同来源不会继承已下载；失败取消不�
     view.downloads.tasks.value = [task('desktop', status)];
     assert.equal(view.state(), status);
   }
+});
+
+
+test('桌面重启后按成品记录显示已下载，不需要恢复旧任务或音乐库', () => {
+  const view = icon([]);
+  view.downloads.desktopMode = true;
+  view.downloads.saved.value = [{ id: 'saved-record', identity, path: 'D:/outside/song.mp3' }];
+  assert.equal(view.state(), 'completed');
+  assert.equal(view.label(), '已下载');
 });

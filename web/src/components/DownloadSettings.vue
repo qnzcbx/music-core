@@ -5,6 +5,8 @@ import { requestJson } from '../api/http';
 type Settings = {
   mode?: 'local' | 'browser' | 'desktop';
   directory?: string;
+  defaultDirectory?: string;
+  usingDefaultDirectory?: boolean;
   naming: string;
   error: string | null;
   deploymentLocked: boolean;
@@ -102,6 +104,22 @@ async function saveDirectory() {
     saving.value = false;
   }
 }
+async function desktopDirectory(action: 'choose' | 'reset' | 'open') {
+  if (saving.value) return;
+  saving.value = true;
+  error.value = '';
+  try {
+    const value = await requestJson<Settings | null>('/api/downloads/settings/directory', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+    if (value) settings.value = value;
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '目录操作失败';
+  } finally {
+    saving.value = false;
+  }
+}
 async function change(naming: string) {
   if (!settings.value || saving.value || settings.value.naming === naming) return;
   const previous = settings.value.naming;
@@ -160,7 +178,33 @@ async function change(naming: string) {
           {{ settings.error }}
         </p>
       </template>
-      <p v-else-if="settings.mode === 'desktop'">每次下载通过 Windows 保存对话框选择位置，可手动修改文件名。</p>
+      <template v-else-if="settings.mode === 'desktop'">
+        <h3>默认下载目录</h3>
+        <div class="directory-row">
+          <code>{{ settings.directory }}</code>
+        </div>
+        <div class="desktop-directory-actions">
+          <button
+            :disabled="saving"
+            @click="desktopDirectory('choose')"
+          >
+            更改目录
+          </button>
+          <button
+            :disabled="saving"
+            @click="desktopDirectory('open')"
+          >
+            打开文件夹
+          </button>
+          <button
+            :disabled="saving || settings.usingDefaultDirectory"
+            @click="desktopDirectory('reset')"
+          >
+            恢复默认
+          </button>
+        </div>
+        <p>仅影响后续下载；已有文件保留原位置。单首歌曲也可以“另存为…”到其他目录。</p>
+      </template>
       <p v-else>下载位置由浏览器管理</p>
       <fieldset :disabled="saving || (settings.mode === 'local' && !settings.canManage)">
         <legend>新下载文件命名</legend>
@@ -182,7 +226,9 @@ async function change(naming: string) {
           {{ choice.label }}
         </label>
       </fieldset>
-      <p v-if="settings.mode === 'desktop'">仅影响之后打开的保存对话框；不会覆盖已有文件，扩展名以实际保存格式为准。任务仅在本次运行保留，暂不支持默认目录、音乐库和转码。</p>
+      <p v-if="settings.mode === 'desktop'">
+        仅影响之后创建的下载；同名文件自动编号，不覆盖已有文件。已保存的成品记录会保留，任务状态仅在本次运行展示。
+      </p>
       <p v-else>仅影响之后创建的任务；同名文件自动编号，扩展名以实际保存格式为准。</p>
       <dialog
         ref="dialog"
@@ -407,5 +453,22 @@ button:disabled {
 }
 .directory-row button {
   flex-shrink: 0;
+}
+</style>
+
+<style scoped>
+.desktop-directory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.desktop-directory-actions button {
+  padding: 8px 12px;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  background: var(--app-hover);
+  color: inherit;
+  cursor: pointer;
 }
 </style>

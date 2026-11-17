@@ -17,7 +17,12 @@ const matchedTask = computed(() =>
 );
 const state = computed(() => {
   const task = matchedTask.value;
-  if (!task) return 'none';
+  if (!task) {
+    const saved = downloads.desktopMode && downloads.saved?.value.some(
+      (file) => props.identity && queueKey(file.identity) === queueKey(props.identity),
+    );
+    return saved ? 'completed' : 'none';
+  }
   if (task.deliveryMode === 'browser') {
     if (downloads.delivering.value.has(task.id)) return 'downloading';
     if (task.status === 'completed') return 'none';
@@ -46,7 +51,8 @@ const labels: Record<string, string> = {
   unconfirmed: '等待确认文件',
 };
 const label = computed(() =>
-  state.value === 'completed' && matchedTask.value?.deliveryMode === 'desktop'
+  state.value === 'completed' &&
+  (matchedTask.value?.deliveryMode === 'desktop' || (!matchedTask.value && downloads.desktopMode))
     ? '已下载'
     : labels[state.value],
 );

@@ -43,6 +43,9 @@ export const apiFetch: typeof fetch = async (input, init) => {
   } catch (error) {
     const code = String(error);
     const downloadMessages: Record<string, string> = {
+      download_history_unavailable: '无法读取或保存下载设置与记录，请检查应用配置目录',
+      download_history_invalid: '下载记录文件无法读取，原文件未改动',
+      saved_file_missing: '文件已移动或删除，记录中的原位置已不存在',
       file_exists: '目标文件已存在，请选择其他名称或位置',
       file_io_error: '文件保存失败，请检查所选位置',
       access_denied: '未确认该曲目允许下载，请重新搜索或选择其他曲目',

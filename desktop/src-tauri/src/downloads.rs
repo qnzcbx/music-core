@@ -38,7 +38,7 @@ struct Job {
     owns_part: bool,
     owns_output: bool,
 }
-// 沿用网页版设置的枚举及默认值；只保存命名偏好，不保存任务或目录。
+// 沿用网页版设置的枚举及默认值，兼容已有命名偏好文件。
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Naming {
@@ -97,6 +97,7 @@ pub struct Downloads {
     naming: Arc<Mutex<Naming>>,
     settings_path: Option<PathBuf>,
     pub tools_dir: Option<PathBuf>,
+    history: Option<Arc<Mutex<crate::download_history::History>>>,
 }
 fn key(identity: &Value) -> String {
     format!(
@@ -205,6 +206,14 @@ pub fn publish(part: &Path, target: &Path) -> Result<(), String> {
             "file_io_error"
         }
     })?;
+    Ok(())
+}
+pub fn reveal_file(path: &Path) -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg("/select,")
+        .arg(path)
+        .spawn()
+        .map_err(|_| "file_io_error")?;
     Ok(())
 }
 async fn remove_temporary(path: &Path) -> std::io::Result<()> {
@@ -408,6 +417,174 @@ impl Downloads {
             ..Self::default()
         }
     }
+    pub fn with_history(
+        settings_path: PathBuf,
+        default_directory: PathBuf,
+    ) -> Result<Self, String> {
+        let history_path = settings_path.with_file_name("desktop-downloads.json");
+        let history = crate::download_history::History::open(history_path, default_directory)?;
+        let mut downloads = Self::new(settings_path);
+        downloads.history = Some(Arc::new(Mutex::new(history)));
+        Ok(downloads)
+    }
+
+    pub fn saved(&self) -> Result<Value, String> {
+        let history = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap();
+        Ok(json!(history.list()))
+    }
+
+    pub fn saved_path(&self, id: &str) -> Result<PathBuf, String> {
+        let history = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap();
+        Ok(history.find(id)?.path.clone())
+    }
+
+    pub fn reveal_saved(&self, id: &str) -> Result<Value, String> {
+        let path = self.saved_path(id)?;
+        if !path.is_file() {
+            return Err("saved_file_missing".into());
+        }
+        reveal_file(&path)?;
+        Ok(Value::Null)
+    }
+
+    pub async fn directory(&self, body: &Value) -> Result<Value, String> {
+        let current = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap()
+            .directory()
+            .to_owned();
+        match body["action"].as_str() {
+            Some("choose") => {
+                let Some(folder) = rfd::AsyncFileDialog::new()
+                    .set_title("更改下载目录")
+                    .set_directory(&current)
+                    .pick_folder()
+                    .await
+                else {
+                    return Ok(Value::Null);
+                };
+                self.history
+                    .as_ref()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .set_directory(Some(folder.path().to_owned()))?;
+            }
+            Some("reset") => self
+                .history
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .set_directory(None)?,
+            Some("open") => {
+                std::fs::create_dir_all(&current).map_err(|_| "file_io_error")?;
+                std::process::Command::new("explorer.exe")
+                    .arg(&current)
+                    .spawn()
+                    .map_err(|_| "file_io_error")?;
+            }
+            _ => return Err("invalid_input".into()),
+        }
+        self.settings(&Value::Null)
+    }
+
+    fn automatic_target(&self, name: &str) -> Result<PathBuf, String> {
+        let directory = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap()
+            .directory()
+            .to_owned();
+        std::fs::create_dir_all(&directory).map_err(|_| "file_io_error")?;
+        let jobs = self.jobs.lock().unwrap();
+        let original = directory.join(name);
+        let stem = original
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or("invalid_input")?;
+        let extension = original
+            .extension()
+            .and_then(|s| s.to_str())
+            .ok_or("invalid_input")?;
+        for index in 1..=10000 {
+            let path = if index == 1 {
+                original.clone()
+            } else {
+                directory.join(format!("{stem} ({index}).{extension}"))
+            };
+            let reserved = jobs.values().any(|j| {
+                j.target == path
+                    && matches!(
+                        j.public["status"].as_str(),
+                        Some("resolving" | "downloading")
+                    )
+            });
+            if !path.exists() && !reserved {
+                return Ok(path);
+            }
+        }
+        Err("file_exists".into())
+    }
+
+    fn record_saved(
+        &self,
+        id: &str,
+        target: &Path,
+        rep: &Value,
+        source_preserved: bool,
+    ) -> Result<(), String> {
+        let Some(history) = &self.history else {
+            return Ok(());
+        };
+        let r = self
+            .jobs
+            .lock()
+            .unwrap()
+            .get(id)
+            .ok_or("track_not_found")?
+            .recording
+            .clone();
+        let record = crate::download_history::SavedDownload {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            identity: r.identity,
+            title: r.title,
+            artist: r.artist,
+            path: target.to_owned(),
+            format: rep["extension"]
+                .as_str()
+                .ok_or("source_verification_failed")?
+                .into(),
+            size_bytes: rep["sizeBytes"]
+                .as_u64()
+                .ok_or("source_verification_failed")?,
+            saved_at: now(),
+            source_preserved,
+        };
+        let saved_id = record.id.clone();
+        if let Err(error) = history.lock().unwrap().add(record) {
+            self.update(id, json!({"historyError":error,"savedPath":target}));
+            return Err(error);
+        }
+        self.update(id, json!({"savedId":saved_id,"savedPath":target}));
+        Ok(())
+    }
+
     pub fn settings(&self, body: &Value) -> Result<Value, String> {
         let mut naming = self.naming.lock().unwrap();
         if !body.is_null() {
@@ -421,10 +598,16 @@ impl Downloads {
             }
             *naming = next;
         }
-        Ok(
-            json!({"mode":"desktop", "naming":*naming, "canManage":false, "deploymentLocked":false, "error":null}),
-        )
+        let mut result = json!({"mode":"desktop", "naming":*naming, "canManage":false, "deploymentLocked":false, "error":null});
+        if let Some(history) = &self.history {
+            let history = history.lock().unwrap();
+            result["directory"] = json!(history.directory());
+            result["defaultDirectory"] = json!(history.default_directory());
+            result["usingDefaultDirectory"] = json!(history.using_default());
+        }
+        Ok(result)
     }
+
     pub fn register(&self, page: &mut Value) {
         let mut records = self.recordings.lock().unwrap();
         if records.len() > 256 {
@@ -529,21 +712,29 @@ impl Downloads {
             .to_owned()
             + "."
             + extension;
-        let Some(file) = rfd::AsyncFileDialog::new()
-            .set_title(if mode == "original" {
-                "保存原格式音频"
-            } else {
-                "保存 MP3"
-            })
-            .add_filter("原格式音频", &[extension])
-            .set_file_name(name)
-            .save_file()
-            .await
-        else {
-            return Ok(Value::Null);
+        let save_as = body
+            .get("saveAs")
+            .map(|v| v.as_bool().ok_or("invalid_input"))
+            .transpose()?
+            .unwrap_or(false);
+        let target = if save_as {
+            let mut picker = rfd::AsyncFileDialog::new()
+                .set_title("另存为音频")
+                .add_filter("音频", &[extension])
+                .set_file_name(name);
+            if let Some(history) = &self.history {
+                picker = picker.set_directory(history.lock().unwrap().directory());
+            }
+            let Some(file) = picker.save_file().await else {
+                return Ok(Value::Null);
+            };
+            file.path().to_owned()
+        } else {
+            self.automatic_target(&name)?
         };
-        self.start_mode(recording, file.path().to_owned(), client.clone(), mode)
+        self.start_mode(recording, target, client.clone(), mode)
     }
+
     fn converter_available(&self) -> bool {
         self.tools_dir
             .as_ref()
@@ -896,6 +1087,7 @@ impl Downloads {
                 self.save_failed_original(id, part, target, &rep, &error);
                 return Err("conversion_failed".into());
             }
+            self.record_saved(id, target, &converted, false)?;
             return Ok(converted);
         }
         let extension = rep["extension"].as_str().unwrap_or("mp3");
@@ -908,6 +1100,7 @@ impl Downloads {
         }
         // 校验与无覆盖发布之间没有 await；取消不会留下未登记的正式文件。
         publish(part, target)?;
+        self.record_saved(id, target, &rep, false)?;
         Ok(rep)
     }
     pub async fn operate(
@@ -942,12 +1135,7 @@ impl Downloads {
                 .await
             }
             "reveal" if status == "completed" => {
-                std::process::Command::new("explorer.exe")
-                    // 参数和路径分别传递，让 Windows 正确引用含空格的文件名。
-                    .arg("/select,")
-                    .arg(&target)
-                    .spawn()
-                    .map_err(|_| "file_io_error")?;
+                reveal_file(&target)?;
                 Ok(Value::Null)
             }
             _ => Err("capability_unsupported".into()),
@@ -973,7 +1161,10 @@ impl Downloads {
             })
             .unwrap_or_else(|| Err("file_exists".into()));
         match saved {
-            Ok(path) => self.update(id,json!({"sourcePreserved":true,"sourceFilename":path.file_name().and_then(|s|s.to_str()),"sourceSaveError":null,"conversionError":error,"transcoded":false})),
+            Ok(path) => {
+                let history_error = self.record_saved(id,&path,rep,true).err();
+                self.update(id,json!({"sourcePreserved":true,"sourceFilename":path.file_name().and_then(|s|s.to_str()),"sourceSaveError":null,"conversionError":error,"historyError":history_error,"transcoded":false}));
+            },
             Err(reason) => self.update(id,json!({"sourcePreserved":false,"sourceSaveError":reason,"conversionError":error,"transcoded":false})),
         }
     }
@@ -1288,6 +1479,288 @@ mod tests {
         );
         manager.list()[0].clone()
     }
+    #[tokio::test]
+    async fn saved_products_survive_restart_in_default_and_save_as_locations() {
+        let root = tempfile::tempdir().unwrap();
+        let settings = root.path().join("config/download-naming.json");
+        let default = root.path().join("redirected-system-music/拾音");
+        let outside = root.path().join("outside-library");
+        std::fs::create_dir_all(&outside).unwrap();
+        let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
+        let r = Recording {
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "已有测试音频".into(),
+            artist: "测试".into(),
+            duration: 0.0,
+        };
+        let bytes = fixture(20);
+        let first = manager.automatic_target("测试 - 已有测试音频.mp3").unwrap();
+        assert_eq!(first.parent().unwrap(), default);
+        let task = original_save(
+            &manager,
+            &r,
+            &first,
+            &first.with_extension("part"),
+            original_response(bytes.clone(), None, 200),
+        )
+        .await;
+        assert_eq!(task["status"], "completed");
+        let second = outside.join("用户另存名称.mp3");
+        let task = original_save(
+            &manager,
+            &r,
+            &second,
+            &second.with_extension("part"),
+            original_response(bytes.clone(), None, 200),
+        )
+        .await;
+        assert_eq!(task["status"], "completed");
+        assert_eq!(std::fs::read(&first).unwrap(), bytes);
+        assert_eq!(std::fs::read(&second).unwrap(), bytes);
+        let reopened = Downloads::with_history(settings.clone(), default.clone()).unwrap();
+        assert_eq!(
+            reopened.list().as_array().unwrap().len(),
+            0,
+            "不伪造持久任务"
+        );
+        let saved = reopened.saved().unwrap();
+        assert_eq!(saved.as_array().unwrap().len(), 2);
+        assert!(saved[0].get("fileId").is_none());
+        assert_eq!(
+            reopened
+                .saved_path(saved[0]["id"].as_str().unwrap())
+                .unwrap(),
+            second
+        );
+        assert_eq!(
+            reopened
+                .saved_path(saved[1]["id"].as_str().unwrap())
+                .unwrap(),
+            first
+        );
+        assert_eq!(saved[0]["format"], "mp3");
+        assert!(saved[0]["savedAt"].as_u64().unwrap() > 0);
+        assert_ne!(
+            reopened
+                .automatic_target("测试 - 已有测试音频.mp3")
+                .unwrap(),
+            first,
+            "同名不能覆盖"
+        );
+        let changed = root.path().join("new-default");
+        reopened
+            .history
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .set_directory(Some(changed.clone()))
+            .unwrap();
+        assert_eq!(
+            reopened
+                .automatic_target("later.mp3")
+                .unwrap()
+                .parent()
+                .unwrap(),
+            changed
+        );
+        let reopened = Downloads::with_history(settings, default).unwrap();
+        assert_eq!(
+            reopened.settings(&Value::Null).unwrap()["directory"],
+            json!(changed)
+        );
+        assert_eq!(reopened.saved().unwrap(), saved, "改目录不重写旧记录路径");
+        assert!(first.exists() && second.exists());
+        assert_eq!(reopened.settings(&Value::Null).unwrap()["mode"], "desktop");
+        let failed = outside.join("failed.mp3");
+        let task = original_save(
+            &reopened,
+            &r,
+            &failed,
+            &failed.with_extension("part"),
+            original_response(Vec::new(), None, 200),
+        )
+        .await;
+        assert_eq!(task["status"], "failed");
+        assert_eq!(reopened.saved().unwrap(), saved, "未落盘不登记成品");
+    }
+
+    #[tokio::test]
+    async fn cancelled_transfer_never_registers_a_product() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/download-naming.json"),
+            root.path().join("music/拾音"),
+        )
+        .unwrap();
+        let target = manager.automatic_target("cancelled.mp3").unwrap();
+        let part = target.with_extension("part");
+        let r = Recording {
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "cancel".into(),
+            artist: "test".into(),
+            duration: 0.0,
+        };
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        manager.jobs.lock().unwrap().insert(
+            "cancel".into(),
+            Job {
+                public: json!({"status":"downloading"}),
+                recording: r.clone(),
+                target: target.clone(),
+                part: part.clone(),
+                cancel: cancel.clone(),
+                owns_part: false,
+                owns_output: false,
+            },
+        );
+        manager
+            .finish(
+                "cancel",
+                &target,
+                &part,
+                cancel,
+                manager.save_response(
+                    "cancel",
+                    &r,
+                    &target,
+                    &part,
+                    original_response(fixture(20), None, 200),
+                ),
+            )
+            .await;
+        assert_eq!(manager.list()[0]["status"], "cancelled");
+        assert!(!target.exists() && !part.exists());
+        assert!(manager.saved().unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "已有 FLAC：原格式、转码和回退成品的持久记录；不访问网络"]
+    async fn actual_products_and_history_roundtrip() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = root.join(".runtime").join(format!(
+            "download-history-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let settings = dir.join("config/download-naming.json");
+        let default = dir.join("music/拾音");
+        let bytes =
+            std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
+                .unwrap();
+        let mut manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
+        manager.tools_dir = Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools"));
+        let r = Recording {
+            quality: "lossless".into(),
+            identity: json!({"providerId":"netease","platformId":"2668397359"}),
+            title: "晴天 (原唱 周杰伦)".into(),
+            artist: "RyaVocal".into(),
+            duration: 0.0,
+        };
+        for (name, mode, fallback) in [
+            ("original.flac", "original", false),
+            ("converted.mp3", "mp3_320", false),
+            ("failed-conversion.mp3", "mp3_192", true),
+        ] {
+            if fallback {
+                manager.tools_dir = None;
+            }
+            let target = manager.automatic_target(name).unwrap();
+            let part = target.with_extension("part");
+            let task = fixture_save(
+                &manager,
+                &r,
+                &target,
+                &part,
+                original_response(bytes.clone(), None, 200),
+                mode,
+            )
+            .await;
+            assert_eq!(
+                task["status"],
+                if fallback { "failed" } else { "completed" }
+            );
+            assert_eq!(task["sourcePreserved"] == true, fallback);
+            assert!(task["savedId"].is_string());
+        }
+        let reopened = Downloads::with_history(settings, default).unwrap();
+        let records = reopened.saved().unwrap();
+        assert_eq!(records.as_array().unwrap().len(), 3);
+        assert_eq!(records[0]["format"], "flac");
+        assert_eq!(records[0]["sourcePreserved"], true);
+        assert_eq!(records[1]["format"], "mp3");
+        assert_eq!(records[2]["format"], "flac");
+        for record in records.as_array().unwrap() {
+            let path = reopened.saved_path(record["id"].as_str().unwrap()).unwrap();
+            assert!(path.is_file());
+            if record["format"] == "flac" {
+                assert_eq!(std::fs::read(path).unwrap(), bytes);
+            }
+        }
+        std::fs::write(
+            dir.join("results.json"),
+            serde_json::to_vec_pretty(&records).unwrap(),
+        )
+        .unwrap();
+        println!("history validation: {}", dir.display());
+    }
+
+    #[tokio::test]
+    async fn preserved_original_is_a_saved_product_not_a_successful_conversion() {
+        let root = tempfile::tempdir().unwrap();
+        let settings = root.path().join("config/download-naming.json");
+        let default = root.path().join("music/拾音");
+        let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
+        let target = manager.automatic_target("chosen.mp3").unwrap();
+        let part = target.with_extension("part");
+        let bytes = fixture(20);
+        std::fs::write(&part, &bytes).unwrap();
+        let r = Recording {
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fallback".into(),
+            artist: "test".into(),
+            duration: 0.0,
+        };
+        manager.jobs.lock().unwrap().insert(
+            "fallback".into(),
+            Job {
+                public: json!({"status":"downloading","outputMode":"mp3_320"}),
+                recording: r,
+                target: target.clone(),
+                part: part.clone(),
+                cancel: CancellationToken::new(),
+                owns_part: true,
+                owns_output: false,
+            },
+        );
+        let rep = crate::download_media::inspect_original(&part, "auto").unwrap();
+        manager.save_failed_original("fallback", &part, &target, &rep, "fixture_encoder_failure");
+        manager
+            .finish(
+                "fallback",
+                &target,
+                &part,
+                CancellationToken::new(),
+                async { Err("conversion_failed".into()) },
+            )
+            .await;
+        assert_eq!(manager.list()[0]["status"], "failed");
+        assert_eq!(manager.list()[0]["sourcePreserved"], true);
+        let reopened = Downloads::with_history(settings, default).unwrap();
+        let saved = reopened.saved().unwrap();
+        assert_eq!(saved.as_array().unwrap().len(), 1);
+        assert_eq!(saved[0]["format"], "mp3");
+        assert_eq!(saved[0]["sourcePreserved"], true);
+        let path = reopened
+            .saved_path(saved[0]["id"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+        assert!(!part.exists());
+    }
+
     #[tokio::test]
     async fn auto_large_source_reaches_transfer_checks() {
         let dir = folder();

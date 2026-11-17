@@ -3,6 +3,8 @@ import {
   createDownload,
   listDownloads,
   listDownloadFiles,
+  listDesktopSaved,
+  revealDesktopSaved,
   updateDownload,
   removeDownloadFile,
 } from '../api/downloads';
@@ -11,7 +13,9 @@ import { desktopDownloads, revealDownload } from '../api/downloads';
 import { downloadError } from '../utils/download-display';
 import { trackIdentity, queueKey } from '../utils/player-queue';
 import type { SearchEntry } from '../types/music';
-import type { DownloadTask, SavedDownloadFile, DownloadQuality, OutputMode } from '../types/core';
+import type {
+  DownloadTask, SavedDownloadFile, DesktopSavedDownload, DownloadQuality, OutputMode,
+} from '../types/core';
 
 export const activeDownload = (task: DownloadTask) =>
   ['queued', 'resolving', 'downloading'].includes(task.status);
@@ -91,6 +95,7 @@ export function useDownloads() {
   }
   const tasks = shallowRef<DownloadTask[]>([]),
     files = shallowRef<SavedDownloadFile[]>([]),
+    saved = shallowRef<DesktopSavedDownload[]>([]),
     loading = ref(false),
     error = ref(''),
     fileError = ref('');
@@ -155,7 +160,19 @@ export function useDownloads() {
         );
         tasks.value = data;
         error.value = '';
-        if (!localMode.value) wantFiles = false;
+        if (desktopDownloads && (wantFiles || completed)) {
+          wantFiles = false;
+          try {
+            const records = await listDesktopSaved(request.signal);
+            if (!disposed && token === revision) {
+              saved.value = records;
+              fileError.value = '';
+            }
+          } catch (reason) {
+            if (!disposed && token === revision) fileError.value = message(reason);
+          }
+        }
+        if (!localMode.value && !desktopDownloads) wantFiles = false;
         if (localMode.value && (wantFiles || completed)) {
           wantFiles = false;
           try {
@@ -235,6 +252,7 @@ export function useDownloads() {
     quality: DownloadQuality = 'auto',
     outputMode: OutputMode = 'original',
     expectedSourceCodec: 'flac' | null = null,
+    saveAs = false,
   ) {
     const identity = trackIdentity(song),
       key = queueKey(identity);
@@ -268,6 +286,7 @@ export function useDownloads() {
           quality,
           outputMode,
           expectedSourceCodec,
+          ...(desktopDownloads ? { saveAs } : {}),
           title: song.title || song.name,
           artist: song.artist,
           album: song.album,
@@ -384,6 +403,8 @@ export function useDownloads() {
     closeChoice,
     tasks,
     files,
+    saved,
+    revealSaved: revealDesktopSaved,
     loading,
     error,
     fileError,

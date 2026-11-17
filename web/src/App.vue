@@ -15,4 +15,4 @@ const {immersive}=providePlayerVisuals(player.selected,player.queue.current);
 const audioHost=ref<HTMLElement>();
 onMounted(()=>audioHost.value?.append(player.audio));
 </script>
-<template><div ref="audioHost" hidden data-audio-host/><SearchRouteSync/><ClientNotice/><DownloadQualityDialog/><AppShell :immersive="immersive" :search-query="query"><p v-if="isDesktop" role="status" style="padding:8px 20px">桌面预览：已接入四个来源的官方匿名搜索与播放接口，部分曲目受来源权限或网络限制。已接入四来源原格式下载；实际可用品质由当前曲目探查确认。FLAC 可按需转换为 MP3；本机音乐库及目录管理暂不支持。</p><RouterView/><template #player><BottomPlayer/></template></AppShell></template>
+<template><div ref="audioHost" hidden data-audio-host/><SearchRouteSync/><ClientNotice/><DownloadQualityDialog/><AppShell :immersive="immersive" :search-query="query"><p v-if="isDesktop" role="status" style="padding:8px 20px">桌面预览：已接入四个来源的官方匿名搜索与播放接口，部分曲目受来源权限或网络限制。已接入四来源原格式下载；实际可用品质由当前曲目探查确认。FLAC 可按需转换为 MP3；已支持默认下载目录和成品记录；本机音乐库暂不支持。</p><RouterView/><template #player><BottomPlayer/></template></AppShell></template>

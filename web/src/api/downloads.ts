@@ -30,3 +30,8 @@ export const removeDownloadFile = (fileId: string, deleteFile: boolean) =>
   );
 
 export const checkDownloadQuality=(body:DownloadRequest,signal?:AbortSignal)=>requestJson<import('../types/core').DownloadQualityOption>('/api/downloads/options',{timeoutMs:55000,method:'POST',body:JSON.stringify(body),signal});
+
+export const listDesktopSaved = (signal?: AbortSignal) =>
+  requestJson<import('../types/core').DesktopSavedDownload[]>('/api/downloads/saved', { signal });
+export const revealDesktopSaved = (id: string) =>
+  requestJson<null>(`/api/downloads/saved/${encodeURIComponent(id)}/reveal`, { method: 'POST' });

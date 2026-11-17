@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod covers;
+mod download_history;
 mod download_media;
 mod download_resolver;
 mod downloads;
@@ -45,6 +46,8 @@ async fn desktop_request(
             }
         }
         "/api/downloads/settings" => state.downloads.settings(&body),
+        "/api/downloads/settings/directory" => state.downloads.directory(&body).await,
+        "/api/downloads/saved" => state.downloads.saved(),
         "/api/playback/open" => {
             let identity = &body["identity"];
             let (media, resolver) =
@@ -62,6 +65,14 @@ async fn desktop_request(
         }
         _ => {
             let parts: Vec<_> = path.split('/').collect();
+            if parts.len() == 6
+                && parts[1] == "api"
+                && parts[2] == "downloads"
+                && parts[3] == "saved"
+                && parts[5] == "reveal"
+            {
+                return state.downloads.reveal_saved(parts[4]);
+            }
             if parts.len() == 5 && parts[1] == "api" && parts[2] == "downloads" {
                 return state
                     .downloads
@@ -123,9 +134,11 @@ fn main() {
                 fallbacks,
                 covers,
                 downloads: {
-                    let mut downloads = downloads::Downloads::new(
+                    let mut downloads = downloads::Downloads::with_history(
                         app.path().app_config_dir()?.join("download-naming.json"),
-                    );
+                        app.path().audio_dir()?.join("拾音"),
+                    )
+                    .map_err(std::io::Error::other)?;
                     downloads.tools_dir = Some(app.path().resource_dir()?.join("tools"));
                     downloads
                 },

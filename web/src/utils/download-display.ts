@@ -15,7 +15,7 @@ export function downloadStatus(task:DownloadTask){
  if(task.status==='failed')return downloadError(task.errorCode);
  return task.totalBytes&&(task.receivedBytes??0)>=task.totalBytes?'正在校验文件…':'正在下载';
 }
-export function downloadError(code:string|null|undefined){return ({source_checksum_failed: '音频校验和不符，未保存成品',
+export function downloadError(code:string|null|undefined){return ({download_history_unavailable: '成品已保存，下载记录保存失败',source_checksum_failed: '音频校验和不符，未保存成品',
     source_decode_failed: '音频解码校验失败，未保存成品',
     source_duration_mismatch: '音频时长与原曲不符，未保存成品',
     file_exists:'目标文件已存在，请重新选择保存位置',source_verification_failed:'源文件校验失败',conversion_failed:'转换失败',capability_unsupported:'当前无法转换，请尝试保留原格式',access_denied:'平台拒绝下载访问',media_unavailable:'该版本暂无可下载资源',track_not_found:'平台未找到此版本',upstream_timeout:'下载或处理超时',upstream_failure:'上游网络暂时失败',upstream_invalid_response:'文件校验失败或上游响应无效',upstream_media_expired:'下载资源已失效',untrusted_media:'下载地址未通过安全校验',media_capacity:'文件超过下载限制',file_io_error:'文件保存失败，请检查目录',temporary_cleanup_failed:'临时文件清理失败',internal_error:'服务端处理异常'} as Record<string,string>)[code??'']??'下载失败，服务未返回详细原因';}
