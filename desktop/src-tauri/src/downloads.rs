@@ -1,9 +1,10 @@
 use crate::provider::common;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(test)]
+use std::io::{Read, Seek, SeekFrom};
 use std::{
     collections::HashMap,
-    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -125,6 +126,7 @@ pub fn frame(header: [u8; 4]) -> Option<(u64, u64, usize)> {
         (144 * 128000 / rate + ((h >> 9) & 1) as u64) as usize,
     ))
 }
+#[cfg(test)]
 fn audio_start(file: &mut std::fs::File) -> Result<u64, String> {
     let mut h = [0; 10];
     file.read_exact(&mut h)
@@ -146,6 +148,7 @@ fn audio_start(file: &mut std::fs::File) -> Result<u64, String> {
     Ok(offset)
 }
 /// 扫描整份原文件的 MPEG 帧，核实 CBR 128k、边界和实际时长；不解码、不改写。
+#[cfg(test)]
 pub fn inspect(path: &Path, expected: f64) -> Result<Value, String> {
     let mut file = std::fs::File::open(path).map_err(|_| "file_io_error")?;
     let size = file.metadata().map_err(|_| "file_io_error")?.len();
@@ -745,8 +748,26 @@ impl Downloads {
             .map(|v| v.to_str())
             .transpose()
             .map_err(|_| "upstream_invalid_response")?;
-        let total =
-            full_response_size(response.status().as_u16(), response.content_length(), range)?;
+        let declared = response
+            .headers()
+            .get("content-length")
+            .map(|value| {
+                let text = value.to_str().map_err(|_| "upstream_invalid_response")?;
+                if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err("upstream_invalid_response");
+                }
+                text.parse::<u64>().map_err(|_| "upstream_invalid_response")
+            })
+            .transpose()?;
+        let transport_length = response.content_length();
+        if declared.zip(transport_length).is_some_and(|(a, b)| a != b) {
+            return Err("upstream_invalid_response".into());
+        }
+        let total = full_response_size(
+            response.status().as_u16(),
+            declared.or(transport_length),
+            range,
+        )?;
         if total.is_some_and(|n| n == 0 || n > 100 * 1024 * 1024) {
             return Err("media_capacity".into());
         }
@@ -781,11 +802,16 @@ impl Downloads {
             return Err("source_verification_failed".into());
         }
         self.update(id, json!({"phase":"verifying"}));
-        let rep = if r.identity["providerId"] == "kuwo" {
-            inspect(part, r.duration)?
-        } else {
-            crate::download_media::inspect(part, r.duration, &r.quality)?
-        };
+        let rep = crate::download_media::inspect_original(part, &r.quality)?;
+        // 酷我标准档仍沿用已开放的 MP3 128k 品质，不再额外扫描整首。
+        if r.identity["providerId"] == "kuwo"
+            && (rep["codec"] != "mp3"
+                || !rep["bitrateBps"]
+                    .as_u64()
+                    .is_some_and(|n| n.abs_diff(128000) <= 1000))
+        {
+            return Err("media_unavailable".into());
+        }
         let extension = rep["extension"].as_str().unwrap_or("mp3");
         if !target
             .extension()
@@ -864,6 +890,194 @@ impl Downloads {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn original_response(body: Vec<u8>, length: Option<u64>, status: u16) -> reqwest::Response {
+        let chunks = futures_util::stream::once(async move { Ok::<_, std::io::Error>(body) });
+        let mut response = axum::http::Response::builder().status(status);
+        if let Some(length) = length {
+            response = response.header("content-length", length);
+        }
+        reqwest::Response::from(response.body(reqwest::Body::wrap_stream(chunks)).unwrap())
+    }
+    async fn original_save(
+        manager: &Downloads,
+        r: &Recording,
+        target: &Path,
+        part: &Path,
+        response: reqwest::Response,
+    ) -> Value {
+        let cancel = CancellationToken::new();
+        manager.jobs.lock().unwrap().insert(
+            "original-fixture".into(),
+            Job {
+                public: json!({"status":"resolving"}),
+                recording: r.clone(),
+                target: target.into(),
+                part: part.into(),
+                cancel: cancel.clone(),
+                owns_part: false,
+            },
+        );
+        manager
+            .finish(
+                "original-fixture",
+                target,
+                part,
+                cancel,
+                manager.save_response("original-fixture", r, target, part, response),
+            )
+            .await;
+        assert!(!part.exists(), "本任务临时文件应已清理");
+        manager.list()[0].clone()
+    }
+    #[tokio::test]
+    async fn original_response_basics() {
+        let dir = folder();
+        let target = dir.join("saved.mp3");
+        let part = dir.join("owned.part");
+        let manager = Downloads::default();
+        let mut r = Recording {
+            quality: "standard".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "夹具".into(),
+            artist: "测试".into(),
+            duration: 0.0,
+        };
+        let normal = fixture(20);
+        // 已知长度和未知长度均可正常保存；没有时长不引入整首时长校验门槛。
+        for total in [Some(normal.len() as u64), None] {
+            let task = original_save(
+                &manager,
+                &r,
+                &target,
+                &part,
+                original_response(normal.clone(), total, 200),
+            )
+            .await;
+            assert_eq!(task["status"], "completed");
+            if total.is_none() {
+                assert!(task["totalBytes"].is_null());
+            }
+            assert_eq!(std::fs::read(&target).unwrap(), normal);
+            std::fs::remove_file(&target).unwrap();
+        }
+        for (body, total, status) in [
+            (b"<html>not audio</html>".to_vec(), None, 200),
+            (Vec::new(), None, 200),
+            (normal[..417].to_vec(), Some(normal.len() as u64), 200),
+            (normal.clone(), Some(normal.len() as u64), 500),
+        ] {
+            let task = original_save(
+                &manager,
+                &r,
+                &target,
+                &part,
+                original_response(body, total, status),
+            )
+            .await;
+            assert_eq!(task["status"], "failed");
+            assert!(!target.exists());
+        }
+        r.quality = "lossless".into();
+        let task = original_save(
+            &manager,
+            &r,
+            &target,
+            &part,
+            original_response(normal, None, 200),
+        )
+        .await;
+        assert_eq!(task["status"], "failed");
+        assert!(!target.exists());
+        r.quality = "standard".into();
+        let wrong_extension = dir.join("wrong.flac");
+        let task = original_save(
+            &manager,
+            &r,
+            &wrong_extension,
+            &part,
+            original_response(fixture(20), None, 200),
+        )
+        .await;
+        assert_eq!(task["status"], "failed");
+        assert!(!wrong_extension.exists());
+        std::fs::remove_dir(dir).unwrap();
+    }
+    #[tokio::test]
+    #[ignore = "仅回放已有本地 Tang 文件，不取链、不访问网络；保留原样保存结果供人工复核"]
+    async fn original_retained_file_roundtrip() {
+        original_local_file_roundtrip("QQ-0027oMO61wWi55-Tang-original.flac", "lossless", "flac")
+            .await;
+    }
+    #[tokio::test]
+    #[ignore = "仅回放已有正常 MP3 文件，不取链、不访问网络"]
+    async fn original_normal_file_roundtrip() {
+        original_local_file_roundtrip("QQ-0027oMO61wWi55-Tang-320kbps-preview.mp3", "high", "mp3")
+            .await;
+    }
+    async fn original_local_file_roundtrip(name: &str, quality: &str, codec: &str) {
+        use tokio::io::AsyncReadExt;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        let source = root
+            .join(".runtime/tang-retained-20261117-8b1d94a3")
+            .join(name);
+        let size = std::fs::metadata(&source).unwrap().len();
+        let dir = root
+            .join(".runtime/task21")
+            .join(format!("original-roundtrip-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join(name);
+        let part = dir.join("owned.part");
+        let file = tokio::fs::File::open(&source).await.unwrap();
+        let chunks = futures_util::stream::try_unfold(file, |mut file| async move {
+            let mut chunk = vec![0; 65536];
+            let count = file.read(&mut chunk).await?;
+            if count == 0 {
+                Ok::<_, std::io::Error>(None)
+            } else {
+                chunk.truncate(count);
+                Ok(Some((chunk, file)))
+            }
+        });
+        let response = reqwest::Response::from(
+            axum::http::Response::builder()
+                .status(200)
+                .header("content-length", size)
+                .body(reqwest::Body::wrap_stream(chunks))
+                .unwrap(),
+        );
+        let r = Recording {
+            quality: quality.into(),
+            identity: json!({"providerId":"qq","platformId":"0027oMO61wWi55"}),
+            title: "发如雪".into(),
+            artist: "周杰伦".into(),
+            duration: 299.0,
+        };
+        let task = original_save(&Downloads::default(), &r, &target, &part, response).await;
+        assert_eq!(task["status"], "completed");
+        assert_eq!(task["actualMedia"]["codec"], codec);
+        assert_eq!(std::fs::metadata(&target).unwrap().len(), size);
+        // 比较全部字节，包含原文件的尾随数据，不裁剪或修复。
+        let mut left = std::fs::File::open(&source).unwrap();
+        let mut right = std::fs::File::open(&target).unwrap();
+        let mut remaining = size;
+        let mut a = [0; 65536];
+        let mut b = [0; 65536];
+        while remaining > 0 {
+            let n = remaining.min(a.len() as u64) as usize;
+            std::io::Read::read_exact(&mut left, &mut a[..n]).unwrap();
+            std::io::Read::read_exact(&mut right, &mut b[..n]).unwrap();
+            assert_eq!(&a[..n], &b[..n]);
+            remaining -= n as u64;
+        }
+        println!(
+            "original_retained_file_roundtrip: {}",
+            json!({"status":task["status"],"sizeBytes":size,"allBytesEqual":true,"output":target})
+        );
+    }
     #[test]
     fn full_ranges_are_not_partial_files() {
         assert_eq!(

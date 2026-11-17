@@ -1,4 +1,4 @@
-//! 有界前缀探查与整文件解码校验；仅读取原字节，不转码或改写。
+//! 有界前缀探查与原格式保存基础检查；深度解码仅保留供离线诊断。
 use serde_json::{json, Value};
 use std::{io::Cursor, path::Path};
 use symphonia::core::{
@@ -100,6 +100,34 @@ pub fn prefix(bytes: Vec<u8>, size: Option<u64>) -> Result<Value, String> {
     let mp4 = bytes.get(4..8) == Some(b"ftyp");
     analyze(Box::new(Cursor::new(bytes)), size, false, 0.0, mp4)
 }
+/// 原格式保存只读取有界前缀确认格式和品质，不解码整首、不扫描末帧、不核对 PCM MD5。
+pub fn inspect_original(path: &Path, quality: &str) -> Result<Value, String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|_| "file_io_error")?;
+    let size = file.metadata().map_err(|_| "file_io_error")?.len();
+    if size == 0 {
+        return Err("upstream_invalid_response".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(262144)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "file_io_error")?;
+    let known_header = bytes.starts_with(b"ID3")
+        || bytes.starts_with(b"fLaC")
+        || bytes.get(4..8) == Some(b"ftyp")
+        || (bytes.len() >= 2 && bytes[0] == 255 && bytes[1] & 224 == 224);
+    if !known_header {
+        return Err("upstream_invalid_response".into());
+    }
+    let rep = prefix(bytes, Some(size))?;
+    if !satisfies(&rep, quality) {
+        return Err("media_unavailable".into());
+    }
+    Ok(rep)
+}
+
+// 深度检查仅用于独立诊断与其测试，原格式保存不得调用此函数。
+#[allow(dead_code)]
 pub fn inspect(path: &Path, expected: f64, quality: &str) -> Result<Value, String> {
     let mut file = std::fs::File::open(path).map_err(|_| "file_io_error")?;
     let size = file.metadata().map_err(|_| "file_io_error")?.len();
