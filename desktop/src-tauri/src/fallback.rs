@@ -75,7 +75,7 @@ impl Config {
         }
         Ok(config)
     }
-    fn routes(&self, source: &str, id: &str) -> Vec<String> {
+    pub(crate) fn routes(&self, source: &str, id: &str) -> Vec<String> {
         self.routes
             .iter()
             .filter(|g| {
@@ -162,7 +162,7 @@ pub async fn resolve(
     .map_err(|_| "播放解析总时间已用尽，请稍后重试")?
 }
 
-fn permitted(data: &Value) -> Result<(), String> {
+pub(crate) fn permitted(data: &Value) -> Result<(), String> {
     for field in ["code", "status"] {
         if matches!(data[field].as_i64(), Some(301 | 401 | 403))
             || matches!(data[field].as_str(), Some("301" | "401" | "403"))

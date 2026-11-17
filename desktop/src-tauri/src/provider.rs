@@ -5,7 +5,7 @@ mod kuwo;
 #[path = "providers/migu.rs"]
 pub(crate) mod migu;
 #[path = "providers/netease.rs"]
-mod netease;
+pub(crate) mod netease;
 #[path = "providers/qq.rs"]
 mod qq;
 use serde_json::{json, Value};
@@ -157,7 +157,7 @@ pub fn catalog() -> Value {
         |(order, (id, name))| json!({"id":id,"name":name,"order":order,
         "defaultSelected":*id=="kuwo","implementationStatus":"native-anonymous",
         "reason":"官方匿名接口；曲目权限及网络条件决定能否播放",
-        "capabilities":{"search":true,"resolve":true,"lyrics":true,"download":*id=="kuwo"}})
+        "capabilities":{"search":true,"resolve":true,"lyrics":true,"download":true}})
     )
     .collect::<Vec<_>>())
 }

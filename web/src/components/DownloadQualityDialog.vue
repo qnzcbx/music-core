@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onScopeDispose } from "vue";
+import { computed, ref, watch, nextTick, onScopeDispose } from "vue";
 import XIcon from "~icons/lucide/x";
 import { useCoreClient } from "../composables/useCoreClient";
 import { checkDownloadQuality, desktopDownloads, supportedDownloadQualities } from "../api/downloads";
@@ -14,12 +14,12 @@ const dialog = ref<HTMLDialogElement>(),
   result = ref<DownloadQualityOption | null>(null),
   error = ref("");
 const outputMode = ref<OutputMode>("original");
-const choices = ([
+const choices = computed(() => ([
   { id: "auto", name: "自动" },
   { id: "standard", name: "标准品质" },
   { id: "high", name: "高品质" },
   { id: "lossless", name: "无损品质" },
-] as const).filter((choice) => supportedDownloadQualities.includes(choice.id));
+] as const).filter((choice) => supportedDownloadQualities.includes(choice.id) && (!desktopDownloads || downloads.downloadSong.value?.source !== "kuwo" || choice.id === "standard") && (!desktopDownloads || downloads.downloadSong.value?.source !== "migu" || choice.id !== "lossless")));
 let controller: AbortController | undefined,
   revision = 0,
   origin: HTMLElement | null = null;
@@ -166,6 +166,7 @@ onScopeDispose(() => {
     </fieldset>
     <fieldset
       v-if="
+        !desktopDownloads &&
         result?.availability === 'available' &&
         result.representation?.codec === 'flac' &&
         result.representation.lossless

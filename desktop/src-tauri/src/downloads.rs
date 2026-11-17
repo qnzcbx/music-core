@@ -19,6 +19,7 @@ fn now() -> u64 {
 }
 #[derive(Clone)]
 struct Recording {
+    quality: String,
     identity: Value,
     title: String,
     artist: String,
@@ -296,6 +297,21 @@ async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, Stri
     Ok(url.to_string())
 }
 async fn prefix(client: &reqwest::Client, r: &Recording) -> Result<Value, String> {
+    if r.identity["providerId"] != "kuwo" {
+        let resolved = crate::download_resolver::resolve(
+            client,
+            &crate::fallback::Config::from_env()?,
+            &r.identity,
+            &r.quality,
+            &r.title,
+            &r.artist,
+        )
+        .await?;
+        let mut rep = resolved.representation;
+        rep["route"] = json!(resolved.route);
+        rep["providerQualityId"] = json!(r.quality);
+        return Ok(rep);
+    }
     let url = resolve(client, r).await?;
     let mut response = client
         .get(url)
@@ -354,6 +370,37 @@ async fn prefix(client: &reqwest::Client, r: &Recording) -> Result<Value, String
         json!({"codec":"mp3","container":"mpeg-audio","bitrateBps":128000,"sampleRateHz":rate,"lossless":false,"providerQualityId":"standard"}),
     )
 }
+// 部分 CDN 在完整 200 响应中仍带 Content-Range；只接受明确覆盖全文件的区间。
+fn full_response_size(
+    status: u16,
+    length: Option<u64>,
+    range: Option<&str>,
+) -> Result<Option<u64>, String> {
+    if !matches!(status, 200 | 206) {
+        return Err("upstream_invalid_response".into());
+    }
+    if let Some(range) = range {
+        let (span, total) = range
+            .strip_prefix("bytes ")
+            .and_then(|v| v.split_once('/'))
+            .ok_or("upstream_invalid_response")?;
+        let (start, end) = span.split_once('-').ok_or("upstream_invalid_response")?;
+        let total: u64 = total.parse().map_err(|_| "upstream_invalid_response")?;
+        let end: u64 = end.parse().map_err(|_| "upstream_invalid_response")?;
+        if start != "0"
+            || total == 0
+            || end.checked_add(1) != Some(total)
+            || length.is_some_and(|n| n != total)
+        {
+            return Err("upstream_invalid_response".into());
+        }
+        Ok(Some(total))
+    } else if status == 200 {
+        Ok(length)
+    } else {
+        Err("upstream_invalid_response".into())
+    }
+}
 impl Downloads {
     pub fn new(settings_path: PathBuf) -> Self {
         let naming = std::fs::read(&settings_path)
@@ -390,7 +437,9 @@ impl Downloads {
         }
         if let Some(items) = page["items"].as_array_mut() {
             for row in items {
-                let supported = row["identity"]["providerId"] == "kuwo";
+                let supported = ["kuwo", "qq", "netease", "migu"]
+                    .iter()
+                    .any(|p| row["identity"]["providerId"] == *p);
                 if !supported {
                     row["downloadAllowed"] = json!(false);
                 }
@@ -398,6 +447,7 @@ impl Downloads {
                     records.insert(
                         key(&row["identity"]),
                         Recording {
+                            quality: "standard".into(),
                             identity: row["identity"].clone(),
                             title: row["title"].as_str().unwrap_or("歌曲").into(),
                             artist: row["artists"]
@@ -418,28 +468,36 @@ impl Downloads {
         if body.get("path").is_some()
             || body.get("url").is_some()
             || body["outputMode"].as_str().is_some_and(|s| s != "original")
-            || body["quality"] != "standard"
+            || !["auto", "standard", "high", "lossless"]
+                .contains(&body["quality"].as_str().unwrap_or(""))
         {
             return Err("capability_unsupported".into());
         }
-        self.recordings
+        let mut recording = self
+            .recordings
             .lock()
             .unwrap()
             .get(&key(&body["identity"]))
             .cloned()
-            .ok_or("access_denied".into())
+            .ok_or("access_denied")?;
+        recording.quality = body["quality"].as_str().unwrap().into();
+        if recording.identity["providerId"] == "kuwo" && recording.quality != "standard" {
+            return Err("capability_unsupported".into());
+        }
+        Ok(recording)
     }
+
     pub async fn options(&self, client: &reqwest::Client, body: &Value) -> Value {
         let value = async {
             let r = self.recording(body)?;
-            tokio::time::timeout(Duration::from_secs(20), prefix(client, &r))
+            tokio::time::timeout(Duration::from_secs(50), prefix(client, &r))
                 .await
                 .map_err(|_| "upstream_timeout".to_string())?
         }
         .await;
         match value {
             Ok(rep) => {
-                json!({"quality":"standard","availability":"available","representation":rep,"errorCode":null,"conversion":{"available":false,"reason":"桌面版仅保存原格式"}})
+                json!({"quality":body["quality"],"availability":"available","representation":rep,"errorCode":null,"conversion":{"available":false,"reason":"桌面版仅保存原格式"}})
             }
             Err(error) => {
                 json!({"quality":body["quality"],"availability":"unavailable","representation":null,"errorCode":error})
@@ -456,14 +514,22 @@ impl Downloads {
             .collect::<Vec<_>>())
     }
     pub async fn create(&self, client: &reqwest::Client, body: &Value) -> Result<Value, String> {
-        let recording = self.recording(body)?;
-        let _ = tokio::time::timeout(Duration::from_secs(20), prefix(client, &recording))
+        let mut recording = self.recording(body)?;
+        let rep = tokio::time::timeout(Duration::from_secs(50), prefix(client, &recording))
             .await
             .map_err(|_| "upstream_timeout")??;
-        let name = suggested_name(&recording, *self.naming.lock().unwrap());
+        if let Some(duration) = rep["expectedDurationSeconds"].as_f64().filter(|n| *n > 0.0) {
+            recording.duration = duration;
+        }
+        let extension = rep["extension"].as_str().unwrap_or("mp3");
+        let name = suggested_name(&recording, *self.naming.lock().unwrap())
+            .trim_end_matches(".mp3")
+            .to_owned()
+            + "."
+            + extension;
         let Some(file) = rfd::AsyncFileDialog::new()
-            .set_title("保存原格式 MP3")
-            .add_filter("MP3", &["mp3"])
+            .set_title("保存原格式音频")
+            .add_filter("原格式音频", &[extension])
             .set_file_name(name)
             .save_file()
             .await
@@ -481,7 +547,7 @@ impl Downloads {
         if target
             .extension()
             .and_then(|s| s.to_str())
-            .is_none_or(|s| !s.eq_ignore_ascii_case("mp3"))
+            .is_none_or(|s| !["mp3", "m4a", "flac"].contains(&s.to_ascii_lowercase().as_str()))
         {
             return Err("file_io_error".into());
         }
@@ -491,7 +557,7 @@ impl Downloads {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let part = target.with_file_name(format!(".music-core-{id}.part"));
         let cancel = CancellationToken::new();
-        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":"standard","outputMode":"original","deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
+        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":"original","deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
         {
             let mut jobs = self.jobs.lock().unwrap();
             if jobs.len() >= 128
@@ -589,7 +655,7 @@ impl Downloads {
                 json!({
                     "status": "completed", "phase": "completed",
                     "filename": target.file_name().and_then(|s| s.to_str()),
-                    "format": "mp3", "actualMedia": rep,
+                    "format": rep["extension"].as_str().unwrap_or("mp3"), "route":rep["route"], "actualMedia": rep,
                     "finalSizeBytes": rep["sizeBytes"], "progress": 1,
                 }),
             ),
@@ -610,17 +676,53 @@ impl Downloads {
         target: &Path,
         part: &Path,
     ) -> Result<Value, String> {
-        let url = tokio::time::timeout(Duration::from_secs(20), resolve(client, r))
+        let mut checked = r.clone();
+        let (media, route) = if r.identity["providerId"] == "kuwo" {
+            let url = tokio::time::timeout(Duration::from_secs(20), resolve(client, r))
+                .await
+                .map_err(|_| "upstream_timeout")??;
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("user-agent", "okhttp/3.10.0".parse().unwrap());
+            (
+                crate::provider::Media { url, headers },
+                "native".to_string(),
+            )
+        } else {
+            let resolved = tokio::time::timeout(
+                Duration::from_secs(50),
+                crate::download_resolver::resolve(
+                    client,
+                    &crate::fallback::Config::from_env()?,
+                    &r.identity,
+                    &r.quality,
+                    &r.title,
+                    &r.artist,
+                ),
+            )
             .await
             .map_err(|_| "upstream_timeout")??;
+            if let Some(duration) = resolved.representation["expectedDurationSeconds"]
+                .as_f64()
+                .filter(|n| *n > 0.0)
+            {
+                checked.duration = duration;
+            }
+            (resolved.media, resolved.route)
+        };
+        self.update(id, json!({"route":route}));
         let response = client
-            .get(url)
-            .header("User-Agent", "okhttp/3.10.0")
+            .get(media.url)
+            .headers(media.headers)
             .header("Accept-Encoding", "identity")
             .send()
             .await
             .map_err(|_| "upstream_failure")?;
-        self.save_response(id, r, target, part, response).await
+        let mut rep = self
+            .save_response(id, &checked, target, part, response)
+            .await?;
+        rep["route"] = json!(route);
+        rep["providerQualityId"] = json!(r.quality);
+        Ok(rep)
     }
     async fn save_response(
         &self,
@@ -630,16 +732,21 @@ impl Downloads {
         part: &Path,
         mut response: reqwest::Response,
     ) -> Result<Value, String> {
-        if response.status() != 200
-            || response.headers().contains_key("content-range")
-            || response
-                .headers()
-                .get("content-encoding")
-                .is_some_and(|v| v != "identity")
+        if response
+            .headers()
+            .get("content-encoding")
+            .is_some_and(|v| v != "identity")
         {
             return Err("upstream_invalid_response".into());
         }
-        let total = response.content_length();
+        let range = response
+            .headers()
+            .get("content-range")
+            .map(|v| v.to_str())
+            .transpose()
+            .map_err(|_| "upstream_invalid_response")?;
+        let total =
+            full_response_size(response.status().as_u16(), response.content_length(), range)?;
         if total.is_some_and(|n| n == 0 || n > 100 * 1024 * 1024) {
             return Err("media_capacity".into());
         }
@@ -674,7 +781,19 @@ impl Downloads {
             return Err("source_verification_failed".into());
         }
         self.update(id, json!({"phase":"verifying"}));
-        let rep = inspect(part, r.duration)?;
+        let rep = if r.identity["providerId"] == "kuwo" {
+            inspect(part, r.duration)?
+        } else {
+            crate::download_media::inspect(part, r.duration, &r.quality)?
+        };
+        let extension = rep["extension"].as_str().unwrap_or("mp3");
+        if !target
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case(extension))
+        {
+            return Err("source_verification_failed".into());
+        }
         // 校验与无覆盖发布之间没有 await；取消不会留下未登记的正式文件。
         publish(part, target)?;
         Ok(rep)
@@ -705,7 +824,7 @@ impl Downloads {
             "retry" if matches!(status.as_str(), "failed" | "cancelled") => {
                 self.create(
                     client,
-                    &json!({"identity":r.identity,"quality":"standard","outputMode":"original"}),
+                    &json!({"identity":r.identity,"quality":r.quality,"outputMode":"original"}),
                 )
                 .await
             }
@@ -746,6 +865,26 @@ impl Downloads {
 mod tests {
     use super::*;
     #[test]
+    fn full_ranges_are_not_partial_files() {
+        assert_eq!(
+            full_response_size(200, Some(100), Some("bytes 0-99/100")).unwrap(),
+            Some(100)
+        );
+        assert_eq!(
+            full_response_size(206, None, Some("bytes 0-99/100")).unwrap(),
+            Some(100)
+        );
+        for (length, range) in [
+            (Some(99), "bytes 0-99/100"),
+            (Some(99), "bytes 1-99/100"),
+            (Some(50), "bytes 0-49/100"),
+            (None, "bytes 0-99/*"),
+        ] {
+            assert!(full_response_size(200, length, Some(range)).is_err());
+        }
+        assert!(full_response_size(206, Some(100), None).is_err());
+    }
+    #[test]
     fn naming_rules_settings_and_windows_cleanup() {
         let dir = folder();
         let path = dir.join("naming.json");
@@ -755,6 +894,7 @@ mod tests {
             "artist_title"
         );
         let mut recording = Recording {
+            quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
             title: "贝多芬：致爱丽丝".into(),
             artist: "Various Artists".into(),
@@ -877,6 +1017,7 @@ mod tests {
         std::fs::write(&untouched, b"other task").unwrap();
         let manager = Downloads::default();
         let r = Recording {
+            quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"fixture"}),
             title: "夹具".into(),
             artist: "测试".into(),
@@ -971,6 +1112,7 @@ mod tests {
             .build()
             .unwrap();
         let r = Recording {
+            quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
             title: "贝多芬：致爱丽丝".into(),
             artist: "Various Artists".into(),

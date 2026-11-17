@@ -46,8 +46,8 @@ export const apiFetch: typeof fetch = async (input, init) => {
       file_exists: '目标文件已存在，请选择其他名称或位置',
       file_io_error: '文件保存失败，请检查所选位置',
       access_denied: '未确认该曲目允许下载，请重新搜索或选择其他曲目',
-      capability_unsupported: '桌面版目前仅支持已确认可保存的酷我标准品质 MP3',
-      media_unavailable: '所选标准品质不可用',
+      capability_unsupported: '当前来源暂不支持所选品质或格式',
+      media_unavailable: '所选品质不可用',
       upstream_timeout: '下载准备超时，请重试',
       upstream_failure: '下载来源暂时无法连接，请重试',
     };

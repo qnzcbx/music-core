@@ -1,7 +1,7 @@
 import { requestJson } from "./http";
 import { isDesktop } from './transport';
 export const desktopDownloads = isDesktop;
-export const supportedDownloadQualities = isDesktop ? ['standard'] : ['auto', 'standard', 'high', 'lossless'];
+export const supportedDownloadQualities = ['auto', 'standard', 'high', 'lossless'];
 export const revealDownload = (id: string) =>
   requestJson<null>(`/api/downloads/${encodeURIComponent(id)}/reveal`, { method: 'POST' });
 import type { DownloadRequest, DownloadTask, SavedDownloadFile } from "../types/core";
@@ -29,4 +29,4 @@ export const removeDownloadFile = (fileId: string, deleteFile: boolean) =>
     { method: "POST", body: JSON.stringify({ deleteFile }) },
   );
 
-export const checkDownloadQuality=(body:DownloadRequest,signal?:AbortSignal)=>requestJson<import('../types/core').DownloadQualityOption>('/api/downloads/options',{timeoutMs:30000,method:'POST',body:JSON.stringify(body),signal});
+export const checkDownloadQuality=(body:DownloadRequest,signal?:AbortSignal)=>requestJson<import('../types/core').DownloadQualityOption>('/api/downloads/options',{timeoutMs:55000,method:'POST',body:JSON.stringify(body),signal});

@@ -63,12 +63,30 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
     Ok(row["url"].as_str().unwrap().to_owned())
 }
 pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, String> {
+    resolve_quality(client, id, "standard").await
+}
+pub async fn resolve_quality(
+    client: &reqwest::Client,
+    id: &str,
+    quality: &str,
+) -> Result<String, String> {
     media(
         common::json(
             client
                 .post("https://music.163.com/api/song/enhance/player/url")
                 .header("Referer", "https://music.163.com/")
-                .form(&[("ids", format!("[{id}]")), ("br", "128000".into())]),
+                .form(&[
+                    ("ids", format!("[{id}]")),
+                    (
+                        "br",
+                        match quality {
+                            "high" => "320000",
+                            "lossless" => "999000",
+                            _ => "128000",
+                        }
+                        .into(),
+                    ),
+                ]),
         )
         .await?,
         id,

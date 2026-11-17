@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod covers;
+mod download_media;
+mod download_resolver;
 mod downloads;
 mod fallback;
 mod lyrics;

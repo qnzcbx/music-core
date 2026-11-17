@@ -102,7 +102,15 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
         candidate,
     )
 }
+#[cfg(test)]
 pub fn context(data: &Value, id: &str) -> Result<(String, String, String), String> {
+    context_quality(data, id, "auto")
+}
+pub fn context_quality(
+    data: &Value,
+    id: &str,
+    quality: &str,
+) -> Result<(String, String, String), String> {
     let rows = data["resource"].as_array().ok_or("咪咕歌曲详情格式异常")?;
     if rows.len() != 1 || common::id(&rows[0]["contentId"]).as_deref() != Some(id) {
         return Err("咪咕歌曲身份不匹配".into());
@@ -118,14 +126,20 @@ pub fn context(data: &Value, id: &str) -> Result<(String, String, String), Strin
     let copyright = common::id(&row["copyrightId"])
         .filter(|s| !s.is_empty() && s.len() <= 64 && s.bytes().all(|c| c.is_ascii_alphanumeric()))
         .ok_or("咪咕版权身份缺失")?;
-    for tone in ["PQ", "LQ", "HQ"] {
+    let tones: &[&str] = match quality {
+        "standard" => &["PQ"],
+        "high" => &["HQ"],
+        "lossless" => return Err("capability_unsupported".into()),
+        _ => &["PQ", "LQ", "HQ"],
+    };
+    for tone in tones {
         for field in ["rateFormats", "newRateFormats", "audioFormats"] {
             for f in row[field].as_array().into_iter().flatten() {
-                if f["formatType"] == tone {
+                if f["formatType"] == *tone {
                     if let Some(resource) =
                         common::id(&f["resourceType"]).filter(|s| common::valid_id("migu", s))
                     {
-                        return Ok((copyright, tone.into(), resource));
+                        return Ok((copyright, (*tone).into(), resource));
                     }
                 }
             }
@@ -160,6 +174,20 @@ pub fn media(data: Value, id: &str, copyright: &str) -> Result<String, String> {
         .ok_or("咪咕未提供匿名可播放媒体".into())
 }
 pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, String> {
+    resolve_quality(client, id, "auto").await
+}
+pub async fn resolve_quality(
+    client: &reqwest::Client,
+    id: &str,
+    quality: &str,
+) -> Result<String, String> {
+    Ok(resolve_download(client, id, quality).await?.0)
+}
+pub async fn resolve_download(
+    client: &reqwest::Client,
+    id: &str,
+    quality: &str,
+) -> Result<(String, f64), String> {
     let detail = decode(
         common::bytes(
             request(client, "/v1.0/content/resourceinfo.do")
@@ -167,7 +195,11 @@ pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, Strin
         )
         .await?,
     )?;
-    let (copyright, tone, resource) = context(&detail, id)?;
+    let (copyright, tone, resource) = context_quality(&detail, id, quality)?;
+    let duration = detail["resource"][0]["length"]
+        .as_str()
+        .and_then(parse_duration)
+        .unwrap_or(0.0);
     let data = decode(
         common::bytes(
             request(client, "/strategy/listen-url/h5/v2.4")
@@ -186,5 +218,40 @@ pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, Strin
         )
         .await?,
     )?;
-    media(data, id, &copyright)
+    Ok((media(data, id, &copyright)?, duration))
+}
+
+// 原生详情 length 是时:分:秒，不将缺失值或畸形字段作为可信时长。
+fn parse_duration(value: &str) -> Option<f64> {
+    let parts = value
+        .split(':')
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if parts.len() != 3 || parts[1] >= 60 || parts[2] >= 60 {
+        return None;
+    }
+    let seconds = parts[0]
+        .checked_mul(3600)?
+        .checked_add(parts[1] * 60)?
+        .checked_add(parts[2])?;
+    (seconds > 0 && seconds <= 86400).then_some(seconds as f64)
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::*;
+    #[test]
+    fn duration_from_detail_is_bounded_hms() {
+        assert_eq!(parse_duration("00:04:09"), Some(249.0));
+        for value in [
+            "",
+            "249",
+            "00:99:00",
+            "00:00:00",
+            "99999999999999999999:00:00",
+        ] {
+            assert!(parse_duration(value).is_none());
+        }
+    }
 }
