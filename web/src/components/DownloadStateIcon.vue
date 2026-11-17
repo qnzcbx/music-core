@@ -10,10 +10,13 @@ import Check from '~icons/lucide/circle-check';
 import Failed from '~icons/lucide/circle-alert';
 const props = defineProps<{ identity: TrackIdentity | null }>();
 const { downloads } = useCoreClient();
-const state = computed(() => {
-  const task = [...downloads.tasks.value]
+const matchedTask = computed(() =>
+  [...downloads.tasks.value]
     .reverse()
-    .find((t) => props.identity && queueKey(t.identity) === queueKey(props.identity));
+    .find((t) => props.identity && queueKey(t.identity) === queueKey(props.identity)),
+);
+const state = computed(() => {
+  const task = matchedTask.value;
   if (!task) return 'none';
   if (task.deliveryMode === 'browser') {
     if (downloads.delivering.value.has(task.id)) return 'downloading';
@@ -21,10 +24,13 @@ const state = computed(() => {
   }
   if (task.status === 'downloading' && ['transcoding', 'verifying'].includes(task.phase || ''))
     return task.phase!;
-  if (task.status === 'completed')
+  if (task.status === 'completed') {
+    // 桌面完成状态由 Rust 在成品落盘后返回，不需要音乐库记录再次确认。
+    if (task.deliveryMode === 'desktop') return 'completed';
     return task.fileId && downloads.files.value.some((f) => f.fileId === task.fileId)
       ? 'completed'
       : 'unconfirmed';
+  }
   return task.status;
 });
 const labels: Record<string, string> = {
@@ -39,14 +45,19 @@ const labels: Record<string, string> = {
   cancelled: '下载已取消',
   unconfirmed: '等待确认文件',
 };
+const label = computed(() =>
+  state.value === 'completed' && matchedTask.value?.deliveryMode === 'desktop'
+    ? '已下载'
+    : labels[state.value],
+);
 </script>
 <template>
   <span
     class="download-state-icon"
     :data-download-state="state"
     role="img"
-    :aria-label="labels[state]"
-    :title="labels[state]"
+    :aria-label="label"
+    :title="label"
   >
     <Check
       v-if="state === 'completed'"
