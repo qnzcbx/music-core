@@ -496,3 +496,66 @@ QQ/网易云界面开放 auto、standard、high、lossless；咪咕 auto、stand
 - Release EXE：`C:\Code_Home\2_projects\music-core\desktop\src-tauri\target\release\music-core-desktop.exe`，**17,175,040 字节**。
 
 安装包、音频、测试产物不提交。命名、来源解析和正式转码保持既有实现，本轮只交付原格式保存的轻量完成校验。
+
+
+## 第十阶段：桌面 FLAC 转 MP3、共享弹窗与源端容错（任务 22）
+
+本阶段在 `feat/rust-desktop` 原工作树上继续。第九阶段已验收的原格式轻量保存保留；本轮没有提交、推送、发布或自动安装，没有重跑四来源播放、歌词、封面、seek 或系统播放器。安装后的弹窗手感和成品听感由用户手动验收。
+
+### 自动档与共享弹窗
+
+修改前对照 Python 的实际调用：`downloads.py` 探查和正式取源对 auto 都传 `providerQualityId=None`，由各来源默认播放解析规则和既有备用顺序决定资源，不是统一替换成 standard，也不复用已过期的播放 URL。QQ 原生优先，之后已有 vkeys/Tang/巡回寺；网易云默认原生 128k，之后已有 GD/jfjt；咪咕默认 PQ/LQ/HQ。Rust 保留这些既有顺序和显式品质不降档判断。
+
+酷我按 Python `KuwoProvider.resolve/resolve_mobi` 补齐：auto 优先官方 playUrl 的有效 URL，仅已知接口上下文拒绝时走不指定 br 的 mobi；显式 standard/high 请求 128k/320k，lossless 请求 flac。原有当前录音下载权限检查、官方明确拒绝不绕过、精确 ID 和实际格式/品质核对继续保留。弹窗不再把酷我限制成只有标准档；某曲目某档有无资源仍须实际探查，本轮不把协议对齐当作新的在线成功记录。
+
+共享 `DownloadQualityDialog.vue` 默认 auto，每个弹窗会话按当前曲目和档位保留摘要、不可用原因及进行中状态。切档不抹掉其他行，切回不重新请求；换曲/关闭递增代次，迟到响应不能覆盖新状态。只有网络/超时等临时失败有该行“重试”，永久不可用不显示顶部重新检测。
+
+只有探到 FLAC 且接口报告可转换时，底部出现“压缩文件”。初始不展开、不单列原格式；展开仍按原格式保存，选中 320/192 后才改变输出和确认按钮。收起、切品质、换曲恢复原样保存。不具备工具时不显示灰色选项或环境说明。底部按钮在窄窗口保留可操作区域，内容可以滚动。桌面和网页共用同一组件，没有 `!desktopDownloads` 转换区分支。
+
+### 最终转换规则：源轻量探查，成品完整检查
+
+本轮最初版本对源做严格整首解码，Tang 两档均失败，曾验证失败任务保存原文件的恢复路径。随后用户要求忽略源解码报错试转，提供《一路向北》《起风了》，试听反馈没有听到问题，并明确提出源端也轻量化、Python/Rust 都可用。因此最终实现以本节为准，前面的严格源失败仅为对照，不是最终应用结论。
+
+两端转换前只探查实际 FLAC、采样率、声道和文件声明时长，不再整首预解码、校验 FLAC PCM MD5，也不按 Tang、标题、ID 或固定尾部长度写例外。编码允许 FFmpeg 默认源容错，原文件不裁尾、不修复、不改写。Python 只调整现有转换模块和调用处，没有重写下载后端、来源取链或存储体系。
+
+只有用户确认 MP3 才执行转换。成品仍检查实际 MP3 编码、所选 320000/192000 bps、声道/采样率，并严格完整解码；流式计数 PCM 样本，不落盘整首 PCM，解码时长与 FLAC 声明时长相差不能超过两个输出样本。源容错不代表发布截断、空内容或缺段的 MP3。工具启动、转换、输出检查失败仍为失败任务。按用户随后提出的简化要求，源符合原格式轻量条件时，桌面自动把原字节保存到用户已选目录，使用相同文件名主体及正确原格式扩展名；若同名已存在则加序号，不覆盖。下载任务只显示“转换失败”和“重试”，不再要求额外点“保存原文件”，也不把保底保存冒充 MP3 转换成功。
+
+继续复用三种命名偏好、Windows 文件名清理、正确扩展名、同目录独占临时文件、无覆盖发布及取消清理。保底原文件是正式落盘的原格式文件，退出不会删除；无论转换成功或失败，都清理本任务临时文件。原格式下载没有增加整首解码门槛。
+
+复用右上角 `ClientNotice`：桌面和网页本地库只有实际保存原文件后，才显示“文件压缩失败，已保存原文件”；原文件保存失败则如实提示“文件压缩失败，原文件未能保存，请重试”。网页浏览器模式保留服务器原文件成品并自动发起原文件下载，通知为“文件压缩失败，已发起原文件下载”，不把发起交付说成用户电脑已经落盘。页面列表同样只显示转换失败和重试，刷新不重复发起保底下载；重试仍保持原来请求的 MP3 档位。
+
+用户补充自动档《一路向北》约 197.8 MB、《发如雪》约 196.6 MB：桌面接收上限从旧 100 MiB 对齐到 Python 默认 **1 GiB**，同时核对声明长度和实际接收字节，保持流式写入。auto 实际为 FLAC 时同样支持两档压缩，实际为 MP3 时原样保存。容量边界测试确认 200 MiB 不会在入口被拒绝（空 body 只因收不完整失败），超过 1 GiB 仍拒绝；没有重新下载用户提及的约 200 MB 资源，也没有宣称已验收其完整在线接收。
+
+### 本地样本与正式路径证据
+
+所有成品验证来自已有文件。曾按用户“换蒲公英的约定”的要求发起一次 Tang 请求，用户随后指定磁盘《一路向北》，该尝试已停止，没有产生新的媒体文件；没有改走其他解析路线。下表均使用磁盘原文件，无新增音频下载。
+
+| 样本 | 源严格解码对照 | 声明样本数 / 每声道 | 320 与 192 成品严格解码 |
+| --- | --- | --- | --- |
+| 正常 FLAC：RyaVocal《晴天 (原唱 周杰伦)》 | 已有正常样本 | 12,995,465 / 48000 Hz，270.738854 秒 | Python、Rust 正式任务路径各两档均通过 |
+| Tang QQ《发如雪》原始 36,226,753 字节 | 全部样本已解出后 invalid sync/frame header | 13,196,508 / 44100 Hz，299.240544 秒 | 两端正式任务路径各两档均通过，样本数一致 |
+| 用户提供《一路向北》原始 61,646,557 字节 | 全部样本已解出后同类报错 | 12,975,984 / 44100 Hz，294.24 秒 | 两端 auto 正式任务路径各两档均通过，样本数一致 |
+| 用户提供《起风了》原始 32,613,051 字节 | 全部样本已解出后同类报错 | 13,828,237 / 44100 Hz，313.565465 秒 | 两端 auto 正式任务路径各两档均通过，样本数一致 |
+
+三份报错源另外进行一次诊断用容错 PCM 解码，其 PCM MD5 分别与 FLAC STREAMINFO 内置值完全匹配：发如雪 `dddb0e0ad67d15901bd2add1b7e198ac`；一路向北 `c27823f5c34cce30ecb8c256f12ce69f`；起风了 `14ebbc61e8c502c9ab5b574ab04ff868`。这支持这三个样本的音频内容完整；该 MD5 对照只作为诊断证据，不加回生产源预校验门槛，也不外推所有解码错误都无害。源及此前诊断资料均保留。
+
+最终证据位于 `.runtime/task22/`：
+
+- `formal-tolerant-jobs-bf09f1bac58c44129c9709037d838f31/conversion-results.json`：Rust 共用 `save_response` → 正式转换 → 成品检查 → 无覆盖发布 → `finish` 的八个 completed；不是旧离线试听文件。
+- `python-formal-tolerant-1446051bf92b4017ab4b683ed7d92654/results.json`：Python `DownloadManager` 正式任务、模拟已下载字节的受控响应，同样八个 completed；不访问外部服务。
+- `three-source-pcm-md5.json`、三个 `*-pcm-md5.stderr.txt`：源 PCM 对照；`tang-tolerant-preview/`、`yiluxiangbei-preview/`、`qifengle-preview/` 保留本轮先给用户试听的诊断成品和完整输出解码、大小、SHA-256 记录，明确区别于正式任务输出。
+- `automatic-original-b4a072c007d54f3eb4f3959c09deadac/results.json`：最终简化方案验证工具缺失不影响原样保存；转换失败自动原样落盘；目标同名加序号不覆盖；未拥有的临时文件不删除；实际子进程取消后清理；截断源不发布缺段 MP3但自动保存原字节；已保存原文件退出后仍在；原文件也保存失败时 sourcePreserved=false，不误报成功。早先 `edge-cases/results.json` 属于手动恢复方案历史记录。
+- `conversion-results.json` 是最初严格源方案的历史记录，仍保留，不作为最终功能结果。
+
+### 检查与 Windows 手动试用
+
+Rust 28 项离线测试通过，12 项需要网络或本地诊断文件的测试默认忽略；本轮显式执行 `retained_conversion_jobs`、`conversion_job_edges` 均通过。没有运行在线来源测试。Python 与修改相关的 `test_transcode_downloads.py`、`test_download_quality.py`、`test_downloads.py`、`test_browser_downloads.py` 共 109 项通过，包含源尾部杂字节可转换、截断成品拒绝、失败保底、工具缺失、子进程取消/超时与无覆盖行为。已有 Starlette TestClient 弃用提示不影响结果。
+
+按 `webapp-testing` 技能使用受控浏览器/IPC 响应验证默认 auto、结果缓存及原位摘要、仅临时失败重试、展开不改变输出、切档重置、关闭/换曲隔离、能力控制、360×420 下确认按钮可见以及确认时才提交相应输出方式。记录 `dialog-results.json`、`dialog-expanded.png`、`dialog-narrow.png`。后续简化同时核对桌面/本地库实际保存的通知、原文件保存失败的通知、任务保持失败且只留重试、浏览器自动下载一次及本地受控 HTTP 响应交付的字节；截图 `automatic-original-notice.png`、`browser-original-notice.png`；另以无 Tauri 标记的真实网页模式验证自动保底下载，`web-browser-fallback-results.json` 记录 HEAD/GET 各一次、交付字节一致、列表只剩失败与重试。这属于受控浏览器测试，不是安装版实际来源可用性或听感验收。下载状态显示的四项单测通过，保底不冒充 MP3 成功。
+
+最终 `pnpm --dir desktop exec tauri build --bundles nsis` 完成，内置 Web 类型检查及生产构建通过；既有大块 bundle 提示仍在。Windows 安装版通过 Tauri 资源将 `ffmpeg.exe`、`ffprobe.exe` 安装到应用的 `tools/`，并附上游 LICENSE/README；运行时只查应用资源目录，不搜索开发机 PATH。`desktop/scripts/prepare-transcode.ps1` 从指定 FFmpeg 发行目录准备工具并检查 libmp3lame，二进制不入 Git。无工具的构建仍保留原格式能力，接口不开放压缩。本次使用 Gyan FFmpeg 8.1.2 full GPL v3，源码位置见随包 `FFmpeg-README.txt`。已核对 NSIS 生成脚本包含这两个 EXE 和说明文件，release/tools 与打包资源一致；没有把本机 PATH 能找到工具算成安装成功。
+
+- NSIS：`C:\Code_Home\2_projects\music-core\desktop\src-tauri\target\release\bundle\nsis\拾音_0.1.0_x64-setup.exe`，**123,928,515 字节，118.19 MiB**；随包转换工具使体积增加。SHA-256：`cec5320ff843cfbbc7eef772259b98db27fcef9e63a5b35b452f124a4add6cc4`。
+- Release EXE：`C:\Code_Home\2_projects\music-core\desktop\src-tauri\target\release\music-core-desktop.exe`，17,296,384 字节；直接运行需保留同目录 `tools/`。
+
+手动安装上面的最终包后，搜索并打开下载弹窗；默认“自动”，FLAC 行检测完成后点左下“压缩文件”，选择 320 或 192，再点“确认下载 MP3”及原生保存对话框。只展开不选、收起，或切换品质后，确认仍保存原格式。切换几档可检查摘要保留，确认后可以手动改名；取消保存不会创建任务。成品听感、拖动进度和弹窗手感由用户自行验证。本轮没有操作系统播放器或把安装包生成记作本机安装通过。

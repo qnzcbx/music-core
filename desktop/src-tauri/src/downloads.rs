@@ -12,6 +12,9 @@ use std::{
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+// 与 Python DownloadSettings 默认值一致，自动取得的高解析度 FLAC 不再被旧 100 MiB 上限挡住。
+pub(crate) const MAX_DOWNLOAD_BYTES: u64 = 1024 * 1024 * 1024;
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -33,6 +36,7 @@ struct Job {
     part: PathBuf,
     cancel: CancellationToken,
     owns_part: bool,
+    owns_output: bool,
 }
 // 沿用网页版设置的枚举及默认值；只保存命名偏好，不保存任务或目录。
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
@@ -92,6 +96,7 @@ pub struct Downloads {
     jobs: Arc<Mutex<HashMap<String, Job>>>,
     naming: Arc<Mutex<Naming>>,
     settings_path: Option<PathBuf>,
+    pub tools_dir: Option<PathBuf>,
 }
 fn key(identity: &Value) -> String {
     format!(
@@ -110,6 +115,7 @@ pub fn eligibility(row: &Value) -> Option<bool> {
         _ => None,
     }
 }
+#[cfg(test)]
 pub fn frame(header: [u8; 4]) -> Option<(u64, u64, usize)> {
     let h = u32::from_be_bytes(header);
     let version = (h >> 19) & 3;
@@ -201,6 +207,17 @@ pub fn publish(part: &Path, target: &Path) -> Result<(), String> {
     })?;
     Ok(())
 }
+async fn remove_temporary(path: &Path) -> std::io::Result<()> {
+    for attempt in 0..20 {
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if attempt == 19 => return Err(e),
+            Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
+    }
+    Ok(())
+}
 async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, String> {
     let id = r.identity["platformId"].as_str().ok_or("invalid_input")?;
     // 重试及新任务都重新核对原平台录音的当前下载限制，不复用播放地址或旧权限快照。
@@ -264,21 +281,42 @@ async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, Stri
             return Err("upstream_invalid_response".into());
         }
     }
+    if r.quality == "auto" && !context_rejected {
+        let url = gate["data"]["url"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or("media_unavailable")?;
+        common::validate_media("kuwo", url).map_err(|_| "untrusted_media")?;
+        return Ok(url.to_owned());
+    }
+    let mut params = vec![
+        ("user", "0"),
+        ("corp", "kuwo"),
+        ("source", "kwplayer_ar_5.1.0.0_B_jiakong_vh.apk"),
+        ("p2p", "1"),
+        ("type", "convert_url2"),
+        ("sig", "0"),
+        (
+            "format",
+            if r.quality == "lossless" {
+                "flac"
+            } else {
+                "mp3"
+            },
+        ),
+        ("rid", id),
+    ];
+    if r.quality == "standard" {
+        params.push(("br", "128k"));
+    }
+    if r.quality == "high" {
+        params.push(("br", "320k"));
+    }
     let bytes = common::bytes(
         client
             .get("https://mobi.kuwo.cn/mobi.s")
             .header("User-Agent", "okhttp/3.10.0")
-            .query(&[
-                ("user", "0"),
-                ("corp", "kuwo"),
-                ("source", "kwplayer_ar_5.1.0.0_B_jiakong_vh.apk"),
-                ("p2p", "1"),
-                ("type", "convert_url2"),
-                ("sig", "0"),
-                ("format", "mp3"),
-                ("br", "128k"),
-                ("rid", id),
-            ]),
+            .query(&params),
     )
     .await
     .map_err(|_| "upstream_failure")?;
@@ -316,64 +354,18 @@ async fn prefix(client: &reqwest::Client, r: &Recording) -> Result<Value, String
         return Ok(rep);
     }
     let url = resolve(client, r).await?;
-    let mut response = client
-        .get(url)
-        .header("User-Agent", "okhttp/3.10.0")
-        .header("Range", "bytes=0-65535")
-        .header("Accept-Encoding", "identity")
-        .send()
-        .await
-        .map_err(|_| "upstream_failure")?;
-    if !matches!(response.status().as_u16(), 200 | 206) {
-        return Err("access_denied".into());
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("user-agent", "okhttp/3.10.0".parse().unwrap());
+    let mut rep =
+        crate::download_resolver::probe(client, &crate::provider::Media { url, headers }).await?;
+    if !crate::download_media::satisfies(&rep, &r.quality) {
+        return Err("media_unavailable".into());
     }
-    if response
-        .headers()
-        .get("content-encoding")
-        .is_some_and(|v| v != "identity")
-        || (response.status() == 206
-            && !response
-                .headers()
-                .get("content-range")
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.starts_with("bytes 0-")))
-    {
-        return Err("upstream_invalid_response".into());
-    }
-    let mut raw = Vec::new();
-    while raw.len() < 65536 {
-        let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? else {
-            break;
-        };
-        raw.extend_from_slice(&chunk[..chunk.len().min(65536 - raw.len())]);
-    }
-    let mut offset = 0;
-    if raw.starts_with(b"ID3") && raw.len() >= 10 {
-        if raw[6..10].iter().any(|b| b & 128 != 0) {
-            return Err("media_unavailable".into());
-        }
-        offset = 10
-            + raw[6..10]
-                .iter()
-                .fold(0usize, |n, b| (n << 7) | *b as usize);
-    }
-    let mut verified = None;
-    for pos in offset..raw.len().saturating_sub(4).min(offset + 4096) {
-        if let Some((_, rate, length)) = frame(raw[pos..pos + 4].try_into().unwrap()) {
-            if pos + length + 4 <= raw.len()
-                && frame(raw[pos + length..pos + length + 4].try_into().unwrap()).is_some()
-            {
-                verified = Some(rate);
-                break;
-            }
-        }
-    }
-    let rate = verified.ok_or("media_unavailable")?;
-    Ok(
-        json!({"codec":"mp3","container":"mpeg-audio","bitrateBps":128000,"sampleRateHz":rate,"lossless":false,"providerQualityId":"standard"}),
-    )
+    rep["providerQualityId"] = json!(r.quality);
+    rep["route"] = json!("native");
+    Ok(rep)
 }
-// 部分 CDN 在完整 200 响应中仍带 Content-Range；只接受明确覆盖全文件的区间。
+
 fn full_response_size(
     status: u16,
     length: Option<u64>,
@@ -470,7 +462,9 @@ impl Downloads {
     fn recording(&self, body: &Value) -> Result<Recording, String> {
         if body.get("path").is_some()
             || body.get("url").is_some()
-            || body["outputMode"].as_str().is_some_and(|s| s != "original")
+            || body["outputMode"]
+                .as_str()
+                .is_some_and(|s| !["original", "mp3_320", "mp3_192"].contains(&s))
             || !["auto", "standard", "high", "lossless"]
                 .contains(&body["quality"].as_str().unwrap_or(""))
         {
@@ -484,9 +478,6 @@ impl Downloads {
             .cloned()
             .ok_or("access_denied")?;
         recording.quality = body["quality"].as_str().unwrap().into();
-        if recording.identity["providerId"] == "kuwo" && recording.quality != "standard" {
-            return Err("capability_unsupported".into());
-        }
         Ok(recording)
     }
 
@@ -500,7 +491,7 @@ impl Downloads {
         .await;
         match value {
             Ok(rep) => {
-                json!({"quality":body["quality"],"availability":"available","representation":rep,"errorCode":null,"conversion":{"available":false,"reason":"桌面版仅保存原格式"}})
+                json!({"quality":body["quality"],"availability":"available","representation":rep,"errorCode":null,"conversion":{"available":self.converter_available(),"reason":""}})
             }
             Err(error) => {
                 json!({"quality":body["quality"],"availability":"unavailable","representation":null,"errorCode":error})
@@ -524,14 +515,26 @@ impl Downloads {
         if let Some(duration) = rep["expectedDurationSeconds"].as_f64().filter(|n| *n > 0.0) {
             recording.duration = duration;
         }
-        let extension = rep["extension"].as_str().unwrap_or("mp3");
+        let mode = body["outputMode"].as_str().unwrap_or("original");
+        if mode != "original" && (rep["codec"] != "flac" || !self.converter_available()) {
+            return Err("capability_unsupported".into());
+        }
+        let extension = if mode == "original" {
+            rep["extension"].as_str().unwrap_or("mp3")
+        } else {
+            "mp3"
+        };
         let name = suggested_name(&recording, *self.naming.lock().unwrap())
             .trim_end_matches(".mp3")
             .to_owned()
             + "."
             + extension;
         let Some(file) = rfd::AsyncFileDialog::new()
-            .set_title("保存原格式音频")
+            .set_title(if mode == "original" {
+                "保存原格式音频"
+            } else {
+                "保存 MP3"
+            })
             .add_filter("原格式音频", &[extension])
             .set_file_name(name)
             .save_file()
@@ -539,13 +542,19 @@ impl Downloads {
         else {
             return Ok(Value::Null);
         };
-        self.start(recording, file.path().to_owned(), client.clone())
+        self.start_mode(recording, file.path().to_owned(), client.clone(), mode)
     }
-    fn start(
+    fn converter_available(&self) -> bool {
+        self.tools_dir
+            .as_ref()
+            .is_some_and(|dir| crate::transcode::available(dir))
+    }
+    fn start_mode(
         &self,
         r: Recording,
         target: PathBuf,
         client: reqwest::Client,
+        mode: &str,
     ) -> Result<Value, String> {
         if target
             .extension()
@@ -554,13 +563,20 @@ impl Downloads {
         {
             return Err("file_io_error".into());
         }
+        if mode != "original"
+            && !target
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case("mp3"))
+        {
+            return Err("invalid_input".into());
+        }
         if target.exists() {
             return Err("file_exists".into());
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let part = target.with_file_name(format!(".music-core-{id}.part"));
         let cancel = CancellationToken::new();
-        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":"original","deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
+        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":mode,"deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
         {
             let mut jobs = self.jobs.lock().unwrap();
             if jobs.len() >= 128
@@ -586,6 +602,7 @@ impl Downloads {
                     part,
                     cancel: cancel.clone(),
                     owns_part: false,
+                    owns_output: false,
                 },
             );
         }
@@ -637,8 +654,27 @@ impl Downloads {
             .unwrap()
             .get(id)
             .is_some_and(|j| j.owns_part);
+        let output = part.with_extension("mp3.part");
+        let owns_output = self
+            .jobs
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|j| j.owns_output);
+        if owns_output {
+            if remove_temporary(&output).await.is_err() {
+                self.update(
+                    id,
+                    json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
+                );
+                return;
+            }
+        }
+        if cancel.is_cancelled() {
+            self.update(id, json!({"sourcePreserved":false}));
+        }
         let cleanup = if owned {
-            tokio::fs::remove_file(&part).await
+            remove_temporary(part).await
         } else {
             Ok(())
         };
@@ -768,7 +804,7 @@ impl Downloads {
             declared.or(transport_length),
             range,
         )?;
-        if total.is_some_and(|n| n == 0 || n > 100 * 1024 * 1024) {
+        if total.is_some_and(|n| n == 0 || n > MAX_DOWNLOAD_BYTES) {
             return Err("media_capacity".into());
         }
         self.update(
@@ -787,7 +823,7 @@ impl Downloads {
         let mut received = 0u64;
         while let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? {
             received += chunk.len() as u64;
-            if received > 100 * 1024 * 1024 {
+            if received > MAX_DOWNLOAD_BYTES {
                 return Err("media_capacity".into());
             }
             file.write_all(&chunk).await.map_err(|_| "file_io_error")?;
@@ -803,14 +839,64 @@ impl Downloads {
         }
         self.update(id, json!({"phase":"verifying"}));
         let rep = crate::download_media::inspect_original(part, &r.quality)?;
-        // 酷我标准档仍沿用已开放的 MP3 128k 品质，不再额外扫描整首。
+        // 仅明确标准档要求 128k；自动和其他显式档由实际表示匹配。
         if r.identity["providerId"] == "kuwo"
+            && r.quality == "standard"
             && (rep["codec"] != "mp3"
                 || !rep["bitrateBps"]
                     .as_u64()
                     .is_some_and(|n| n.abs_diff(128000) <= 1000))
         {
             return Err("media_unavailable".into());
+        }
+        let mode = self.jobs.lock().unwrap()[id].public["outputMode"]
+            .as_str()
+            .unwrap_or("original")
+            .to_owned();
+        if mode != "original" {
+            if rep["codec"] != "flac" {
+                return Err("source_verification_failed".into());
+            }
+            self.update(id, json!({"phase":"transcoding", "sourceMedia":rep}));
+            let output = part.with_extension("mp3.part");
+            let converted = async {
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&output)
+                    .map_err(|_| "file_io_error")?;
+                drop(file);
+                self.jobs.lock().unwrap().get_mut(id).unwrap().owns_output = true;
+                let dir = self.tools_dir.as_ref().ok_or("conversion_unavailable")?;
+                crate::transcode::convert(
+                    dir,
+                    part,
+                    &output,
+                    if mode == "mp3_320" { 320000 } else { 192000 },
+                )
+                .await
+            }
+            .await;
+            let converted = match converted {
+                Ok(value) => value,
+                Err(error) => {
+                    self.save_failed_original(id, part, target, &rep, &error);
+                    return Err("conversion_failed".into());
+                }
+            };
+            if !target
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case("mp3"))
+            {
+                self.save_failed_original(id, part, target, &rep, "invalid_output_extension");
+                return Err("conversion_failed".into());
+            }
+            self.update(id, json!({"phase":"publishing", "transcoded":true}));
+            if let Err(error) = publish(&output, target) {
+                self.save_failed_original(id, part, target, &rep, &error);
+                return Err("conversion_failed".into());
+            }
+            return Ok(converted);
         }
         let extension = rep["extension"].as_str().unwrap_or("mp3");
         if !target
@@ -830,7 +916,7 @@ impl Downloads {
         operation: &str,
         client: &reqwest::Client,
     ) -> Result<Value, String> {
-        let (r, target, status, cancel) = {
+        let (r, target, status, cancel, mode) = {
             let jobs = self.jobs.lock().unwrap();
             let j = jobs.get(id).ok_or("track_not_found")?;
             (
@@ -838,6 +924,7 @@ impl Downloads {
                 j.target.clone(),
                 j.public["status"].as_str().unwrap_or("").to_string(),
                 j.cancel.clone(),
+                j.public["outputMode"].clone(),
             )
         };
         match operation {
@@ -850,7 +937,7 @@ impl Downloads {
             "retry" if matches!(status.as_str(), "failed" | "cancelled") => {
                 self.create(
                     client,
-                    &json!({"identity":r.identity,"quality":r.quality,"outputMode":"original"}),
+                    &json!({"identity":r.identity,"quality":r.quality,"outputMode":mode}),
                 )
                 .await
             }
@@ -864,6 +951,30 @@ impl Downloads {
                 Ok(Value::Null)
             }
             _ => Err("capability_unsupported".into()),
+        }
+    }
+    fn save_failed_original(&self, id: &str, part: &Path, target: &Path, rep: &Value, error: &str) {
+        // 使用用户已选目录和文件名；后缀与原文件一致，同名时只添加序号，绝不覆盖。
+        let stem = target.file_stem().unwrap_or_default().to_string_lossy();
+        let extension = rep["extension"].as_str().unwrap_or("flac");
+        let saved = (1..=10000)
+            .find_map(|index| {
+                let name = if index == 1 {
+                    format!("{stem}.{extension}")
+                } else {
+                    format!("{stem} ({index}).{extension}")
+                };
+                let path = target.with_file_name(name);
+                match publish(part, &path) {
+                    Ok(()) => Some(Ok(path)),
+                    Err(reason) if reason == "file_exists" => None,
+                    Err(reason) => Some(Err(reason)),
+                }
+            })
+            .unwrap_or_else(|| Err("file_exists".into()));
+        match saved {
+            Ok(path) => self.update(id,json!({"sourcePreserved":true,"sourceFilename":path.file_name().and_then(|s|s.to_str()),"sourceSaveError":null,"conversionError":error,"transcoded":false})),
+            Err(reason) => self.update(id,json!({"sourcePreserved":false,"sourceSaveError":reason,"conversionError":error,"transcoded":false})),
         }
     }
     pub fn active(&self) -> bool {
@@ -905,16 +1016,261 @@ mod tests {
         part: &Path,
         response: reqwest::Response,
     ) -> Value {
+        fixture_save(manager, r, target, part, response, "original").await
+    }
+    #[tokio::test]
+    #[ignore = "现有四份 FLAC 正式任务路径：源轻量探查、容错转换、成品严格完整解码"]
+    async fn retained_conversion_jobs() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = root.join(".runtime/task22").join(format!(
+            "formal-tolerant-jobs-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools");
+        assert!(crate::transcode::available(&tools));
+        let samples = [
+            (
+                "normal",
+                root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"),
+            ),
+            (
+                "tang-faruxue",
+                root.join(
+                    ".runtime/tang-retained-20261117-8b1d94a3/QQ-0027oMO61wWi55-Tang-original.flac",
+                ),
+            ),
+            (
+                "yiluxiangbei",
+                root.join(".runtime/task22/周杰伦 - 一路向北.flac"),
+            ),
+            (
+                "qifengle",
+                root.join(".runtime/task22/吴青峰 - 起风了.flac"),
+            ),
+        ];
+        let mut records = Vec::new();
+        for (label, path) in samples {
+            let bytes = std::fs::read(&path).unwrap();
+            let info = u64::from_be_bytes(bytes[18..26].try_into().unwrap());
+            let declared_samples = info & ((1u64 << 36) - 1);
+            let source_rate = info >> 44;
+            for mode in ["mp3_320", "mp3_192"] {
+                let manager = Downloads {
+                    tools_dir: Some(tools.clone()),
+                    ..Downloads::default()
+                };
+                let r = Recording {
+                    quality: if ["yiluxiangbei", "qifengle"].contains(&label) {
+                        "auto"
+                    } else {
+                        "lossless"
+                    }
+                    .into(),
+                    identity: json!({"providerId":"qq","platformId":"existing-fixture"}),
+                    title: label.into(),
+                    artist: "task22".into(),
+                    duration: 0.0,
+                };
+                let target = dir.join(format!("{label}-{mode}.mp3"));
+                let part = dir.join(format!(".{label}-{mode}-source.part"));
+                let task = fixture_save(
+                    &manager,
+                    &r,
+                    &target,
+                    &part,
+                    original_response(bytes.clone(), Some(bytes.len() as u64), 200),
+                    mode,
+                )
+                .await;
+                assert_eq!(task["status"], "completed", "{task}");
+                assert_eq!(
+                    task["actualMedia"]["bitrateBps"],
+                    if mode == "mp3_320" { 320000 } else { 192000 }
+                );
+                let rep = &task["actualMedia"];
+                let duration = rep["decodedSamples"].as_u64().unwrap() as f64
+                    / rep["sampleRateHz"].as_u64().unwrap() as f64;
+                assert!(
+                    (duration - declared_samples as f64 / source_rate as f64).abs()
+                        <= 2.0 / rep["sampleRateHz"].as_u64().unwrap() as f64
+                );
+                assert!(target.exists());
+                assert!(!part.exists() && !part.with_extension("mp3.part").exists());
+                records.push(json!({"sample":label,"input":path,"declaredSourceSamples":declared_samples,"mode":mode,"target":target,"task":task}));
+            }
+        }
+        std::fs::write(
+            dir.join("conversion-results.json"),
+            serde_json::to_vec_pretty(&records).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".runtime/task22/formal-tolerant-results-current.txt"),
+            dir.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        println!("formal conversion results: {}", dir.display());
+    }
+    #[tokio::test]
+    #[ignore = "已有 FLAC：失败自动落盘原文件、冲突、取消及容量保护"]
+    async fn conversion_job_edges() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = root.join(".runtime/task22").join(format!(
+            "automatic-original-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bytes =
+            std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
+                .unwrap();
+        let r = Recording {
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: "task22".into(),
+            duration: 0.0,
+        };
+        let manager = Downloads::default();
+        assert!(!manager.converter_available());
+        let target = dir.join("chosen.mp3");
+        let part = dir.join("owned.part");
+        let original = dir.join("chosen.flac");
+        // 缺工具也不影响原格式保存。
+        let task = original_save(
+            &manager,
+            &r,
+            &original,
+            &part,
+            original_response(bytes.clone(), None, 200),
+        )
+        .await;
+        assert_eq!(task["status"], "completed");
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        std::fs::write(&original, b"existing original").unwrap();
+        let task = fixture_save(
+            &manager,
+            &r,
+            &target,
+            &part,
+            original_response(bytes.clone(), None, 200),
+            "mp3_320",
+        )
+        .await;
+        assert_eq!(task["status"], "failed");
+        assert_eq!(task["errorCode"], "conversion_failed");
+        assert_eq!(task["sourcePreserved"], true);
+        assert_eq!(task["sourceFilename"], "chosen (2).flac");
+        assert_eq!(std::fs::read(&original).unwrap(), b"existing original");
+        assert_eq!(std::fs::read(dir.join("chosen (2).flac")).unwrap(), bytes);
+        let sentinel = part.with_extension("mp3.part");
+        std::fs::write(&sentinel, b"not owned").unwrap();
+        let task = fixture_save(
+            &manager,
+            &r,
+            &target,
+            &part,
+            original_response(bytes.clone(), None, 200),
+            "mp3_192",
+        )
+        .await;
+        assert_eq!(task["sourcePreserved"], true);
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"not owned");
+        std::fs::remove_file(&sentinel).unwrap();
+        let manager = Downloads {
+            tools_dir: Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools")),
+            ..Downloads::default()
+        };
+        let cancel = async {
+            loop {
+                let token = {
+                    manager
+                        .jobs
+                        .lock()
+                        .unwrap()
+                        .get("original-fixture")
+                        .filter(|j| j.owns_output)
+                        .map(|j| j.cancel.clone())
+                };
+                if let Some(token) = token {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    token.cancel();
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        };
+        let (task, ()) = tokio::join!(
+            fixture_save(
+                &manager,
+                &r,
+                &target,
+                &part,
+                original_response(bytes.clone(), None, 200),
+                "mp3_320"
+            ),
+            cancel
+        );
+        assert_eq!(task["status"], "cancelled");
+        assert_ne!(task["sourcePreserved"], true);
+        assert!(!target.exists() && !part.exists() && !sentinel.exists());
+        let truncated = &bytes[..bytes.len() - 10000];
+        let task = fixture_save(
+            &manager,
+            &r,
+            &target,
+            &part,
+            original_response(truncated.to_vec(), None, 200),
+            "mp3_192",
+        )
+        .await;
+        assert_eq!(task["status"], "failed");
+        assert_eq!(task["sourcePreserved"], true);
+        assert!(!target.exists());
+        let saved = dir.join(task["sourceFilename"].as_str().unwrap());
+        assert_eq!(std::fs::read(&saved).unwrap(), truncated);
+        manager.shutdown().await;
+        assert!(saved.exists(), "退出只清理临时文件，不能删除已保存的原文件");
+        // 原文件也无法发布时，不得报告已保存。
+        let absent = dir.join("absent").join("chosen.mp3");
+        let task = fixture_save(
+            &manager,
+            &r,
+            &absent,
+            &part,
+            original_response(truncated.to_vec(), None, 200),
+            "mp3_320",
+        )
+        .await;
+        assert_eq!(task["status"], "failed");
+        assert_eq!(task["sourcePreserved"], false);
+        assert!(!part.exists());
+        std::fs::write(dir.join("results.json"),serde_json::to_vec_pretty(&json!({"missingToolsOriginal":true,"conversionFailureAutomaticallySavesOriginal":true,"originalBytesIdentical":true,"sameNameNeverOverwritten":true,"unownedOutputPreserved":true,"cancelledChildCleanup":true,"incompleteMP3NotPublished":true,"savedOriginalSurvivesShutdown":true,"failedOriginalSaveNeverClaimsSaved":true})).unwrap()).unwrap();
+        std::fs::write(
+            root.join(".runtime/task22/automatic-original-results-current.txt"),
+            dir.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+    }
+    async fn fixture_save(
+        manager: &Downloads,
+        r: &Recording,
+        target: &Path,
+        part: &Path,
+        response: reqwest::Response,
+        mode: &str,
+    ) -> Value {
         let cancel = CancellationToken::new();
         manager.jobs.lock().unwrap().insert(
             "original-fixture".into(),
             Job {
-                public: json!({"status":"resolving"}),
+                public: json!({"status":"resolving","outputMode":mode}),
                 recording: r.clone(),
                 target: target.into(),
                 part: part.into(),
                 cancel: cancel.clone(),
                 owns_part: false,
+                owns_output: false,
             },
         );
         manager
@@ -926,8 +1282,46 @@ mod tests {
                 manager.save_response("original-fixture", r, target, part, response),
             )
             .await;
-        assert!(!part.exists(), "本任务临时文件应已清理");
+        assert!(
+            !part.exists(),
+            "本任务临时文件应已清理，保底原文件已正式发布"
+        );
         manager.list()[0].clone()
+    }
+    #[tokio::test]
+    async fn auto_large_source_reaches_transfer_checks() {
+        let dir = folder();
+        let manager = Downloads::default();
+        let r = Recording {
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "auto".into(),
+            artist: "test".into(),
+            duration: 0.0,
+        };
+        let target = dir.join("large.flac");
+        let part = dir.join("large.part");
+        // 200 MiB 允许进入接收流程，空 body 只因实际长度不足失败；不是容量拒绝。
+        let task = original_save(
+            &manager,
+            &r,
+            &target,
+            &part,
+            original_response(Vec::new(), Some(200 * 1024 * 1024), 200),
+        )
+        .await;
+        assert_eq!(task["errorCode"], "source_verification_failed");
+        let task = original_save(
+            &manager,
+            &r,
+            &target,
+            &part,
+            original_response(Vec::new(), Some(MAX_DOWNLOAD_BYTES + 1), 200),
+        )
+        .await;
+        assert_eq!(task["errorCode"], "media_capacity");
+        assert!(!target.exists());
+        std::fs::remove_dir(dir).unwrap();
     }
     #[tokio::test]
     async fn original_response_basics() {
@@ -1277,6 +1671,7 @@ mod tests {
                     part: part.clone(),
                     cancel: cancel.clone(),
                     owns_part: false,
+                    owns_output: false,
                 },
             );
             if attempt == 2 {

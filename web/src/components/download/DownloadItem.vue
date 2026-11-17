@@ -7,7 +7,6 @@ import LoadingIcon from '~icons/lucide/loader-circle';
 import CopyIcon from '~icons/lucide/copy';
 import DownloadIcon from '~icons/lucide/download';
 import RetryIcon from '~icons/lucide/rotate-cw';
-import SourceIcon from '~icons/lucide/file-down';
 import TrashIcon from '~icons/lucide/trash-2';
 import {
   ContextMenuRoot,
@@ -30,7 +29,7 @@ const props = defineProps<{
   playing?: boolean;
   busy?: boolean;
 }>();
-const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; source: []; reveal: [] }>();
+const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; reveal: [] }>();
 const browserAction = computed(() =>
   props.task?.status !== 'completed' || props.delivery?.state === 'failed'
     ? '重试'
@@ -169,9 +168,7 @@ async function copy() {
         <div class="download-state">
           <span>
             {{
-              task?.sourcePreserved
-                ? '转换失败，已保留 FLAC'
-                : file
+              file
                   ? '已保存'
                   : task
                     ? task.deliveryMode === 'browser' && task.status === 'completed'
@@ -236,11 +233,6 @@ async function copy() {
           />
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
-        <span
-          v-if="file && task?.sourcePreserved"
-          class="preserved-source-note"
-          >转换失败，已保留 FLAC</span
-        >
         <div class="download-actions">
           <button v-if="!file && task?.deliveryMode==='desktop' && task.status==='completed'" @click="emit('reveal')">打开所在文件夹</button>
           <button
@@ -282,18 +274,6 @@ async function copy() {
           >
             <DownloadIcon v-if="browserAction === '下载'" />
             <RetryIcon v-else />
-          </button>
-          <button
-            v-if="
-              !file && task?.deliveryMode === 'browser' && task.sourcePreserved && task.artifactUrl
-            "
-            :disabled="pending"
-            class="file-icon"
-            title="保存原文件"
-            aria-label="保存原文件"
-            @click.stop="emit('source')"
-          >
-            <SourceIcon />
           </button>
           <template v-if="file">
             <button

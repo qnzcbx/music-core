@@ -4,17 +4,43 @@
   "version": "0.1.0",
   "identifier": "com.musiccore.desktop",
   "build": {
-    "beforeDevCommand": { "cwd": "../../web", "script": "pnpm dev" },
-    "beforeBuildCommand": { "cwd": "../../web", "script": "pnpm build" },
+    "beforeDevCommand": {
+      "cwd": "../../web",
+      "script": "pnpm dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "../../web",
+      "script": "pnpm build"
+    },
     "devUrl": "http://127.0.0.1:5174",
     "frontendDist": "../../web/dist"
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [{ "label": "main", "title": "拾音", "width": 1280, "height": 850, "minWidth": 800, "minHeight": 600 }],
-    "security": { "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; media-src http://127.0.0.1:*" }
+    "windows": [
+      {
+        "label": "main",
+        "title": "拾音",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; media-src http://127.0.0.1:*"
+    }
   },
-  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icons/icon.ico"] }
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/tools/": "tools/"
+    }
+  }
 }
-
-

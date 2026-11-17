@@ -41,12 +41,14 @@ watch(
         task.status === 'failed' &&
         previous?.some((t) => t.id === task.id && t.status !== 'failed')
       ) {
+        // 浏览器保底通知等到原文件下载确实发起后，由交付反馈显示。
+        if (task.deliveryMode === 'browser' && task.sourcePreserved) continue;
         console.error('下载失败', { identity: task.identity, code: task.errorCode });
         show(
           task.sourcePreserved
-            ? '转换失败，已保留 FLAC'
+            ? '文件压缩失败，已保存原文件'
             : task.errorCode === 'conversion_failed'
-              ? '转换失败，请到下载页重试'
+              ? '文件压缩失败，原文件未能保存，请重试'
               : task.errorCode === 'source_verification_failed'
                 ? '源文件校验失败'
                 : '下载失败，请到下载页查看任务',

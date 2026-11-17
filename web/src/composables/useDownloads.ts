@@ -74,7 +74,10 @@ export function useDownloads() {
       rememberHanded();
       feedback.value = {
         key: task.id,
-        text: `开始下载${task.title ? '：《' + task.title + '》' : ''}`,
+        text: task.sourcePreserved
+          ? '文件压缩失败，已发起原文件下载'
+          : `开始下载${task.title ? '：《' + task.title + '》' : ''}`,
+        error: task.sourcePreserved === true,
       };
     } catch (reason) {
       deliveries.value[task.id] = {
@@ -335,6 +338,8 @@ export function useDownloads() {
       if (task.deliveryMode !== 'browser' || deliveries.value[task.id]?.state !== 'preparing')
         continue;
       if (task.status === 'completed') void deliver(task);
+      else if (task.status === 'failed' && task.sourcePreserved && task.artifactUrl)
+        void deliver(task);
       else if (task.status === 'failed' || task.status === 'cancelled')
         deliveries.value[task.id] = {
           state: 'failed',

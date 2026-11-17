@@ -7,6 +7,7 @@ mod fallback;
 mod lyrics;
 mod provider;
 mod sessions;
+mod transcode;
 mod transport;
 use serde_json::{json, Value};
 use tauri::Manager;
@@ -121,9 +122,13 @@ fn main() {
                 port,
                 fallbacks,
                 covers,
-                downloads: downloads::Downloads::new(
-                    app.path().app_config_dir()?.join("download-naming.json"),
-                ),
+                downloads: {
+                    let mut downloads = downloads::Downloads::new(
+                        app.path().app_config_dir()?.join("download-naming.json"),
+                    );
+                    downloads.tools_dir = Some(app.path().resource_dir()?.join("tools"));
+                    downloads
+                },
             });
             Ok(())
         })

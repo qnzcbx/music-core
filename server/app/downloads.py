@@ -509,11 +509,11 @@ class DownloadManager:
         self.update(job, status='failed' if preserved else 'completed', phase=job.public.phase if preserved else 'completed', filename=target.name, fileId=self.fingerprint(target, target.stat()), format=kind, actualMedia=actual, finalSizeBytes=actual.sizeBytes, sourcePreserved=preserved)
 
     async def convert_and_save(self, job, part, source, existing=None):
-        from app.transcode import validate_flac, convert_flac, ConversionError
+        from app.transcode import inspect_flac, convert_flac, ConversionError
         output = part.with_name(part.stem+'-output.part')
         async with self.conversion_slots:
             self.update(job, phase='source_verifying', sourceMedia=source)
-            await validate_flac(part, timeout=self.settings.conversion_timeout)
+            await inspect_flac(part)
             self.update(job, phase='transcoding')
             try:
                 actual = await asyncio.wait_for(convert_flac(part, output, 320000 if job.public.outputMode=='mp3_320' else 192000,
@@ -525,8 +525,8 @@ class DownloadManager:
                 logging.getLogger(__name__).warning('download_conversion_failed task=%s phase=%s error=%s', job.public.id, job.public.phase, type(cause).__name__)
                 if isinstance(cause, OSError) and not isinstance(cause, FileNotFoundError): raise cause
                 output.unlink(missing_ok=True)
-                # 保底前再次完整验证，不把截断或损坏源文件发布为成果。
-                await validate_flac(part, timeout=self.settings.conversion_timeout)
+                # 保底沿用原格式轻量条件，保留收到的源字节；任务仍为转换失败。
+                await inspect_flac(part)
                 self.update(job, errorCode='conversion_failed')
                 if not existing:
                     for previous in self.jobs.values():

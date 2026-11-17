@@ -98,16 +98,15 @@ def test_preserved_source_reused_for_retry(tmp_path, audio, monkeypatch, phase):
     asyncio.run(scenario())
 
 
-def test_invalid_source_never_enters_encoder(tmp_path, audio, monkeypatch):
-    async def forbidden(*args, **kwargs): pytest.fail('invalid source reached encoder')
-    monkeypatch.setattr(transcode, 'convert_flac', forbidden)
+def test_truncated_source_never_publishes_incomplete_mp3(tmp_path, audio):
     async def scenario():
         manager, client, _ = await manager_at(tmp_path/'downloads', audio[:-1000])
         async with client:
             job = manager.create(DownloadRequest(identity=TRACK, outputMode='mp3_192'))
             await finish(job)
-            assert job.public.errorCode == 'source_verification_failed'
-            assert not job.public.sourcePreserved and not manager.files()
+            assert job.public.errorCode == 'conversion_failed'
+            assert job.public.sourcePreserved and len(manager.files()) == 1
+            assert (manager.root/job.public.filename).read_bytes() == audio[:-1000]
     asyncio.run(scenario())
 
 @pytest.fixture
@@ -295,3 +294,17 @@ def test_retry_keeps_saving_intent_and_re_resolves(tmp_path,audio):
         assert result['status']=='completed' and result['transcoded'] and result['actualMedia']['codec']=='mp3'
         assert result['outputMode']=='mp3_192' and result['quality']=='lossless' and result['expectedSourceCodec']=='flac'
         assert retry['id']!=first['id'] and len(calls)==2 and not list((tmp_path/'downloads').glob('*.part'))
+
+
+@pytest.mark.parametrize('mode', ['mp3_320', 'mp3_192'])
+def test_trailing_junk_does_not_block_complete_conversion(tmp_path, audio, mode):
+    raw = audio + bytes.fromhex('f000ff0f44444048463c360e55fff0')
+    async def scenario():
+        manager, client, _ = await manager_at(tmp_path/'downloads', raw)
+        async with client:
+            job = manager.create(DownloadRequest(identity=TRACK, quality='lossless', outputMode=mode))
+            await finish(job)
+            assert job.public.status == 'completed', job.public
+            assert job.public.actualMedia.codec == 'mp3' and job.public.transcoded
+            assert not job.public.sourcePreserved and not list(manager.root.glob('*.part'))
+    asyncio.run(scenario())

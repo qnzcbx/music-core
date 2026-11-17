@@ -22,3 +22,6 @@ desktop/src-tauri/gen/
 /docs/tasks/
 /docs/archive/
 AGENTS.md
+
+desktop/src-tauri/resources/tools/*
+!desktop/src-tauri/resources/tools/README.md

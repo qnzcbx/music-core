@@ -1,37 +1,99 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onScopeDispose } from "vue";
-import XIcon from "~icons/lucide/x";
-import { useCoreClient } from "../composables/useCoreClient";
-import { checkDownloadQuality, desktopDownloads, supportedDownloadQualities } from "../api/downloads";
-import { downloadQualitySummary } from "../utils/download-quality";
-import { trackIdentity } from "../utils/player-queue";
-import type { DownloadQuality, DownloadQualityOption, OutputMode } from "../types/core";
+import { computed, ref, watch, nextTick, onScopeDispose } from 'vue';
+import XIcon from '~icons/lucide/x';
+import { useCoreClient } from '../composables/useCoreClient';
+import { ApiError } from '../api/http';
+import { checkDownloadQuality, supportedDownloadQualities } from '../api/downloads';
+import { downloadQualitySummary } from '../utils/download-quality';
+import { trackIdentity } from '../utils/player-queue';
+import type { DownloadQuality, DownloadQualityOption, OutputMode } from '../types/core';
 const { downloads } = useCoreClient();
-const dialog = ref<HTMLDialogElement>(),
-  quality = ref<DownloadQuality>("auto"),
-  checking = ref(false),
-  submitting = ref(false),
-  result = ref<DownloadQualityOption | null>(null),
-  error = ref("");
-const outputMode = ref<OutputMode>("original");
-const choices = computed(() => ([
-  { id: "auto", name: "自动" },
-  { id: "standard", name: "标准品质" },
-  { id: "high", name: "高品质" },
-  { id: "lossless", name: "无损品质" },
-] as const).filter((choice) => supportedDownloadQualities.includes(choice.id) && (!desktopDownloads || downloads.downloadSong.value?.source !== "kuwo" || choice.id === "standard") && (!desktopDownloads || downloads.downloadSong.value?.source !== "migu" || choice.id !== "lossless")));
-let controller: AbortController | undefined,
-  revision = 0,
-  origin: HTMLElement | null = null;
+const dialog = ref<HTMLDialogElement>();
+const quality = ref<DownloadQuality>('auto');
+const submitting = ref(false);
+const outputMode = ref<OutputMode>('original');
+const expanded = ref(false);
+const results = ref<Partial<Record<DownloadQuality, DownloadQualityOption>>>({});
+const pending = ref(new Set<DownloadQuality>());
+const result = computed(() => results.value[quality.value]);
+const checking = computed(() => pending.value.has(quality.value));
+const canCompress = computed(
+  () =>
+    result.value?.availability === 'available' &&
+    result.value.representation?.codec === 'flac' &&
+    result.value.conversion?.available,
+);
+const choices = [
+  { id: 'auto', name: '自动' },
+  { id: 'standard', name: '标准品质' },
+  { id: 'high', name: '高品质' },
+  { id: 'lossless', name: '无损品质' },
+] as const;
+let revision = 0;
+const controllers = new Set<AbortController>();
+let origin: HTMLElement | null = null;
+function resetOutput() {
+  expanded.value = false;
+  outputMode.value = 'original';
+}
 function close() {
   if (!submitting.value) downloads.closeChoice();
+}
+function retryable(option?: DownloadQualityOption) {
+  return (
+    option?.availability === 'unavailable' &&
+    /(?:upstream_timeout|upstream_failure|network_error|request_timeout)/.test(
+      option.errorCode || '',
+    )
+  );
+}
+async function inspect(selected: DownloadQuality, retry = false) {
+  const song = downloads.downloadSong.value;
+  if (!song || pending.value.has(selected) || (results.value[selected] && !retry)) return;
+  const token = revision;
+  const controller = new AbortController();
+  controllers.add(controller);
+  pending.value = new Set([...pending.value, selected]);
+  try {
+    const value = await checkDownloadQuality(
+      { identity: trackIdentity(song), quality: selected },
+      controller.signal,
+    );
+    if (token === revision) results.value = { ...results.value, [selected]: value };
+  } catch (reason) {
+    if (token === revision)
+      results.value = {
+        ...results.value,
+        [selected]: {
+          quality: selected,
+          availability: 'unavailable',
+          representation: null,
+          errorCode:
+            reason instanceof ApiError
+              ? reason.code ||
+                (reason.status >= 500 ? 'upstream_failure' : 'capability_unsupported')
+              : 'upstream_failure',
+        },
+      };
+  } finally {
+    controllers.delete(controller);
+    if (token === revision)
+      pending.value = new Set([...pending.value].filter((q) => q !== selected));
+  }
 }
 watch(
   () => downloads.downloadSong.value,
   async (song) => {
+    revision++;
+    controllers.forEach((c) => c.abort());
+    controllers.clear();
+    results.value = {};
+    pending.value = new Set();
+    quality.value = 'auto';
+    resetOutput();
     if (song) {
       origin = document.activeElement as HTMLElement;
-      quality.value = desktopDownloads ? "standard" : "auto";
+      void inspect('auto');
       await nextTick();
       if (downloads.downloadSong.value && !dialog.value?.open) dialog.value?.showModal();
     } else {
@@ -40,36 +102,16 @@ watch(
     }
   },
 );
-const retryRevision = ref(0);
-watch([() => downloads.downloadSong.value, quality, retryRevision], async ([song, selected]) => {
-  const token = ++revision;
-  controller?.abort();
-  result.value = null;
-  outputMode.value = "original";
-  error.value = "";
-  checking.value = false;
-  if (!song) return;
-  controller = new AbortController();
-  checking.value = true;
-  try {
-    const response = await checkDownloadQuality(
-      { identity: trackIdentity(song), quality: selected },
-      controller.signal,
-    );
-    if (token !== revision) return;
-    result.value = response;
-  } catch (reason) {
-    if (token === revision) {
-      console.error("音质检测失败", reason);
-      error.value = "暂时无法检测音质，请稍后重试";
-    }
-  } finally {
-    if (token === revision) checking.value = false;
-  }
+watch(canCompress, (available) => {
+  if (!available) resetOutput();
+});
+watch(quality, (selected) => {
+  resetOutput();
+  void inspect(selected);
 });
 async function confirm() {
   const song = downloads.downloadSong.value;
-  if (!song || submitting.value || checking.value || result.value?.availability !== "available")
+  if (!song || submitting.value || checking.value || result.value?.availability !== 'available')
     return;
   submitting.value = true;
   try {
@@ -77,7 +119,7 @@ async function confirm() {
       song,
       quality.value,
       outputMode.value,
-      result.value?.representation?.codec === "flac" ? "flac" : null,
+      result.value.representation?.codec === 'flac' ? 'flac' : null,
     );
     downloads.closeChoice();
   } finally {
@@ -85,36 +127,38 @@ async function confirm() {
   }
 }
 function estimated(bitrate: number) {
-  const duration = downloads.downloadSong.value?.duration;
-  let seconds = typeof duration === "number" ? duration : 0;
-  if (typeof duration === "string" && /^\d+:\d{2}$/.test(duration)) {
-    const parts = duration.split(":").map(Number);
+  const rep = result.value?.representation;
+  const value =
+    rep?.durationSeconds || rep?.expectedDurationSeconds || downloads.downloadSong.value?.duration;
+  let seconds = typeof value === 'number' ? value : 0;
+  if (typeof value === 'string' && /^\d+:\d{2}$/.test(value)) {
+    const parts = value.split(':').map(Number);
     seconds = parts[0]! * 60 + parts[1]!;
   }
-  return seconds > 0
+  return seconds > 0 && Number.isFinite(seconds)
     ? `预计 ${((seconds * bitrate) / 8 / 1048576).toFixed(1)} MB`
-    : "大小待保存后确认";
+    : '';
 }
-function unavailable(option: DownloadQualityOption | null) {
-  if (!option) return "暂未发现可用资源";
+function summary(selected: DownloadQuality) {
+  if (pending.value.has(selected)) return '正在检测…';
+  const option = results.value[selected];
+  if (!option) return '选择后检测';
+  if (option.availability === 'available') return downloadQualitySummary(option.representation);
+  if (retryable(option)) return '检测暂时失败';
   return (
     (
       {
-        upstream_timeout: "检测超时，请稍后重试",
-        access_denied: "当前访问条件下无法下载此音质",
-        capability_unsupported: "此来源暂不支持该品质",
-        upstream_failure: "服务暂时不可用，请重新检测",
-        source_verification_failed: "下载资格或完整录音暂时无法确认，可重新检测",
+        access_denied: '当前访问条件下无法下载此音质',
+        capability_unsupported: '此来源暂不支持该品质',
+        source_verification_failed: '无法确认该品质的资源',
+        media_unavailable: '暂无此品质资源',
       } as Record<string, string>
-    )[option.errorCode || ""] || "暂未发现可用资源"
+    )[option.errorCode || ''] || '暂无可用资源'
   );
-}
-function describe(option: DownloadQualityOption) {
-  return downloadQualitySummary(option.representation);
 }
 onScopeDispose(() => {
   revision++;
-  controller?.abort();
+  controllers.forEach((c) => c.abort());
 });
 </script>
 <template>
@@ -131,104 +175,95 @@ onScopeDispose(() => {
   >
     <header>
       <h2 id="quality-heading">下载歌曲</h2>
-      <button aria-label="关闭音质选择" :disabled="submitting" @click="close"><XIcon /></button>
+      <button
+        aria-label="关闭音质选择"
+        :disabled="submitting"
+        @click="close"
+      >
+        <XIcon />
+      </button>
     </header>
     <p class="quality-song">
       {{ downloads.downloadSong.value?.title || downloads.downloadSong.value?.name }} ·
       {{ downloads.downloadSong.value?.artist }}
     </p>
-    <button v-if="!checking && result?.availability !== 'available'" :disabled="submitting" @click="retryRevision++">重新检测</button>
     <fieldset :disabled="submitting">
       <legend>选择音质</legend>
-      <label 
-        v-for="choice in choices" 
+      <div
+        v-for="choice in choices.filter((c) => supportedDownloadQualities.includes(c.id))"
         :key="choice.id"
+        class="quality-row"
       >
-        <input 
-          v-model="quality" 
-          type="radio" 
-          name="download-quality" 
-          :value="choice.id" 
-        />
-        <span>
-          <strong>{{ choice.name }}</strong>
-          <small v-if="quality === choice.id" role="status">
-            {{
-              checking
-                ? "正在检测…"
-                : error ||
-                  (result?.availability === "available" ? describe(result) : unavailable(result))
-            }}
-          </small>
-          <small v-else>选择后检测</small>
-        </span>
-      </label>
+        <label
+          ><input
+            v-model="quality"
+            type="radio"
+            name="download-quality"
+            :value="choice.id"
+          />
+          <span
+            ><strong>{{ choice.name }}</strong
+            ><small role="status">{{ summary(choice.id) }}</small></span
+          >
+        </label>
+        <button
+          v-if="retryable(results[choice.id]) && !pending.has(choice.id)"
+          :disabled="submitting"
+          @click="inspect(choice.id, true)"
+        >
+          重试
+        </button>
+      </div>
     </fieldset>
     <fieldset
-      v-if="
-        !desktopDownloads &&
-        result?.availability === 'available' &&
-        result.representation?.codec === 'flac' &&
-        result.representation.lossless
-      "
+      v-if="canCompress && expanded"
       class="save-options"
       :disabled="submitting"
     >
-      <legend>保存方式</legend>
-      <label>
-        <input 
-          v-model="outputMode" 
-          type="radio" 
-          name="output-mode" 
-          value="original" 
-        />
-        <span>
-          <strong>保留原格式</strong>
-          <small>{{ describe(result) }}</small>
-        </span>
-      </label>
-      <label>
-        <input
+      <legend>压缩为 MP3</legend>
+      <label
+        ><input
           v-model="outputMode"
           type="radio"
           name="output-mode"
           value="mp3_320"
-          :disabled="!result.conversion?.available"
-        />
-        <span>
-          <strong>节省空间</strong>
-          <small>MP3 320 kbps · {{ estimated(320000) }}</small>
-        </span>
-      </label>
-      <label>
-        <input
+        /><span
+          ><strong>节省空间 · MP3 320 kbps</strong><small>{{ estimated(320000) }}</small></span
+        ></label
+      >
+      <label
+        ><input
           v-model="outputMode"
           type="radio"
           name="output-mode"
           value="mp3_192"
-          :disabled="!result.conversion?.available"
-        />
-        <span>
-          <strong>更小的文件</strong>
-          <small>MP3 192 kbps · {{ estimated(192000) }}</small>
-        </span>
-      </label>
-      <p class="quality-hint">
-        {{
-          result.conversion?.available
-            ? "转换为 MP3 会使用有损编码。"
-            : result.conversion?.reason || "本机暂不可转换，仍可保留原格式"
-        }}
-      </p>
+        /><span
+          ><strong>更小的文件 · MP3 192 kbps</strong><small>{{ estimated(192000) }}</small></span
+        ></label
+      >
     </fieldset>
-    <p class="quality-hint">明确选择的音质不可用时，不会自动降低品质。</p>
+    <p
+      v-if="outputMode !== 'original'"
+      class="quality-hint"
+    >
+      转换为 MP3 会损失部分音质
+    </p>
     <footer>
+      <button
+        v-if="canCompress"
+        class="compress-toggle"
+        :aria-expanded="expanded"
+        :disabled="submitting"
+        @click="expanded ? resetOutput() : (expanded = true)"
+      >
+        {{ expanded ? '收起压缩选项' : '压缩文件' }}
+      </button>
       <button
         class="quality-confirm"
         :disabled="checking || submitting || result?.availability !== 'available'"
         @click="confirm"
       >
-        {{ submitting ? "正在创建任务…" : "确认下载" }}
+        {{ submitting ? '正在创建任务…' : outputMode === 'original' ? '确认下载' : '确认下载 MP3' }}
       </button>
     </footer>
   </dialog>
@@ -339,7 +374,13 @@ small {
 }
 footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  bottom: -24px;
+  padding: 12px 0;
+  background: var(--app-surface-raised);
 }
 .quality-confirm {
   border: 1px solid var(--app-border);
@@ -365,5 +406,25 @@ input:focus-visible {
 label:has(input:disabled) {
   opacity: 0.5;
   cursor: default;
+}
+</style>
+
+<style scoped>
+.quality-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.quality-row label {
+  flex: 1;
+}
+.compress-toggle {
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+}
+.quality-confirm {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 </style>

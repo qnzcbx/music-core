@@ -1,7 +1,7 @@
 import type {DownloadTask} from '../types/core';
 export function formatDownloadBytes(bytes:number|null|undefined){if(bytes==null)return '大小未知';if(bytes<1024)return `${bytes} B`;if(bytes<1024**2)return `${(bytes/1024).toFixed(1)} KB`;return `${(bytes/1024**2).toFixed(1)} MB`;}
 export function downloadStatus(task:DownloadTask){
- if(task.status==='failed'&&task.sourcePreserved)return '转换失败，已保留 FLAC';
+ if(task.status==='failed'&&task.sourcePreserved)return '转换失败';
  if(task.status==='failed'&&task.errorCode==='conversion_failed')return '转换失败';
  if(task.phase==='source_verifying'&&task.status==='downloading')return '正在校验源文件';
  if(task.phase==='output_verifying'&&task.status==='downloading')return '正在验证转换文件';

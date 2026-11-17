@@ -43,7 +43,7 @@ async def reap(process, *, drain_stderr=True):
     await asyncio.sleep(0)
 
 
-async def owned_process(args,*,timeout=15,output=None,max_bytes=None):
+async def owned_process(args,*,timeout=15,output=None,max_bytes=None,count_bytes=False):
     """直接拥有子进程；取消、超时和输出超限都等待进程退出。"""
     spawning=asyncio.create_task(asyncio.create_subprocess_exec(*args,stdin=asyncio.subprocess.DEVNULL,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0))
@@ -61,11 +61,13 @@ async def owned_process(args,*,timeout=15,output=None,max_bytes=None):
     errors = asyncio.create_task(drain_errors())
     async def collect():
         data=bytearray()
+        received=0
         while True:
             chunk=await process.stdout.read(8192)
             if not chunk:break
-            data.extend(chunk)
-            if len(data)>131072:raise CoreError(ErrorCode.MEDIA_CAPACITY)
+            received+=len(chunk)
+            if received>(4*1024**3 if count_bytes else 131072):raise CoreError(ErrorCode.MEDIA_CAPACITY)
+            if not count_bytes:data.extend(chunk)
         code=await process.wait()
         if code:
             tail = (await errors).decode(errors='replace')
@@ -73,7 +75,7 @@ async def owned_process(args,*,timeout=15,output=None,max_bytes=None):
             reasons = [reason for reason in ('invalid sync code','invalid frame header','Invalid data found','Unknown encoder','Permission denied','No space left') if reason in tail]
             logger.warning('media_process_failed exit=%s reasons=%s', code, reasons)
             raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-        return bytes(data)
+        return received if count_bytes else bytes(data)
     reader=asyncio.create_task(collect())
     async def monitor():
         while not reader.done():
@@ -112,15 +114,12 @@ async def probe_file(probe,path):
     except (ValueError,KeyError,TypeError):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
 
 
-async def validate_flac(source, *, timeout=300):
-    executable, probe = tools()
-    if not executable or not probe: raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+async def inspect_flac(source):
+    """只探查私有源文件的格式与声明时长，尾部解码报错不作转换资格门槛。"""
+    _, probe = tools()
+    if not probe: raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
     original = await probe_file(probe, source)
     if original['codec_name'] != 'flac': raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-    decoded = await owned_process([executable,'-nostdin','-v','error','-xerror','-protocol_whitelist','file,pipe','-threads','1','-i',str(source),'-map','0:a:0','-progress','pipe:1','-nostats','-f','null','-'],timeout=timeout)
-    times = re.findall(rb'^out_time_us=(\d+)\r?$', decoded, re.M)
-    if not times or b'progress=end' not in decoded or abs(int(times[-1])/1000000-original['duration']) > max(.15, original['duration']*.001):
-        raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
     return original
 
 
@@ -146,7 +145,7 @@ async def _convert_flac(source,output,bitrate,*,timeout,max_bytes,change):
     if channels not in (1,2):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
     # MP3不能表示任意FLAC采样率，仅编码器不支持时降至48kHz，不做上采样。
     target_rate=rate if rate in (32000,44100,48000) else min(rate,48000)
-    command=[executable,'-nostdin','-hide_banner','-v','error','-xerror','-n','-protocol_whitelist','file,pipe','-threads','1','-i',str(source),'-map','0:a:0','-vn','-map_metadata','-1',
+    command=[executable,'-nostdin','-hide_banner','-v','error','-n','-protocol_whitelist','file,pipe','-threads','1','-i',str(source),'-map','0:a:0','-vn','-map_metadata','-1',
         '-c:a','libmp3lame','-b:a',str(bitrate),'-ar',str(target_rate),'-threads','1','-fs',str(max_bytes),'-f','mp3',str(output)]
     await owned_process(command,timeout=timeout,output=output,max_bytes=max_bytes)
     change('output_verifying')
@@ -156,7 +155,9 @@ async def _convert_flac(source,output,bitrate,*,timeout,max_bytes,change):
         raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
     expected=original['duration']*bitrate/8
     if not 0<size<=max_bytes or size<expected*.9 or size>expected*1.1+65536:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-    decoded=await owned_process([executable,'-nostdin','-v','error','-xerror','-protocol_whitelist','file,pipe','-threads','1','-i',str(output),'-map','0:a:0','-threads','1','-progress','pipe:1','-nostats','-f','null','-'],timeout=timeout)
-    times=re.findall(rb'^out_time_us=(\d+)\r?$',decoded,re.M)
-    if not times or b'progress=end' not in decoded or abs(int(times[-1])/1000000-original['duration'])>max(.15,original['duration']*.001):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+    # 只对成品完整解码并数 PCM 样本，不存整首 PCM；源容错不代表放过截断的 MP3。
+    decoded_bytes=await owned_process([executable,'-nostdin','-v','error','-xerror','-err_detect','crccheck+bitstream+buffer+explode','-protocol_whitelist','file,pipe','-threads','1','-i',str(output),'-map','0:a:0','-c:a','pcm_s32le','-f','s32le','pipe:1'],timeout=timeout,count_bytes=True)
+    if decoded_bytes<=0 or decoded_bytes%(channels*4):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+    decoded_samples=decoded_bytes//(channels*4)
+    if abs(decoded_samples/target_rate-original['duration'])>2/target_rate:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
     return MediaRepresentation(container='mpeg-audio',codec='mp3',bitrateBps=bitrate,sampleRateHz=int(actual['sample_rate']),sizeBytes=size,lossless=False)

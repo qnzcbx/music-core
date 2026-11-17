@@ -149,7 +149,6 @@ onMounted(() => {
         @cancel="downloads.operate(task, 'cancel')"
         @retry="downloads.operate(task, 'retry')"
         @save="downloads.downloadAgain(task)"
-        @source="downloads.deliver(task)"
         @reveal="downloads.reveal(task.id)"
       />
       <p
