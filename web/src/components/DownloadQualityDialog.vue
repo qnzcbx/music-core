@@ -40,7 +40,8 @@ watch(
     }
   },
 );
-watch([() => downloads.downloadSong.value, quality], async ([song, selected]) => {
+const retryRevision = ref(0);
+watch([() => downloads.downloadSong.value, quality, retryRevision], async ([song, selected]) => {
   const token = ++revision;
   controller?.abort();
   result.value = null;
@@ -102,7 +103,8 @@ function unavailable(option: DownloadQualityOption | null) {
         upstream_timeout: "检测超时，请稍后重试",
         access_denied: "当前访问条件下无法下载此音质",
         capability_unsupported: "此来源暂不支持该品质",
-        upstream_failure: "服务暂时不可用，请稍后重试",
+        upstream_failure: "服务暂时不可用，请重新检测",
+        source_verification_failed: "下载资格或完整录音暂时无法确认，可重新检测",
       } as Record<string, string>
     )[option.errorCode || ""] || "暂未发现可用资源"
   );
@@ -135,6 +137,7 @@ onScopeDispose(() => {
       {{ downloads.downloadSong.value?.title || downloads.downloadSong.value?.name }} ·
       {{ downloads.downloadSong.value?.artist }}
     </p>
+    <button v-if="!checking && result?.availability !== 'available'" :disabled="submitting" @click="retryRevision++">重新检测</button>
     <fieldset :disabled="submitting">
       <legend>选择音质</legend>
       <label 

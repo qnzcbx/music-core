@@ -4,6 +4,7 @@ export function downloadBlockReason(song: SearchEntry): string {
   const strict = ['fma', 'audius', 'FMAMusicClient', 'AudiusMusicClient'].includes(provider);
   const decision = song.trackAccess?.download;
   if (!decision && !strict) return '';
+  if (decision?.evidence === 'desktop-source-policy' && decision.state === 'unknown') return '';
   return decision?.state === 'allowed' ? '' : decision?.reason || '下载权限尚未确认';
 }
 export function playbackBlockReason(song: SearchEntry): string {

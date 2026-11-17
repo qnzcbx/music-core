@@ -99,20 +99,14 @@ fn key(identity: &Value) -> String {
     )
 }
 
-/// 下载权限独立于取链：只开放来源明确无收费、无试听、无加密限制的录音。
-pub fn allowed(row: &Value) -> bool {
-    let p = &row["payInfo"];
-    [
-        "cannotDownload",
-        "listen_fragment",
-        "local_encrypt",
-        "paytype",
-    ]
-    .iter()
-    .all(|k| p[*k] == 0 || p[*k] == "0")
-        && ["album", "bookvip", "song", "vip"]
-            .iter()
-            .all(|k| p["feeType"][*k] == 0 || p["feeType"][*k] == "0")
+/// 与网页下载流程对齐：搜索的全局收费/试听标记不能代表所选品质的实际下载响应。
+/// 明确 cannotDownload 才在入口拒绝；缺失字段允许用户按需检查。
+pub fn eligibility(row: &Value) -> Option<bool> {
+    match &row["payInfo"]["cannotDownload"] {
+        v if v == 1 || v == "1" => Some(false),
+        v if v == 0 || v == "0" => Some(true),
+        _ => None,
+    }
 }
 pub fn frame(header: [u8; 4]) -> Option<(u64, u64, usize)> {
     let h = u32::from_be_bytes(header);
@@ -236,8 +230,35 @@ async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, Stri
             })
         })
         .ok_or("access_denied")?;
-    if !allowed(row) {
+    if eligibility(row) == Some(false) {
         return Err("access_denied".into());
+    }
+    if r.duration <= 0.0 {
+        return Err("source_verification_failed".into());
+    }
+    // 沿用 Python resolve：官方 playUrl 明确权限拒绝不能跳过；只有已知上下文拒绝可走 mobi。
+    let gate = common::bytes(
+        client
+            .get("https://www.kuwo.cn/api/v1/www/music/playUrl")
+            .query(&[("mid", id), ("type", "music"), ("httpsStatus", "1")]),
+    )
+    .await
+    .map_err(|_| "upstream_failure")?;
+    let gate: Value = serde_json::from_slice(&gate).map_err(|_| "upstream_invalid_response")?;
+    let context_rejected = gate["success"] == false
+        && gate.get("code").is_none()
+        && gate["message"] == "The request is illegal!";
+    if !context_rejected {
+        if gate["success"] == false
+            || [json!(401), json!(403), json!("401"), json!("403")].contains(&gate["code"])
+        {
+            return Err("access_denied".into());
+        }
+        if ![json!(0), json!(200), json!("0"), json!("200")].contains(&gate["code"])
+            || !gate["data"].is_object()
+        {
+            return Err("upstream_invalid_response".into());
+        }
     }
     let bytes = common::bytes(
         client
@@ -369,11 +390,11 @@ impl Downloads {
         }
         if let Some(items) = page["items"].as_array_mut() {
             for row in items {
-                let allowed = row["identity"]["providerId"] == "kuwo"
-                    && row["downloadAllowed"] == true
-                    && row["durationSeconds"].as_f64().is_some_and(|n| n > 0.0);
-                row["downloadAllowed"] = json!(allowed);
-                if allowed {
+                let supported = row["identity"]["providerId"] == "kuwo";
+                if !supported {
+                    row["downloadAllowed"] = json!(false);
+                }
+                if supported && row["downloadAllowed"] != false {
                     records.insert(
                         key(&row["identity"]),
                         Recording {
@@ -386,7 +407,7 @@ impl Downloads {
                                 .filter_map(Value::as_str)
                                 .collect::<Vec<_>>()
                                 .join("、"),
-                            duration: row["durationSeconds"].as_f64().unwrap(),
+                            duration: row["durationSeconds"].as_f64().unwrap_or(0.0),
                         },
                     );
                 }
@@ -815,12 +836,26 @@ mod tests {
     }
     #[test]
     fn permission_and_input_never_infer_from_playback() {
+        assert_eq!(eligibility(&json!({})), None);
+        assert_eq!(
+            eligibility(&json!({"payInfo":{"cannotDownload":"1"}})),
+            Some(false)
+        );
+        let unknown = Downloads::default();
+        let mut page = json!({"items":[{"identity":{"providerId":"kuwo","platformId":"123"},"downloadAllowed":null,"title":"缺字段","artists":[]}]});
+        unknown.register(&mut page);
+        assert!(page["items"][0]["downloadAllowed"].is_null());
+        assert!(unknown
+            .recording(
+                &json!({"identity":{"providerId":"kuwo","platformId":"123"},"quality":"standard"})
+            )
+            .is_ok());
         let free = json!({"payInfo":{"cannotDownload":"0","listen_fragment":"0","local_encrypt":"0","paytype":0,"feeType":{"album":"0","bookvip":"0","song":"0","vip":"0"}}});
-        assert!(allowed(&free));
-        assert!(!allowed(&json!({})));
+        assert_eq!(eligibility(&free), Some(true));
+        assert_eq!(eligibility(&json!({})), None);
         let mut paid = free.clone();
         paid["payInfo"]["feeType"]["vip"] = json!("1");
-        assert!(!allowed(&paid));
+        assert_eq!(eligibility(&paid), Some(true));
         let manager = Downloads::default();
         assert!(manager
             .recording(
