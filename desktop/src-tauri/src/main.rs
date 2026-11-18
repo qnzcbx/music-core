@@ -21,7 +21,7 @@ struct Desktop {
     fallbacks: fallback::Config,
     covers: covers::Covers,
     downloads: downloads::Downloads,
-    library: std::sync::Mutex<local_library::Library>,
+    library: std::sync::Arc<std::sync::Mutex<local_library::Library>>,
 }
 
 #[tauri::command]
@@ -52,23 +52,45 @@ async fn desktop_request(
         "/api/downloads/saved" => state.downloads.saved(),
         "/api/local-library" => {
             if !body.is_null() {
-                local_library::change(&state.library, &body).await?;
+                let restored = local_library::change(&state.library, &body).await?;
+                if !restored.is_empty() {
+                    state.downloads.restore_library_songs(&restored)?;
+                }
             }
-            let downloads = state.downloads.saved_records()?;
-            Ok(state.library.lock().unwrap().view(downloads))
+            let (downloads, excluded) = state.downloads.library_snapshot()?;
+            let library = state.library.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                library.lock().unwrap().view(downloads, &excluded)
+            })
+            .await
+            .map_err(|_| "local_library_unavailable".into())
         }
-        "/api/local-library/open" => {
+        "/api/local-library/open" | "/api/local-library/reveal" | "/api/local-library/remove" => {
             let id = body["id"].as_str().ok_or("invalid_input")?;
-            let downloads = state.downloads.saved_records()?;
+            let (downloads, excluded) = state.downloads.library_snapshot()?;
+            if excluded.contains(id) {
+                return Err("saved_file_missing".into());
+            }
             let songs = state.library.lock().unwrap().songs(downloads);
             let song = songs.get(id).ok_or("saved_file_missing")?;
-            let path = song.playback_path()?;
+            if path == "/api/local-library/remove" {
+                let delete_file = body["deleteFile"].as_bool().ok_or("invalid_input")?;
+                state
+                    .downloads
+                    .remove_library_song(&song.path, id, delete_file)?;
+                return Ok(Value::Null);
+            }
+            let file = song.playback_path()?;
+            if path == "/api/local-library/reveal" {
+                downloads::reveal_file(&file)?;
+                return Ok(Value::Null);
+            }
             let mime = match song.format {
                 "mp3" => "audio/mpeg",
                 "flac" => "audio/flac",
                 _ => "audio/mp4",
             };
-            let id = state.sessions.insert_local(path, mime);
+            let id = state.sessions.insert_local(file, mime);
             Ok(
                 json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port)}),
             )
@@ -158,12 +180,12 @@ fn main() {
                 port,
                 fallbacks,
                 covers,
-                library: std::sync::Mutex::new(
+                library: std::sync::Arc::new(std::sync::Mutex::new(
                     local_library::Library::open(
                         app.path().app_config_dir()?.join("desktop-library.json"),
                     )
                     .map_err(std::io::Error::other)?,
-                ),
+                )),
                 downloads: {
                     let mut downloads = downloads::Downloads::with_history(
                         app.path().app_config_dir()?.join("download-naming.json"),

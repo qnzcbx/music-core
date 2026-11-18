@@ -252,7 +252,6 @@ export function useDownloads() {
     quality: DownloadQuality = 'auto',
     outputMode: OutputMode = 'original',
     expectedSourceCodec: 'flac' | null = null,
-    saveAs = false,
   ) {
     const identity = trackIdentity(song),
       key = queueKey(identity);
@@ -286,7 +285,6 @@ export function useDownloads() {
           quality,
           outputMode,
           expectedSourceCodec,
-          ...(desktopDownloads ? { saveAs } : {}),
           title: song.title || song.name,
           artist: song.artist,
           album: song.album,

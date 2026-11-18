@@ -452,6 +452,47 @@ impl Downloads {
         Ok(history.find(id)?.path.clone())
     }
 
+    pub fn library_snapshot(
+        &self,
+    ) -> Result<
+        (
+            Vec<crate::download_history::SavedDownload>,
+            std::collections::BTreeSet<String>,
+        ),
+        String,
+    > {
+        let history = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap();
+        Ok((history.list(), history.excluded_songs().clone()))
+    }
+
+    pub fn restore_library_songs(&self, ids: &[String]) -> Result<(), String> {
+        self.history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap()
+            .restore_songs(ids)
+    }
+
+    pub fn remove_library_song(
+        &self,
+        path: &Path,
+        id: &str,
+        delete_file: bool,
+    ) -> Result<(), String> {
+        self.history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap()
+            .remove_song(path, id, delete_file)
+    }
+
     pub fn reveal_saved(&self, id: &str) -> Result<Value, String> {
         let path = self.saved_path(id)?;
         if !path.is_file() {

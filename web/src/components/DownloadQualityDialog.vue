@@ -3,11 +3,7 @@ import { computed, ref, watch, nextTick, onScopeDispose } from 'vue';
 import XIcon from '~icons/lucide/x';
 import { useCoreClient } from '../composables/useCoreClient';
 import { ApiError } from '../api/http';
-import {
-  checkDownloadQuality,
-  supportedDownloadQualities,
-  desktopDownloads,
-} from '../api/downloads';
+import { checkDownloadQuality, supportedDownloadQualities } from '../api/downloads';
 import { downloadQualitySummary } from '../utils/download-quality';
 import { trackIdentity } from '../utils/player-queue';
 import type { DownloadQuality, DownloadQualityOption, OutputMode } from '../types/core';
@@ -113,7 +109,7 @@ watch(quality, (selected) => {
   resetOutput();
   void inspect(selected);
 });
-async function confirm(saveAs = false) {
+async function confirm() {
   const song = downloads.downloadSong.value;
   if (!song || submitting.value || checking.value || result.value?.availability !== 'available')
     return;
@@ -124,7 +120,6 @@ async function confirm(saveAs = false) {
       quality.value,
       outputMode.value,
       result.value.representation?.codec === 'flac' ? 'flac' : null,
-      saveAs,
     );
     downloads.closeChoice();
   } finally {
@@ -262,13 +257,6 @@ onScopeDispose(() => {
         @click="expanded ? resetOutput() : (expanded = true)"
       >
         {{ expanded ? '收起压缩选项' : '压缩文件' }}
-      </button>
-      <button
-        v-if="desktopDownloads"
-        :disabled="checking || submitting || result?.availability !== 'available'"
-        @click="confirm(true)"
-      >
-        另存为…
       </button>
       <button
         class="quality-confirm"

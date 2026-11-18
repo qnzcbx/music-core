@@ -13,24 +13,11 @@ import {
   AlertDialogDescription,
   AlertDialogCancel,
 } from 'reka-ui';
-import type { DesktopSavedDownload, SavedDownloadFile } from '../types/core';
+import type { SavedDownloadFile } from '../types/core';
 import { queueKey } from '../utils/player-queue';
 const { downloads, player } = useCoreClient();
-const localLibrary = ref<InstanceType<typeof DesktopLocalLibrary>>();
 const tab = ref<'local' | 'files' | 'tasks'>(downloads.desktopMode ? 'local' : 'files');
 const tasks = computed(() => [...downloads.tasks.value].sort((a, b) => b.createdAt - a.createdAt));
-const savedError = ref('');
-async function revealSaved(file: DesktopSavedDownload) {
-  savedError.value = '';
-  try {
-    await downloads.revealSaved(file.id);
-  } catch (reason) {
-    savedError.value = reason instanceof Error ? reason.message : '无法打开文件位置';
-  }
-}
-function filename(path: string) {
-  return path.split(/[\\/]/).pop() || path;
-}
 function taskFor(file: SavedDownloadFile) {
   return tasks.value.find(
     (task) => (task.status === 'completed' || task.sourcePreserved) && task.fileId === file.fileId,
@@ -69,16 +56,15 @@ onMounted(() => {
   <section class="downloads-view">
     <header class="downloads-heading">
       <h1 class="page-title">
-        {{
-          downloads.desktopMode ? '本地和下载' : downloads.localMode.value ? '本地和下载' : '下载任务'
-        }}
+        {{ downloads.desktopMode || downloads.localMode.value ? '本地和下载' : '下载任务' }}
       </h1>
       <button
+        v-if="!downloads.desktopMode"
         class="refresh-downloads"
         aria-label="刷新下载列表"
         title="刷新下载列表"
         :disabled="downloads.loading.value"
-        @click="tab === 'local' ? localLibrary?.refresh() : downloads.refresh()"
+        @click="downloads.refresh()"
       >
         <RefreshIcon :class="{ spinning: downloads.loading.value }" />
       </button>
@@ -89,7 +75,12 @@ onMounted(() => {
       role="tablist"
       aria-label="下载分类"
     >
-      <button v-if="downloads.desktopMode" role="tab" :aria-selected="tab === 'local'" @click="tab = 'local'">
+      <button
+        v-if="downloads.desktopMode"
+        role="tab"
+        :aria-selected="tab === 'local'"
+        @click="tab = 'local'"
+      >
         本地歌曲
       </button>
       <button
@@ -127,48 +118,16 @@ onMounted(() => {
       {{ downloads.feedback.value.text }}
     </p>
     <div
-      v-if="tab !== 'local'"
+      v-if="!downloads.desktopMode || tab === 'tasks'"
       class="download-columns"
       aria-hidden="true"
     >
       <span>歌曲 / 歌手</span><span>大小</span><span>状态</span><span>操作</span>
     </div>
-    <DesktopLocalLibrary ref="localLibrary" v-if="downloads.desktopMode && tab === 'local'" />
-    <template v-else-if="downloads.desktopMode && tab === 'files'">
-      <p
-        v-if="savedError"
-        role="alert"
-      >
-        {{ savedError }}
-      </p>
-      <article
-        v-for="file in downloads.saved.value"
-        :key="file.id"
-        class="desktop-saved-row"
-        :data-saved-id="file.id"
-      >
-        <div class="desktop-saved-name">
-          <h3>{{ file.title }}</h3>
-          <p>{{ file.artist }}</p>
-          <small :title="file.path">{{ filename(file.path) }}</small>
-          <small>{{ new Date(file.savedAt).toLocaleString() }}</small>
-        </div>
-        <span>{{ (file.sizeBytes / 1048576).toFixed(1) }} MB</span>
-        <span
-          >{{ file.sourcePreserved ? '压缩失败，原文件已保存' : '已保存' }} ·
-          {{ file.format.toUpperCase() }}</span
-        >
-        <button @click="revealSaved(file)">打开所在文件夹</button>
-      </article>
-      <p
-        v-if="
-          !downloads.saved.value.length && !downloads.loading.value && !downloads.fileError.value
-        "
-        class="download-empty"
-      >
-        还没有下载的歌曲
-      </p>
-    </template>
+    <DesktopLocalLibrary
+      v-if="downloads.desktopMode && tab !== 'tasks'"
+      :tab="tab"
+    />
     <template v-else-if="downloads.localMode.value && tab === 'files'">
       <DownloadItem
         v-for="file in downloads.files.value"
@@ -494,47 +453,5 @@ article {
 }
 .file-dialog .file-delete-warning {
   color: #b86b6b;
-}
-</style>
-
-<style scoped>
-.desktop-saved-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px 150px auto;
-  gap: 16px;
-  align-items: center;
-  padding: 18px 8px;
-  border-bottom: 1px solid var(--app-border-soft);
-  font-size: 13px;
-}
-.desktop-saved-name {
-  min-width: 0;
-}
-.desktop-saved-name h3 {
-  margin: 0 0 4px;
-  font-size: 14px;
-  font-weight: 500;
-}
-.desktop-saved-name p {
-  margin: 0 0 4px;
-}
-.desktop-saved-name small {
-  display: block;
-  color: var(--app-text-muted);
-  overflow-wrap: anywhere;
-}
-.desktop-saved-row button {
-  border: 1px solid var(--app-border-soft);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: transparent;
-  color: var(--app-link);
-  cursor: pointer;
-}
-@media (max-width: 700px) {
-  .desktop-saved-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-  }
 }
 </style>

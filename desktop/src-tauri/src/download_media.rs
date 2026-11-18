@@ -4,10 +4,12 @@ use std::{io::Cursor, path::Path};
 use symphonia::core::{
     codecs::*,
     formats::FormatOptions,
-    io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions},
+    io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions, ReadOnlySource},
     meta::MetadataOptions,
     probe::Hint,
 };
+
+pub const PREFIX_BYTES: usize = 262_144;
 
 pub fn satisfies(rep: &Value, quality: &str) -> bool {
     let bitrate = rep["bitrateBps"].as_u64();
@@ -25,6 +27,7 @@ fn analyze(
     full: bool,
     expected: f64,
     mp4: bool,
+    mp4_payload: Option<u64>,
 ) -> Result<Value, String> {
     let stream = MediaSourceStream::new(source, MediaSourceStreamOptions::default());
     let probed = symphonia::default::get_probe()
@@ -46,6 +49,13 @@ fn analyze(
         CODEC_TYPE_ALAC if mp4 => ("alac", "m4a", true),
         _ => return Err("capability_unsupported".into()),
     };
+    let average_aac_bitrate = mp4_payload
+        .filter(|_| params.codec == CODEC_TYPE_AAC && format.tracks().len() == 1)
+        .and_then(|bytes| {
+            let time = params.time_base?.calc_time(params.n_frames?);
+            let seconds = time.seconds as f64 + time.frac;
+            (seconds > 0.0).then(|| (bytes as f64 * 8.0 / seconds).round() as u64)
+        });
     let mut decoder = symphonia::default::get_codecs()
         .make(&params, &DecoderOptions { verify: true })
         .map_err(|_| "media_unavailable")?;
@@ -90,15 +100,54 @@ fn analyze(
     if full && decoder.finalize().verify_ok == Some(false) {
         return Err("source_checksum_failed".into());
     }
-    let bitrate = (encoded as f64 * 8.0 / seconds).round() as u64;
+    let bitrate =
+        average_aac_bitrate.unwrap_or_else(|| (encoded as f64 * 8.0 / seconds).round() as u64);
     Ok(
         json!({"codec":codec,"container":match extension {"mp3"=>"mpeg-audio","flac"=>"flac",_=>"mp4"},"extension":extension,
         "lossless":lossless,"sampleRateHz":rate,"bitrateBps":if lossless && !full {None} else {Some(bitrate)},"sizeBytes":size,"durationSeconds":if full {Some(seconds)} else {None}}),
     )
 }
+
+fn mp4_payload_size(bytes: &[u8], total: u64) -> Option<u64> {
+    let mut offset = 0usize;
+    loop {
+        let header = bytes.get(offset..offset.checked_add(8)?)?;
+        let short_size = u32::from_be_bytes(header[..4].try_into().ok()?);
+        let (size, header_size) = match short_size {
+            0 => (total.checked_sub(offset as u64)?, 8),
+            1 => {
+                let extended = bytes.get(offset.checked_add(8)?..offset.checked_add(16)?)?;
+                (u64::from_be_bytes(extended.try_into().ok()?), 16)
+            }
+            _ => (u64::from(short_size), 8),
+        };
+        let end = (offset as u64).checked_add(size)?;
+        if size < header_size || end > total {
+            return None;
+        }
+        if &header[4..8] == b"mdat" {
+            // 只使用覆盖文件末尾的单个媒体数据块，避免将其他容器数据计入平均码率。
+            return (end == total && size > header_size).then_some(size - header_size);
+        }
+        offset = usize::try_from(end).ok()?;
+    }
+}
+
 pub fn prefix(bytes: Vec<u8>, size: Option<u64>) -> Result<Value, String> {
     let mp4 = bytes.get(4..8) == Some(b"ftyp");
-    analyze(Box::new(Cursor::new(bytes)), size, false, 0.0, mp4)
+    let mp4_payload = size
+        .filter(|_| mp4)
+        .and_then(|total| mp4_payload_size(&bytes, total));
+    let incomplete = size.map_or(bytes.len() == PREFIX_BYTES, |total| {
+        total > bytes.len() as u64
+    });
+    let source: Box<dyn MediaSource> = if mp4 && incomplete {
+        // 前缀的 mdat 长度描述整份文件。按流读取，避免把前缀末尾当成容器边界。
+        Box::new(ReadOnlySource::new(Cursor::new(bytes)))
+    } else {
+        Box::new(Cursor::new(bytes))
+    };
+    analyze(source, size, false, 0.0, mp4, mp4_payload)
 }
 /// 原格式保存只读取有界前缀确认格式和品质，不解码整首、不扫描末帧、不核对 PCM MD5。
 pub fn inspect_original(path: &Path, quality: &str) -> Result<Value, String> {
@@ -109,7 +158,7 @@ pub fn inspect_original(path: &Path, quality: &str) -> Result<Value, String> {
         return Err("upstream_invalid_response".into());
     }
     let mut bytes = Vec::new();
-    file.take(262144)
+    file.take(PREFIX_BYTES as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| "file_io_error")?;
     let known_header = bytes.starts_with(b"ID3")
@@ -142,6 +191,7 @@ pub fn inspect(path: &Path, expected: f64, quality: &str) -> Result<Value, Strin
         true,
         expected,
         head.get(4..8) == Some(b"ftyp"),
+        None,
     )?;
     if rep["codec"] == "mp3" {
         validate_mp3(path)?;
@@ -155,6 +205,21 @@ pub fn inspect(path: &Path, expected: f64, quality: &str) -> Result<Value, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn faststart_aac_prefix_can_end_inside_media_data() {
+        // 短静音测试文件。保留 moov 和首批音频包，模拟 HTTP 只返回前缀。
+        let complete = include_bytes!("../tests/fixtures/aac-faststart.m4a");
+        let prefix_bytes = &complete[..complete.len() - 12];
+        let rep = prefix(prefix_bytes.to_vec(), Some(complete.len() as u64)).unwrap();
+        assert_eq!(rep["codec"], "aac");
+        assert_eq!(rep["extension"], "m4a");
+        assert_eq!(rep["sampleRateHz"], 44100);
+        assert!(mp4_payload_size(prefix_bytes, complete.len() as u64).is_some());
+        assert!(mp4_payload_size(prefix_bytes, complete.len() as u64 - 1).is_none());
+        assert!(satisfies(&rep, "standard"));
+        assert!(!satisfies(&rep, "lossless"));
+        assert!(prefix(prefix_bytes[..32].to_vec(), Some(complete.len() as u64)).is_err());
+    }
     #[test]
     fn truncated_mpeg_frame_is_not_normal_eof() {
         let path =

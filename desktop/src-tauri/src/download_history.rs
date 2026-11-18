@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::BTreeSet,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -26,6 +27,8 @@ struct Stored {
     directory: Option<PathBuf>,
     #[serde(default)]
     records: Vec<SavedDownload>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    excluded_songs: BTreeSet<String>,
 }
 
 pub struct History {
@@ -115,6 +118,8 @@ impl History {
             return Err("source_verification_failed".into());
         }
         let mut next = self.stored.clone();
+        next.excluded_songs
+            .remove(&crate::local_library::path_key(&record.path));
         next.records.push(record);
         self.commit(next)
     }
@@ -129,6 +134,41 @@ impl History {
             .iter()
             .find(|r| r.id == id)
             .ok_or_else(|| "track_not_found".into())
+    }
+
+    pub fn excluded_songs(&self) -> &BTreeSet<String> {
+        &self.stored.excluded_songs
+    }
+
+    pub fn restore_songs(&mut self, ids: &[String]) -> Result<(), String> {
+        if !ids.iter().any(|id| self.stored.excluded_songs.contains(id)) {
+            return Ok(());
+        }
+        let mut next = self.stored.clone();
+        for id in ids {
+            next.excluded_songs.remove(id);
+        }
+        self.commit(next)
+    }
+
+    pub fn remove_song(&mut self, path: &Path, id: &str, delete_file: bool) -> Result<(), String> {
+        if crate::local_library::path_key(path) != id || self.stored.excluded_songs.contains(id) {
+            return Err("track_not_found".into());
+        }
+        let mut next = self.stored.clone();
+        let mut expected_size = None;
+        next.records.retain(|record| {
+            if crate::local_library::path_key(&record.path) != id {
+                return true;
+            }
+            expected_size = Some(record.size_bytes);
+            false
+        });
+        next.excluded_songs.insert(id.to_owned());
+        if delete_file {
+            crate::local_library::delete_audio_file(path, expected_size)?;
+        }
+        self.commit(next)
     }
 }
 
@@ -147,6 +187,36 @@ mod tests {
             source_preserved: fallback,
             path,
         }
+    }
+
+    #[test]
+    fn only_explicit_deletion_removes_the_recorded_file() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("history.json");
+        let path = root.path().join("song.mp3");
+        std::fs::write(&path, b"audio").unwrap();
+        let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
+        let id = crate::local_library::path_key(&path);
+        history.add(record(path.clone(), false)).unwrap();
+        history.add(record(path.clone(), false)).unwrap();
+        history.remove_song(&path, &id, false).unwrap();
+        assert!(path.is_file());
+
+        let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
+        assert!(history.list().is_empty());
+        assert!(history.excluded_songs().contains(&id));
+        history.add(record(path.clone(), false)).unwrap();
+        assert!(!history.excluded_songs().contains(&id));
+        std::fs::write(&path, b"changed contents").unwrap();
+        assert!(history.remove_song(&path, &id, true).is_err());
+        assert_eq!(history.list().len(), 1);
+        std::fs::write(&path, b"audio").unwrap();
+        history.remove_song(&path, &id, true).unwrap();
+        assert!(!path.exists());
+        assert!(History::open(config, root.path().to_owned())
+            .unwrap()
+            .list()
+            .is_empty());
     }
     #[test]
     fn settings_and_actual_paths_survive_reopening_without_moving_files() {

@@ -17,10 +17,11 @@ fn stop(error: &str) -> bool {
         .any(|word| error.contains(word))
 }
 pub async fn probe(client: &reqwest::Client, media: &Media) -> Result<Value, String> {
+    let limit = download_media::PREFIX_BYTES;
     let mut response = client
         .get(&media.url)
         .headers(media.headers.clone())
-        .header("Range", "bytes=0-262143")
+        .header("Range", format!("bytes=0-{}", limit - 1))
         .header("Accept-Encoding", "identity")
         .send()
         .await
@@ -50,11 +51,11 @@ pub async fn probe(client: &reqwest::Client, media: &Media) -> Result<Value, Str
         response.content_length()
     };
     let mut bytes = Vec::new();
-    while bytes.len() < 262144 {
+    while bytes.len() < limit {
         let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? else {
             break;
         };
-        bytes.extend_from_slice(&chunk[..chunk.len().min(262144 - bytes.len())]);
+        bytes.extend_from_slice(&chunk[..chunk.len().min(limit - bytes.len())]);
     }
     download_media::prefix(bytes, size)
 }

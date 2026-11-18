@@ -77,7 +77,12 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <div ref="container" class="song-group" :data-group-key="group.key">
+  <div
+    ref="container"
+    class="song-group"
+    :class="{ 'is-expanded': group.expanded }"
+    :data-group-key="group.key"
+  >
     <SongItem
       :song="group.representative"
       :now="now"
@@ -127,6 +132,18 @@ onUnmounted(() => {
 <style scoped>
 .song-group {
   min-width: 0;
+}
+.song-group.is-expanded {
+  border-radius: 6px;
+  background: var(--app-surface-subtle);
+}
+.song-group.is-expanded :deep(.song-row) {
+  min-height: 66px;
+  padding-block: 10px;
+}
+.song-group.is-expanded > :deep(.song-row) {
+  border-start-start-radius: 6px;
+  border-start-end-radius: 6px;
 }
 .versions-toggle {
   display: flex;

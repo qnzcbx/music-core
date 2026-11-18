@@ -47,6 +47,7 @@ export const apiFetch: typeof fetch = async (input, init) => {
       download_history_invalid: '下载记录文件无法读取，原文件未改动',
       local_directory_unavailable: '目录暂不可用，已有记录已保留',
       local_library_unavailable: '无法读取或保存本地歌曲记录',
+      local_file_delete_failed: '无法删除音频文件，文件可能已变更、被占用或没有删除权限',
       local_unsupported: '请选择可播放的 MP3 或 FLAC 文件',
       saved_file_missing: '文件已移动或删除，记录中的原位置已不存在',
       file_exists: '目标文件已存在，请选择其他名称或位置',

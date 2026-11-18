@@ -136,7 +136,6 @@ function download() {
           >
             {{ stateText }}
           </span>
-          <span v-else-if="version" class="resource-state">待解析</span>
         </div>
         <small class="mobile-metadata">{{ album }} · {{ durationText }}</small>
         <small v-if="song.license?.id" class="license">{{ song.license.id }}</small>

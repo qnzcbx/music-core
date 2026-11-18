@@ -36,23 +36,9 @@ const emit = defineEmits<{
   </TransitionGroup>
 </template>
 <style scoped>
-.song-versions {
-  padding: 0 0 0 18px;
-  margin: 0 0 8px 18px;
-  border-left: 2px solid var(--app-border-strong);
-  background: var(--app-surface-subtle);
-}
-.song-versions :deep(.song-row) {
-  min-height: 68px;
-}
-@media (max-width: 600px) {
-  .song-versions {
-    margin-left: 4px;
-    padding-left: 8px;
-  }
-}
-.song-versions:deep(.download-status) {
-  padding-left: 0;
+.song-versions :deep(.song-row:last-child) {
+  border-end-start-radius: 6px;
+  border-end-end-radius: 6px;
 }
 .version-row-enter-active {
   transition:

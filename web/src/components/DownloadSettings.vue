@@ -179,35 +179,49 @@ async function change(naming: string) {
         </p>
       </template>
       <template v-else-if="settings.mode === 'desktop'">
-        <h3>默认下载目录</h3>
-        <div class="directory-row">
-          <code>{{ settings.directory }}</code>
-        </div>
-        <div class="desktop-directory-actions">
-          <button
-            :disabled="saving"
-            @click="desktopDirectory('choose')"
-          >
-            更改目录
-          </button>
-          <button
-            :disabled="saving"
-            @click="desktopDirectory('open')"
-          >
-            打开文件夹
-          </button>
-          <button
-            :disabled="saving || settings.usingDefaultDirectory"
-            @click="desktopDirectory('reset')"
-          >
-            恢复默认
-          </button>
-        </div>
-        <p>仅影响后续下载；已有文件保留原位置。单首歌曲也可以“另存为…”到其他目录。</p>
+        <section
+          class="desktop-directory"
+          aria-labelledby="download-directory-heading"
+        >
+          <h3 id="download-directory-heading">下载目录</h3>
+          <div class="desktop-directory-fields">
+            <p>下载的歌曲默认保存到此文件夹。</p>
+            <div class="desktop-directory-actions">
+              <input
+                class="path-input"
+                aria-label="默认下载目录"
+                :value="settings.directory"
+                readonly
+              />
+              <button
+                type="button"
+                :disabled="saving"
+                @click="desktopDirectory('choose')"
+              >
+                更改目录
+              </button>
+              <button
+                type="button"
+                :disabled="saving"
+                @click="desktopDirectory('open')"
+              >
+                打开文件夹
+              </button>
+              <button
+                type="button"
+                :disabled="saving || settings.usingDefaultDirectory"
+                @click="desktopDirectory('reset')"
+              >
+                恢复默认
+              </button>
+            </div>
+            <p>更改目录只影响后续下载，已有文件保留在原位置。</p>
+          </div>
+        </section>
       </template>
       <p v-else>下载位置由浏览器管理</p>
       <fieldset :disabled="saving || (settings.mode === 'local' && !settings.canManage)">
-        <legend>新下载文件命名</legend>
+        <legend>文件命名格式</legend>
         <label
           v-for="choice in [
             { value: 'title', label: '歌曲名' },
@@ -226,10 +240,6 @@ async function change(naming: string) {
           {{ choice.label }}
         </label>
       </fieldset>
-      <p v-if="settings.mode === 'desktop'">
-        仅影响之后创建的下载；同名文件自动编号，不覆盖已有文件。已保存的成品记录会保留，任务状态仅在本次运行展示。
-      </p>
-      <p v-else>仅影响之后创建的任务；同名文件自动编号，扩展名以实际保存格式为准。</p>
       <dialog
         ref="dialog"
         class="directory-dialog"
@@ -457,18 +467,48 @@ button:disabled {
 </style>
 
 <style scoped>
+.desktop-directory {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 16px;
+  padding: 16px 0;
+  border-block: 1px solid var(--app-border-soft);
+}
+.desktop-directory h3,
+.desktop-directory p {
+  margin: 0;
+}
+.desktop-directory-fields {
+  display: grid;
+  gap: 8px;
+}
 .desktop-directory-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 10px 0;
+}
+.desktop-directory-actions input {
+  width: auto;
+  flex: 1 1 200px;
+  font: inherit;
+  font-size: 13px;
 }
 .desktop-directory-actions button {
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: 1px solid var(--app-border-soft);
   border-radius: 8px;
-  background: var(--app-hover);
+  background: var(--app-surface);
   color: inherit;
   cursor: pointer;
+}
+@media (max-width: 600px) {
+  .desktop-directory {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .desktop-directory-actions input {
+    flex-basis: 100%;
+  }
 }
 </style>
