@@ -34,6 +34,27 @@ pub struct History {
     stored: Stored,
 }
 
+pub(crate) fn write_snapshot(path: &Path, value: &impl Serialize) -> Result<(), String> {
+    let parent = path.parent().ok_or("download_history_unavailable")?;
+    std::fs::create_dir_all(parent).map_err(|_| "download_history_unavailable")?;
+    // 同目录临时文件同步后原子替换；失败不修改内存快照，也不覆盖成品。
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "download_history_unavailable")?;
+    serde_json::to_writer_pretty(&mut temporary, value)
+        .map_err(|_| "download_history_unavailable")?;
+    temporary
+        .flush()
+        .map_err(|_| "download_history_unavailable")?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|_| "download_history_unavailable")?;
+    temporary
+        .persist(path)
+        .map_err(|_| "download_history_unavailable")?;
+    Ok(())
+}
+
 impl History {
     pub fn open(path: PathBuf, default_directory: PathBuf) -> Result<Self, String> {
         let stored = match std::fs::read(&path) {
@@ -64,23 +85,7 @@ impl History {
     }
 
     fn commit(&mut self, next: Stored) -> Result<(), String> {
-        let parent = self.path.parent().ok_or("download_history_unavailable")?;
-        std::fs::create_dir_all(parent).map_err(|_| "download_history_unavailable")?;
-        // 同目录临时文件同步后原子替换；失败不修改内存快照，也不覆盖成品。
-        let mut temporary =
-            tempfile::NamedTempFile::new_in(parent).map_err(|_| "download_history_unavailable")?;
-        serde_json::to_writer_pretty(&mut temporary, &next)
-            .map_err(|_| "download_history_unavailable")?;
-        temporary
-            .flush()
-            .map_err(|_| "download_history_unavailable")?;
-        temporary
-            .as_file()
-            .sync_all()
-            .map_err(|_| "download_history_unavailable")?;
-        temporary
-            .persist(&self.path)
-            .map_err(|_| "download_history_unavailable")?;
+        write_snapshot(&self.path, &next)?;
         self.stored = next;
         Ok(())
     }

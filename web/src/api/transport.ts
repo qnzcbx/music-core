@@ -27,7 +27,7 @@ export const apiFetch: typeof fetch = async (input, init) => {
     const data = await (window as DesktopWindow).__TAURI__!.core.invoke<Record<string, unknown> | null>(
       'desktop_request', { path:commandPath, body },
     );
-    if (path === '/api/playback/open' && typeof data?.streamUrl === 'string') {
+    if ((path === '/api/playback/open' || path === '/api/local-library/open') && typeof data?.streamUrl === 'string') {
       const url = new URL(data.streamUrl);
       if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port ||
           !/^\/api\/playback\/[a-f0-9]{32}\/stream$/.test(url.pathname)) {
@@ -45,6 +45,9 @@ export const apiFetch: typeof fetch = async (input, init) => {
     const downloadMessages: Record<string, string> = {
       download_history_unavailable: '无法读取或保存下载设置与记录，请检查应用配置目录',
       download_history_invalid: '下载记录文件无法读取，原文件未改动',
+      local_directory_unavailable: '目录暂不可用，已有记录已保留',
+      local_library_unavailable: '无法读取或保存本地歌曲记录',
+      local_unsupported: '请选择可播放的 MP3 或 FLAC 文件',
       saved_file_missing: '文件已移动或删除，记录中的原位置已不存在',
       file_exists: '目标文件已存在，请选择其他名称或位置',
       file_io_error: '文件保存失败，请检查所选位置',
@@ -54,7 +57,7 @@ export const apiFetch: typeof fetch = async (input, init) => {
       upstream_timeout: '下载准备超时，请重试',
       upstream_failure: '下载来源暂时无法连接，请重试',
     };
-    const message = path.startsWith('/api/downloads') ? (downloadMessages[code] ?? code) : code;
+    const message = (path.startsWith('/api/downloads') || path.startsWith('/api/local-library')) ? (downloadMessages[code] ?? code) : code;
     return Response.json({ error: { code: 'DESKTOP_UNAVAILABLE', message } }, { status: 503 });
   }
 };

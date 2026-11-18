@@ -5,6 +5,7 @@ mod download_media;
 mod download_resolver;
 mod downloads;
 mod fallback;
+mod local_library;
 mod lyrics;
 mod provider;
 mod sessions;
@@ -20,6 +21,7 @@ struct Desktop {
     fallbacks: fallback::Config,
     covers: covers::Covers,
     downloads: downloads::Downloads,
+    library: std::sync::Mutex<local_library::Library>,
 }
 
 #[tauri::command]
@@ -48,6 +50,29 @@ async fn desktop_request(
         "/api/downloads/settings" => state.downloads.settings(&body),
         "/api/downloads/settings/directory" => state.downloads.directory(&body).await,
         "/api/downloads/saved" => state.downloads.saved(),
+        "/api/local-library" => {
+            if !body.is_null() {
+                local_library::change(&state.library, &body).await?;
+            }
+            let downloads = state.downloads.saved_records()?;
+            Ok(state.library.lock().unwrap().view(downloads))
+        }
+        "/api/local-library/open" => {
+            let id = body["id"].as_str().ok_or("invalid_input")?;
+            let downloads = state.downloads.saved_records()?;
+            let songs = state.library.lock().unwrap().songs(downloads);
+            let song = songs.get(id).ok_or("saved_file_missing")?;
+            let path = song.playback_path()?;
+            let mime = match song.format {
+                "mp3" => "audio/mpeg",
+                "flac" => "audio/flac",
+                _ => "audio/mp4",
+            };
+            let id = state.sessions.insert_local(path, mime);
+            Ok(
+                json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port)}),
+            )
+        }
         "/api/playback/open" => {
             let identity = &body["identity"];
             let (media, resolver) =
@@ -133,6 +158,12 @@ fn main() {
                 port,
                 fallbacks,
                 covers,
+                library: std::sync::Mutex::new(
+                    local_library::Library::open(
+                        app.path().app_config_dir()?.join("desktop-library.json"),
+                    )
+                    .map_err(std::io::Error::other)?,
+                ),
                 downloads: {
                     let mut downloads = downloads::Downloads::with_history(
                         app.path().app_config_dir()?.join("download-naming.json"),

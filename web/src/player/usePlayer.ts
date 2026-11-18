@@ -1,8 +1,9 @@
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { RecoveryPlayer } from './recovery-player.mjs';
+import { requestJson } from '../api/http';
 import { playbackRequest } from '../api/playback';
-import { isPlaybackUrl } from '../api/transport';
+import { isDesktop, isPlaybackUrl } from '../api/transport';
 import { isLocalSong, type PlayableSong } from '../types/music';
 import { localStreamUrl, listDownloadFiles } from '../api/downloads';
 import type { SavedDownloadFile, DownloadTask } from '../types/core';
@@ -29,6 +30,12 @@ export function usePlayer() {
   let restored = false,
     leaving = false;
   let localAbort: AbortController | undefined;
+  let desktopLocalSession: string | undefined;
+  function closeDesktopLocal(id = desktopLocalSession) {
+    if (!id) return;
+    if (desktopLocalSession === id) desktopLocalSession = undefined;
+    void requestJson(`/api/playback/${id}/close`, { method: 'POST' }).catch(() => {});
+  }
   const localIntent = ref(false);
   const local = computed(() => !!selected.value && isLocalSong(selected.value));
   let scheduledSession: typeof controller.session = null;
@@ -132,6 +139,7 @@ export function usePlayer() {
   async function select(song: PlayableSong, startAt = 0) {
     restored = false;
     localAbort?.abort();
+    closeDesktopLocal();
     time.value = startAt;
     duration.value = Number(song.duration) || 0;
     phase.value = 'opening';
@@ -152,15 +160,26 @@ export function usePlayer() {
     localAbort = new AbortController();
     const signal = localAbort.signal;
     try {
-      const files = await listDownloadFiles(signal);
-      if (revision !== selectionRevision || disposed) return;
-      if (!files.some((file) => file.fileId === song.fileId)) {
-        phase.value = 'error';
-        message.value = '本地文件已不存在，请刷新下载列表';
-        localIntent.value = false;
-        return;
+      if (isDesktop) {
+        const session = await requestJson<{ playbackId: string; streamUrl: string }>(
+          '/api/local-library/open',
+          { method: 'POST', body: JSON.stringify({ id: song.fileId }) },
+        );
+        if (revision !== selectionRevision || disposed || signal.aborted) {
+          closeDesktopLocal(session.playbackId);
+          return;
+        }
+        if (!isPlaybackUrl(session.streamUrl)) throw new Error('本地媒体地址无效');
+        desktopLocalSession = session.playbackId;
+        audio.src = session.streamUrl;
+      } else {
+        const files = await listDownloadFiles(signal);
+        if (revision !== selectionRevision || disposed) return;
+        if (!files.some((file) => file.fileId === song.fileId)) {
+          throw new Error('本地文件已不存在，请刷新下载列表');
+        }
+        audio.src = localStreamUrl(song.fileId);
       }
-      audio.src = localStreamUrl(song.fileId);
       audio.load();
       await controller.waitMedia(
         () => audio.readyState >= 1 && Number.isFinite(audio.duration),
@@ -177,10 +196,11 @@ export function usePlayer() {
         signal,
       );
       if (revision !== selectionRevision || disposed) return;
-    } catch {
+    } catch (reason) {
       if (revision !== selectionRevision || disposed) return;
+      closeDesktopLocal();
       phase.value = 'error';
-      message.value = '本地文件无法读取，请刷新下载列表';
+      message.value = isDesktop && reason instanceof Error ? reason.message : '本地文件无法读取，请刷新下载列表';
       localIntent.value = false;
       return;
     }
@@ -215,6 +235,7 @@ export function usePlayer() {
   async function stop() {
     restored = false;
     localAbort?.abort();
+    closeDesktopLocal();
     selectionRevision++;
     clearTimeout(timer);
     timer = undefined;
@@ -312,6 +333,7 @@ export function usePlayer() {
     leaving = true;
     restored = !!selected.value;
     localAbort?.abort();
+    closeDesktopLocal();
     void controller.stop();
   };
   window.addEventListener('pagehide', pagehide);
@@ -329,6 +351,7 @@ export function usePlayer() {
     save(true);
     disposed = true;
     localAbort?.abort();
+    closeDesktopLocal();
     document.removeEventListener('visibilitychange', visibility);
     clearTimeout(timer);
     window.removeEventListener('pagehide', pagehide);
@@ -367,6 +390,19 @@ export function usePlayer() {
         artist: file.artist || task?.artist || '',
         album: file.album || '',
         cover: file.cover || null,
+        duration: null,
+      }),
+    selectDesktopLocal: (file: { id: string; title: string; artist: string }) =>
+      queue.select({
+        kind: 'local',
+        fileId: file.id,
+        id: JSON.stringify(['local', file.id]),
+        source: 'local',
+        name: file.title,
+        title: file.title,
+        artist: file.artist,
+        album: '',
+        cover: null,
         duration: null,
       }),
     removeLocal: (fileId: string) => queue.remove(JSON.stringify(['local', fileId])),

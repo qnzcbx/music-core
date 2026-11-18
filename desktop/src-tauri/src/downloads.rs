@@ -429,13 +429,17 @@ impl Downloads {
     }
 
     pub fn saved(&self) -> Result<Value, String> {
+        Ok(json!(self.saved_records()?))
+    }
+
+    pub fn saved_records(&self) -> Result<Vec<crate::download_history::SavedDownload>, String> {
         let history = self
             .history
             .as_ref()
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap();
-        Ok(json!(history.list()))
+        Ok(history.list())
     }
 
     pub fn saved_path(&self, id: &str) -> Result<PathBuf, String> {

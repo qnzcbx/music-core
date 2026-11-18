@@ -1,18 +1,47 @@
 <script setup lang="ts">
 import './style.css';
-import {isDesktop} from './api/transport';
-import {RouterView} from 'vue-router';
+import { isDesktop } from './api/transport';
+import { RouterView } from 'vue-router';
 import AppShell from './app/layout/AppShell.vue';
 import SearchRouteSync from './app/router/SearchRouteSync.vue';
 import DownloadQualityDialog from './components/DownloadQualityDialog.vue';
 import ClientNotice from './components/ClientNotice.vue';
 import BottomPlayer from './components/BottomPlayer.vue';
-import {provideCoreClient} from './composables/useCoreClient';
-import {providePlayerVisuals} from './composables/usePlayerTransition';
-import {onMounted,ref} from 'vue';
-const {searchState:{query},player}=provideCoreClient();
-const {immersive}=providePlayerVisuals(player.selected,player.queue.current);
-const audioHost=ref<HTMLElement>();
-onMounted(()=>audioHost.value?.append(player.audio));
+import { provideCoreClient } from './composables/useCoreClient';
+import { providePlayerVisuals } from './composables/usePlayerTransition';
+import { onMounted, ref } from 'vue';
+const {
+  searchState: { query },
+  player,
+} = provideCoreClient();
+const { immersive } = providePlayerVisuals(player.selected, player.queue.current);
+const audioHost = ref<HTMLElement>();
+onMounted(() => audioHost.value?.append(player.audio));
 </script>
-<template><div ref="audioHost" hidden data-audio-host/><SearchRouteSync/><ClientNotice/><DownloadQualityDialog/><AppShell :immersive="immersive" :search-query="query"><p v-if="isDesktop" role="status" style="padding:8px 20px">桌面预览：已接入四个来源的官方匿名搜索与播放接口，部分曲目受来源权限或网络限制。已接入四来源原格式下载；实际可用品质由当前曲目探查确认。FLAC 可按需转换为 MP3；已支持默认下载目录和成品记录；本机音乐库暂不支持。</p><RouterView/><template #player><BottomPlayer/></template></AppShell></template>
+<template>
+  <div
+    ref="audioHost"
+    hidden
+    data-audio-host
+  />
+  <SearchRouteSync />
+  <ClientNotice />
+  <DownloadQualityDialog />
+  <AppShell
+    :immersive="immersive"
+    :search-query="query"
+  >
+    <p
+      v-if="isDesktop"
+      role="status"
+      style="padding: 8px 20px"
+    >
+      桌面预览：已接入四个来源的官方匿名搜索与播放接口，部分曲目受来源权限或网络限制。已接入四来源原格式下载；实际可用品质由当前曲目探查确认。FLAC
+      可按需转换为 MP3；已支持默认下载目录和成品记录；可在本地歌曲添加并播放 MP3、FLAC。
+    </p>
+    <RouterView />
+    <template #player>
+      <BottomPlayer />
+    </template>
+  </AppShell>
+</template>

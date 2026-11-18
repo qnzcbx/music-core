@@ -10,6 +10,7 @@ pub struct Session {
     pub url: String,
     pub headers: reqwest::header::HeaderMap,
     pub expires: Instant,
+    pub local: Option<(std::path::PathBuf, &'static str)>,
     pub cancel: CancellationToken,
 }
 
@@ -33,8 +34,37 @@ impl Sessions {
             id.clone(),
             Session {
                 url: media.url,
+                local: None,
                 headers: media.headers,
                 expires: Instant::now() + Duration::from_secs(120),
+                cancel: CancellationToken::new(),
+            },
+        );
+        id
+    }
+    pub fn insert_local(&self, path: std::path::PathBuf, mime: &'static str) -> String {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let mut sessions = self.0.lock().unwrap();
+        let local = sessions
+            .iter()
+            .filter(|(_, session)| session.local.is_some());
+        if local.clone().count() >= 16 {
+            if let Some(oldest) = local
+                .min_by_key(|(_, session)| session.expires)
+                .map(|(id, _)| id.clone())
+            {
+                if let Some(session) = sessions.remove(&oldest) {
+                    session.cancel.cancel();
+                }
+            }
+        }
+        sessions.insert(
+            id.clone(),
+            Session {
+                url: String::new(),
+                headers: Default::default(),
+                local: Some((path, mime)),
+                expires: Instant::now(),
                 cancel: CancellationToken::new(),
             },
         );
@@ -65,7 +95,7 @@ impl Sessions {
     }
     pub fn prune(&self) {
         self.0.lock().unwrap().retain(|_, session| {
-            if session.expires > Instant::now() {
+            if session.local.is_some() || session.expires > Instant::now() {
                 true
             } else {
                 session.cancel.cancel();

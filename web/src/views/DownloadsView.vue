@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useCoreClient } from '../composables/useCoreClient';
+import DesktopLocalLibrary from '../components/download/DesktopLocalLibrary.vue';
 import DownloadItem from '../components/download/DownloadItem.vue';
 import RefreshIcon from '~icons/lucide/refresh-cw';
 import {
@@ -15,7 +16,8 @@ import {
 import type { DesktopSavedDownload, SavedDownloadFile } from '../types/core';
 import { queueKey } from '../utils/player-queue';
 const { downloads, player } = useCoreClient();
-const tab = ref<'files' | 'tasks'>('files');
+const localLibrary = ref<InstanceType<typeof DesktopLocalLibrary>>();
+const tab = ref<'local' | 'files' | 'tasks'>(downloads.desktopMode ? 'local' : 'files');
 const tasks = computed(() => [...downloads.tasks.value].sort((a, b) => b.createdAt - a.createdAt));
 const savedError = ref('');
 async function revealSaved(file: DesktopSavedDownload) {
@@ -68,7 +70,7 @@ onMounted(() => {
     <header class="downloads-heading">
       <h1 class="page-title">
         {{
-          downloads.desktopMode ? '下载歌曲' : downloads.localMode.value ? '本地和下载' : '下载任务'
+          downloads.desktopMode ? '本地和下载' : downloads.localMode.value ? '本地和下载' : '下载任务'
         }}
       </h1>
       <button
@@ -76,7 +78,7 @@ onMounted(() => {
         aria-label="刷新下载列表"
         title="刷新下载列表"
         :disabled="downloads.loading.value"
-        @click="downloads.refresh()"
+        @click="tab === 'local' ? localLibrary?.refresh() : downloads.refresh()"
       >
         <RefreshIcon :class="{ spinning: downloads.loading.value }" />
       </button>
@@ -87,6 +89,9 @@ onMounted(() => {
       role="tablist"
       aria-label="下载分类"
     >
+      <button v-if="downloads.desktopMode" role="tab" :aria-selected="tab === 'local'" @click="tab = 'local'">
+        本地歌曲
+      </button>
       <button
         role="tab"
         :aria-selected="tab === 'files'"
@@ -122,12 +127,14 @@ onMounted(() => {
       {{ downloads.feedback.value.text }}
     </p>
     <div
+      v-if="tab !== 'local'"
       class="download-columns"
       aria-hidden="true"
     >
       <span>歌曲 / 歌手</span><span>大小</span><span>状态</span><span>操作</span>
     </div>
-    <template v-if="downloads.desktopMode && tab === 'files'">
+    <DesktopLocalLibrary ref="localLibrary" v-if="downloads.desktopMode && tab === 'local'" />
+    <template v-else-if="downloads.desktopMode && tab === 'files'">
       <p
         v-if="savedError"
         role="alert"

@@ -31,6 +31,85 @@ pub fn valid_range(value: &str) -> bool {
     end.is_empty() || end.parse::<u64>().is_ok_and(|n| n >= start)
 }
 
+fn local_range(range: &str, size: u64) -> Option<(u64, u64)> {
+    if size == 0 || !valid_range(range) {
+        return None;
+    }
+    let (start, end) = range.strip_prefix("bytes=")?.split_once('-')?;
+    if start.is_empty() {
+        return Some((size.saturating_sub(end.parse().ok()?), size - 1));
+    }
+    let start = start.parse::<u64>().ok()?;
+    let end = end.parse::<u64>().unwrap_or(size - 1).min(size - 1);
+    (start <= end).then_some((start, end))
+}
+
+async fn local_stream(
+    path: &std::path::Path,
+    mime: &str,
+    method: Method,
+    headers: HeaderMap,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Response {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
+        return StatusCode::GONE.into_response();
+    };
+    let Ok(metadata) = file.metadata().await else {
+        return StatusCode::GONE.into_response();
+    };
+    if !metadata.is_file() || metadata.len() == 0 || cancel.is_cancelled() {
+        return StatusCode::GONE.into_response();
+    }
+    let size = metadata.len();
+    let mut response = Response::builder()
+        .header("Accept-Ranges", "bytes")
+        .header("Cache-Control", "no-store")
+        .header("Content-Type", mime);
+    let (start, length) = if let Some(range) = headers.get("range") {
+        let Some((start, end)) = range
+            .to_str()
+            .ok()
+            .and_then(|value| local_range(value, size))
+        else {
+            return response
+                .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                .header("Content-Range", format!("bytes */{size}"))
+                .body(Body::empty())
+                .unwrap();
+        };
+        response = response
+            .status(StatusCode::PARTIAL_CONTENT)
+            .header("Content-Range", format!("bytes {start}-{end}/{size}"));
+        (start, end - start + 1)
+    } else {
+        (0, size)
+    };
+    response = response.header("Content-Length", length);
+    if method == Method::HEAD {
+        return response.body(Body::empty()).unwrap();
+    }
+    if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+        return StatusCode::GONE.into_response();
+    }
+    let chunks = futures_util::stream::try_unfold(
+        (file.take(length), cancel),
+        |(mut file, cancel)| async move {
+            let mut buffer = vec![0; 65536];
+            let count = tokio::select! {
+                _ = cancel.cancelled() => return Ok::<_,std::io::Error>(None),
+                count = file.read(&mut buffer) => count?,
+            };
+            if count == 0 {
+                return Ok(None);
+            }
+            buffer.truncate(count);
+            Ok(Some((buffer, (file, cancel))))
+        },
+    );
+    response.body(Body::from_stream(chunks)).unwrap()
+}
+
 async fn stream(
     State(state): State<Transport>,
     Path(id): Path<String>,
@@ -40,6 +119,9 @@ async fn stream(
     let Some(session) = state.sessions.get(&id) else {
         return StatusCode::GONE.into_response();
     };
+    if let Some((path, mime)) = session.local {
+        return local_stream(&path, mime, method, headers, session.cancel).await;
+    }
     let mut request = state
         .client
         .request(method.clone(), &session.url)
@@ -124,6 +206,43 @@ pub async fn start_with_covers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn local_session_serves_file_ranges_and_expires_on_close() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("registered.flac");
+        std::fs::write(&file, b"0123456789").unwrap();
+        let sessions = Sessions::new();
+        let id = sessions.insert_local(file, "audio/flac");
+        let client = reqwest::Client::new();
+        let port = start(Transport {
+            sessions: sessions.clone(),
+            client: client.clone(),
+        })
+        .await
+        .unwrap();
+        let url = format!("http://127.0.0.1:{port}/api/playback/{id}/stream");
+        let head = client.head(&url).send().await.unwrap();
+        assert_eq!(head.headers()["content-length"], "10");
+        let partial = client
+            .get(&url)
+            .header("range", "bytes=4-6")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(partial.status(), 206);
+        assert_eq!(partial.headers()["content-range"], "bytes 4-6/10");
+        assert_eq!(partial.text().await.unwrap(), "456");
+        let invalid = client
+            .get(&url)
+            .header("range", "bytes=10-")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), 416);
+        sessions.close(&id);
+        assert_eq!(client.get(&url).send().await.unwrap().status(), 410);
+    }
+
     #[tokio::test]
     async fn preserves_non_range_response_and_maps_rate_limit() {
         let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
