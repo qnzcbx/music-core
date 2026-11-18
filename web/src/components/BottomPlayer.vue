@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { isDesktop } from "../api/transport";
+import { desktopLyrics } from "../composables/useDesktopLyrics";
 import { useCoreClient } from "../composables/useCoreClient";
 import { usePlayerVisuals } from "../composables/usePlayerTransition";
 import { useMediaQuery } from "@vueuse/core";
@@ -187,10 +189,11 @@ function seek(event: Event) {
       </button>
       <button
         v-else
-        :disabled="!selected"
-        title="查看歌词"
-        aria-label="查看歌词"
-        @click="visuals.open"
+        :disabled="isDesktop ? desktopLyrics.pending.value : !selected"
+        :aria-pressed="isDesktop ? desktopLyrics.open.value : undefined"
+        :title="isDesktop ? (desktopLyrics.error.value || (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词')) : '查看歌词'"
+        :aria-label="isDesktop ? (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词') : '查看歌词'"
+        @click="isDesktop ? desktopLyrics.toggle() : visuals.open()"
       >
         词
       </button>
@@ -664,3 +667,5 @@ function seek(event: Event) {
 .immersive-style-entry { position:fixed; right:136px; bottom:28px; z-index:50; }
 @media(max-width:600px) { .immersive-style-entry { right:18px; top:18px; bottom:auto; } }
 </style>
+
+<style scoped>.player button[aria-pressed='true'] { color: var(--primary, #399985); background: color-mix(in srgb, currentColor 12%, transparent); }</style>

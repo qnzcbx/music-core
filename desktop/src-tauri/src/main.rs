@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod covers;
+mod desktop_lyrics;
 mod download_history;
 mod download_media;
 mod download_resolver;
@@ -198,7 +199,20 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![desktop_request])
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(lyrics) = window.get_webview_window("desktop-lyrics") {
+                    let _ = lyrics.destroy();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            desktop_request,
+            desktop_lyrics::toggle_desktop_lyrics,
+            desktop_lyrics::place_desktop_lyrics,
+            desktop_lyrics::show_desktop_lyrics,
+            desktop_lyrics::close_desktop_lyrics
+        ])
         .build(tauri::generate_context!())
         .expect("桌面应用初始化失败")
         .run(|app, event| {
