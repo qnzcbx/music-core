@@ -75,6 +75,20 @@ impl Covers {
         // 老搜索响应中的 HTTP 封面统一通过同一已确认 CDN 的 HTTPS 请求。
         let mut parsed = reqwest::Url::parse(url).ok()?;
         parsed.set_scheme("https").ok()?;
+        // 网易云原图可能超过代理的 2 MiB 限制。搜索和播放器共用 500px 缩略图。
+        if source == "netease" {
+            let query: Vec<_> = parsed
+                .query_pairs()
+                .filter(|(key, _)| key != "param")
+                .into_iter()
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+            parsed.set_query(None);
+            parsed
+                .query_pairs_mut()
+                .extend_pairs(query)
+                .append_pair("param", "500y500");
+        }
         let url = parsed.as_str();
         let mut entries = self.0.lock().unwrap();
         entries.retain(|_, entry| entry.created.elapsed() < Duration::from_secs(3600));
@@ -218,6 +232,17 @@ mod tests {
             .is_none());
         assert_eq!(image_type(b"<html>"), None);
         assert_eq!(image_type(b"\xff\xd8\xffimage"), Some("image/jpeg"));
+    }
+    #[test]
+    fn netease_registers_bounded_thumbnail() {
+        let covers = Covers::default();
+        let url = "http://p2.music.126.net/KTo5oSxH3CPA5PBTeFKDyA==/109951164581432409.jpg";
+        assert!(covers.register("netease", url, 1234).is_some());
+        let entries = covers.0.lock().unwrap();
+        assert_eq!(
+            entries.values().next().unwrap().url,
+            format!("{}?param=500y500", url.replacen("http:", "https:", 1))
+        );
     }
     #[tokio::test]
     async fn cached_image_reads_share_one_upstream_request() {

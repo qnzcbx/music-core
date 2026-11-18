@@ -371,6 +371,29 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn netease_empty_minus_110_can_reach_verified_backup() {
+        for (id, code, trial, expected) in [
+            ("30612793", -110, Value::Null, true),
+            ("2083785152", -110, Value::Null, true),
+            ("30612793", 403, Value::Null, false),
+            ("30612793", 200, json!({"start":0,"end":30}), false),
+        ] {
+            let native =
+                json!({"code":200,"data":[{"id":id,"code":code,"url":null,"freeTrialInfo":trial}]});
+            let backup = json!({"success":true,"data":{"id":id,"url":"https://m701.music.126.net/audio.mp3"}});
+            let result = choose(
+                || async { crate::provider::netease::media(native, id) },
+                &["jfjt".into()],
+                |route| {
+                    let result = parse("netease", &route, id, &backup);
+                    async { result }
+                },
+            )
+            .await;
+            assert_eq!(result.is_ok(), expected, "{id}: {result:?}");
+        }
+    }
+    #[tokio::test]
     async fn timeout_has_a_bounded_end() {
         let value = choose(
             || async {
@@ -529,6 +552,78 @@ mod tests {
             &json!({"success":true,"data":{"id":123,"url":net,"freeTrialInfo":{}}})
         )
         .is_err());
+    }
+    #[tokio::test]
+    #[ignore = "需要访问网易云及已配置的备用服务"]
+    async fn netease_online_regression() {
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0")
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(12))
+            .build()
+            .unwrap();
+        let config = Config::default();
+        let sessions = crate::sessions::Sessions::new();
+        let covers = crate::covers::Covers::default();
+        let port = crate::transport::start_with_covers(
+            crate::transport::Transport {
+                sessions: sessions.clone(),
+                client: client.clone(),
+            },
+            covers.clone(),
+        )
+        .await
+        .unwrap();
+        let ((), ()) = tokio::join!(
+            async {
+                for (title, id) in [("句号", "1405283464"), ("回忆的沙漏", "234023")] {
+                    let mut page = crate::provider::netease::search(
+                        &client,
+                        &json!({"query":format!("邓紫棋 {title}")}),
+                    )
+                    .await
+                    .unwrap();
+                    covers.map_page(&mut page, port);
+                    let cover = page["items"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|row| row["identity"]["platformId"] == id)
+                        .unwrap()["cover"]
+                        .as_str()
+                        .unwrap();
+                    let response = client.get(cover).send().await.unwrap();
+                    assert_eq!(response.status(), 200, "{title}");
+                    let bytes = response.bytes().await.unwrap();
+                    assert!(crate::covers::image_type(&bytes).is_some(), "{title}");
+                    println!("{title}: cover {} bytes", bytes.len());
+                }
+            },
+            async {
+                for (title, id) in [("多远都要在一起", "30612793"), ("唯一", "2083785152")]
+                {
+                    let (media, route) = resolve(
+                        &client,
+                        &config,
+                        &json!({"providerId":"netease","platformId":id}),
+                    )
+                    .await
+                    .unwrap_or_else(|err| panic!("{title}: {err}"));
+                    let sid = sessions.insert_media(media);
+                    for range in ["bytes=0-1023", "bytes=300000-301023"] {
+                        let response = client
+                            .get(format!("http://127.0.0.1:{port}/api/playback/{sid}/stream"))
+                            .header("Range", range)
+                            .send()
+                            .await
+                            .unwrap();
+                        assert_eq!(response.status(), 206, "{title} route={route} {range}");
+                        assert_eq!(response.bytes().await.unwrap().len(), 1024);
+                    }
+                    println!("{title}: {route} returned both ranges");
+                }
+            }
+        );
     }
     #[tokio::test]
     #[ignore = "固定真实样本；需要网络及已获授权的服务使用范围"]

@@ -51,16 +51,19 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
     if matches!(row["code"].as_i64(), Some(301 | 401 | 403)) {
         return Err("网易云歌曲访问权限不足".into());
     }
-    if row["code"] != 200 {
-        return Err("网易云未返回成功的媒体解析结果".into());
-    }
-    if row["url"].as_str().is_none_or(str::is_empty) {
-        return Err("该歌曲未提供匿名可播放媒体".into());
-    }
+    let url = row["url"].as_str().filter(|url| !url.is_empty());
     if !row["freeTrialInfo"].is_null() {
         return Err("该歌曲仅提供试听，桌面版不作为完整曲目播放".into());
     }
-    Ok(row["url"].as_str().unwrap().to_owned())
+    // -110 + 空链接是已观察到的原生取链失败。和 Python 一样，允许既有备用路线继续验证。
+    if row["code"] == -110 && url.is_none() {
+        return Err("该歌曲未提供匿名可播放媒体".into());
+    }
+    if row["code"] != 200 {
+        return Err("网易云未返回成功的媒体解析结果".into());
+    }
+    url.map(str::to_owned)
+        .ok_or_else(|| "该歌曲未提供匿名可播放媒体".into())
 }
 pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, String> {
     resolve_quality(client, id, "standard").await
