@@ -583,7 +583,7 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                    covers.map_page(&mut page, port);
+                    crate::covers::Covers::map_page(&mut page);
                     let cover = page["items"]
                         .as_array()
                         .unwrap()
@@ -592,6 +592,8 @@ mod tests {
                         .unwrap()["cover"]
                         .as_str()
                         .unwrap();
+                    assert!(cover.starts_with("https://"));
+                    assert!(cover.contains("param=500y500"));
                     let response = client.get(cover).send().await.unwrap();
                     assert_eq!(response.status(), 200, "{title}");
                     let bytes = response.bytes().await.unwrap();

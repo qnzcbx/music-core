@@ -128,7 +128,10 @@ async function copy() {
           @keydown.space.prevent="play"
         >
           <div class="download-cover">
-            <CoverArt :src="cover" />
+            <CoverArt
+              clover-fallback
+              :src="cover"
+            />
             <span
               v-if="file"
               class="download-cover-play"
@@ -163,22 +166,22 @@ async function copy() {
           }}
           <template v-if="!file && task?.totalBytes && task.status !== 'completed'">
             / {{ formatDownloadBytes(task.totalBytes) }}
-          </template></span
-        >
+          </template>
+        </span>
         <div class="download-state">
           <span>
             {{
               file
-                  ? '已保存'
-                  : task
-                    ? task.deliveryMode === 'browser' && task.status === 'completed'
-                      ? delivery?.state === 'failed'
-                        ? delivery.text
-                        : delivery?.state === 'handed'
-                          ? '已发起下载'
-                          : '准备完成'
-                      : downloadStatus(task)
-                    : ''
+                ? '已保存'
+                : task
+                  ? task.deliveryMode === 'browser' && task.status === 'completed'
+                    ? delivery?.state === 'failed'
+                      ? delivery.text
+                      : delivery?.state === 'handed'
+                        ? '已发起下载'
+                        : '准备完成'
+                    : downloadStatus(task)
+                  : ''
             }}
             <template v-if="file">
               · {{ file.format.toUpperCase() }}
@@ -234,7 +237,12 @@ async function copy() {
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
         <div class="download-actions">
-          <button v-if="!file && task?.deliveryMode==='desktop' && task.status==='completed'" @click="emit('reveal')">打开所在文件夹</button>
+          <button
+            v-if="!file && task?.deliveryMode === 'desktop' && task.status === 'completed'"
+            @click="emit('reveal')"
+          >
+            打开所在文件夹
+          </button>
           <button
             v-if="!file && task && ['queued', 'resolving', 'downloading'].includes(task.status)"
             :disabled="pending"
@@ -303,8 +311,9 @@ async function copy() {
           <small
             v-if="copyNotice"
             role="status"
-            >{{ copyNotice }}</small
           >
+            {{ copyNotice }}
+          </small>
         </div>
       </article>
     </ContextMenuTrigger>

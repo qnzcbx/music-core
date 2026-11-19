@@ -103,7 +103,7 @@ function download() {
     />
     <div class="row-identity">
       <div class="cover">
-        <CoverArt :src="song.cover" loading="lazy" />
+        <CoverArt clover-fallback :src="song.cover" loading="lazy" />
         <span
           class="cover-play"
           :data-icon="

@@ -1,0 +1,337 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">
+  <defs>
+    <!-- Morning Sunlit Background Gradient -->
+    <radialGradient id="bgGlow" cx="40%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#fbfff7" />
+      <stop offset="36%" stop-color="#ebfbe4" />
+      <stop offset="74%" stop-color="#d0f0c8" />
+      <stop offset="100%" stop-color="#b0e0ab" />
+    </radialGradient>
+
+    <!-- Silky Sunbeam Gradient -->
+    <linearGradient id="sunBeam" x1="15%" y1="0%" x2="80%" y2="95%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55" />
+      <stop offset="48%" stop-color="#f3ffd6" stop-opacity="0.18" />
+      <stop offset="100%" stop-color="#d4ffaa" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Bokeh Glow -->
+    <radialGradient id="bokehLight" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.72" />
+      <stop offset="55%" stop-color="#e5ffba" stop-opacity="0.24" />
+      <stop offset="100%" stop-color="#c4f59a" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Soft Ground/Ambient Drop Shadow -->
+    <filter id="cloverShadow" x="-20%" y="-20%" width="140%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="blur" />
+      <feOffset dx="8" dy="18" result="offsetBlur" />
+      <feFlood flood-color="#145422" flood-opacity="0.22" result="color" />
+      <feComposite in="color" in2="offsetBlur" operator="in" result="shadow" />
+      <feMerge>
+        <feMergeNode in="shadow" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Subtle Leaflet Overlap Shadow -->
+    <filter id="leafDrop" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur" />
+      <feOffset dx="2" dy="4" result="off" />
+      <feFlood flood-color="#0b4719" flood-opacity="0.28" result="col" />
+      <feComposite in="col" in2="off" operator="in" result="sh" />
+      <feMerge>
+        <feMergeNode in="sh" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Blur Utilities -->
+    <filter id="beamBlur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="20" />
+    </filter>
+    <filter id="softBlur" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3.2" />
+    </filter>
+    <filter id="microBlur" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.3" />
+    </filter>
+    <filter id="dewShadowBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4.5" />
+    </filter>
+
+    <!-- Leaflet Surface Gradients (Sunlit Left Half & Rich Emerald Right Half) -->
+    <linearGradient id="leafLeftGrad" x1="18%" y1="12%" x2="88%" y2="92%">
+      <stop offset="0%" stop-color="#c6f856" />
+      <stop offset="32%" stop-color="#80e23d" />
+      <stop offset="72%" stop-color="#37b637" />
+      <stop offset="100%" stop-color="#197d2c" />
+    </linearGradient>
+
+    <linearGradient id="leafRightGrad" x1="12%" y1="8%" x2="85%" y2="94%">
+      <stop offset="0%" stop-color="#98ec45" />
+      <stop offset="38%" stop-color="#4ac538" />
+      <stop offset="76%" stop-color="#209630" />
+      <stop offset="100%" stop-color="#0f6425" />
+    </linearGradient>
+
+    <!-- Slightly Deeper Variant for Rear Leaflets -->
+    <linearGradient id="leafRearLeft" x1="15%" y1="10%" x2="88%" y2="92%">
+      <stop offset="0%" stop-color="#a8f049" />
+      <stop offset="38%" stop-color="#5bca37" />
+      <stop offset="78%" stop-color="#279c31" />
+      <stop offset="100%" stop-color="#136a26" />
+    </linearGradient>
+
+    <linearGradient id="leafRearRight" x1="15%" y1="10%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#7edc3c" />
+      <stop offset="42%" stop-color="#36ae34" />
+      <stop offset="80%" stop-color="#187e2a" />
+      <stop offset="100%" stop-color="#0c5520" />
+    </linearGradient>
+
+    <!-- Translucent Backlit Leaf Rim Sheen -->
+    <radialGradient id="leafSunTranslucency" cx="35%" cy="22%" r="65%">
+      <stop offset="0%" stop-color="#efff9e" stop-opacity="0.60" />
+      <stop offset="45%" stop-color="#b4f562" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#2ca134" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Natural Clover Chevron Variegation Band -->
+    <linearGradient id="chevronBand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f2ffc2" stop-opacity="0.56" />
+      <stop offset="50%" stop-color="#d7fa9e" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#ebffba" stop-opacity="0.50" />
+    </linearGradient>
+
+    <!-- Central Junction Core Shadow -->
+    <radialGradient id="centerCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0d4e1e" stop-opacity="0.72" />
+      <stop offset="55%" stop-color="#1f7c2c" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#48b83a" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Stem Cylindrical Gradient -->
+    <linearGradient id="stemMain" x1="0%" y1="0%" x2="100%" y2="10%">
+      <stop offset="0%" stop-color="#146425" />
+      <stop offset="28%" stop-color="#3eb336" />
+      <stop offset="52%" stop-color="#a5ee4f" />
+      <stop offset="72%" stop-color="#48b939" />
+      <stop offset="100%" stop-color="#125922" />
+    </linearGradient>
+
+    <linearGradient id="stemHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#e8ffa0" stop-opacity="0.85" />
+      <stop offset="60%" stop-color="#c2f576" stop-opacity="0.38" />
+      <stop offset="100%" stop-color="#7fd948" stop-opacity="0.06" />
+    </linearGradient>
+
+    <!-- Realistic Refractive Dewdrop Gradients -->
+    <radialGradient id="dewBody" cx="34%" cy="28%" r="72%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.40" />
+      <stop offset="30%" stop-color="#e8ffc2" stop-opacity="0.12" />
+      <stop offset="68%" stop-color="#288d30" stop-opacity="0.26" />
+      <stop offset="88%" stop-color="#10571e" stop-opacity="0.52" />
+      <stop offset="100%" stop-color="#dcff80" stop-opacity="0.64" />
+    </radialGradient>
+
+    <radialGradient id="dewCaustic" cx="68%" cy="72%" r="48%">
+      <stop offset="0%" stop-color="#faffc2" stop-opacity="0.98" />
+      <stop offset="48%" stop-color="#ccff6b" stop-opacity="0.65" />
+      <stop offset="100%" stop-color="#84e83a" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Reusable Botanical Heart-Shaped Leaflet Clip -->
+    <clipPath id="leafletClip">
+      <path d="M 0,0 C -14,-24 -76,-64 -102,-124 C -124,-176 -92,-234 -42,-234 C -16,-234 -4,-214 0,-196 C 4,-214 16,-234 42,-234 C 92,-234 124,-176 102,-124 C 76,-64 14,-24 0,0 Z" />
+    </clipPath>
+
+    <!-- Reusable Front Leaflet Component -->
+    <g id="leafletFront">
+      <path d="M 0,0 C -14,-24 -76,-64 -102,-124 C -124,-176 -92,-234 -42,-234 C -16,-234 -4,-214 0,-196 Z" fill="url(#leafLeftGrad)" />
+      <path d="M 0,0 C 14,-24 76,-64 102,-124 C 124,-176 92,-234 42,-234 C 16,-234 4,-214 0,-196 Z" fill="url(#leafRightGrad)" />
+
+      <g clip-path="url(#leafletClip)">
+        <ellipse cx="-32" cy="-168" rx="82" ry="72" fill="url(#leafSunTranslucency)" />
+        <path d="M -98,-126 Q -42,-162 0,-128 Q 42,-162 98,-126 Q 48,-132 0,-104 Q -48,-132 -98,-126 Z" fill="url(#chevronBand)" filter="url(#softBlur)" />
+
+        <path d="M 0,-4 C -1,-62 -1,-132 0,-196" fill="none" stroke="#136824" stroke-width="3.2" stroke-opacity="0.45" stroke-linecap="round" />
+        <path d="M -1.5,-6 C -2.5,-62 -2.2,-132 -1,-195" fill="none" stroke="#e4ff96" stroke-width="1.8" stroke-opacity="0.72" stroke-linecap="round" />
+
+        <g fill="none" stroke="#ddff8c" stroke-linecap="round" stroke-opacity="0.44">
+          <path d="M -1,-34 Q -28,-54 -56,-84" stroke-width="1.35" />
+          <path d="M -1,-62 Q -38,-84 -78,-118" stroke-width="1.45" />
+          <path d="M -1,-92 Q -46,-116 -92,-154" stroke-width="1.4" />
+          <path d="M -1,-124 Q -44,-154 -84,-192" stroke-width="1.3" />
+          <path d="M -1,-156 Q -34,-184 -58,-216" stroke-width="1.15" />
+          <path d="M -1,-178 Q -18,-198 -28,-222" stroke-width="0.95" />
+          <path d="M -42,-92 Q -62,-96 -82,-110" stroke-width="0.8" stroke-opacity="0.34" />
+          <path d="M -48,-126 Q -72,-134 -94,-150" stroke-width="0.8" stroke-opacity="0.34" />
+          <path d="M -42,-162 Q -60,-176 -76,-196" stroke-width="0.75" stroke-opacity="0.32" />
+        </g>
+
+        <g fill="none" stroke="#c8f77e" stroke-linecap="round" stroke-opacity="0.34">
+          <path d="M 1,-34 Q 28,-54 56,-84" stroke-width="1.3" />
+          <path d="M 1,-62 Q 38,-84 78,-118" stroke-width="1.4" />
+          <path d="M 1,-92 Q 46,-116 92,-154" stroke-width="1.35" />
+          <path d="M 1,-124 Q 44,-154 84,-192" stroke-width="1.25" />
+          <path d="M 1,-156 Q 34,-184 58,-216" stroke-width="1.1" />
+          <path d="M 1,-178 Q 18,-198 28,-222" stroke-width="0.9" />
+          <path d="M 42,-92 Q 62,-96 82,-110" stroke-width="0.75" stroke-opacity="0.28" />
+          <path d="M 48,-126 Q 72,-134 94,-150" stroke-width="0.75" stroke-opacity="0.28" />
+          <path d="M 42,-162 Q 60,-176 76,-196" stroke-width="0.7" stroke-opacity="0.26" />
+        </g>
+
+        <path d="M -84,-166 C -80,-206 -46,-222 -24,-214 C -44,-208 -68,-190 -74,-158 Z" fill="#f3ffc4" fill-opacity="0.34" filter="url(#microBlur)" />
+      </g>
+
+      <path d="M 0,0 C -14,-24 -76,-64 -102,-124 C -124,-176 -92,-234 -42,-234 C -16,-234 -4,-214 0,-196 C 4,-214 16,-234 42,-234 C 92,-234 124,-176 102,-124 C 76,-64 14,-24 0,0 Z" fill="none" stroke="#d5ff80" stroke-width="1.4" stroke-opacity="0.54" />
+    </g>
+
+    <!-- Reusable Rear Leaflet Component -->
+    <g id="leafletRear">
+      <path d="M 0,0 C -14,-24 -76,-64 -102,-124 C -124,-176 -92,-234 -42,-234 C -16,-234 -4,-214 0,-196 Z" fill="url(#leafRearLeft)" />
+      <path d="M 0,0 C 14,-24 76,-64 102,-124 C 124,-176 92,-234 42,-234 C 16,-234 4,-214 0,-196 Z" fill="url(#leafRearRight)" />
+      <g clip-path="url(#leafletClip)">
+        <ellipse cx="-26" cy="-164" rx="76" ry="66" fill="url(#leafSunTranslucency)" opacity="0.78" />
+        <path d="M -98,-126 Q -42,-162 0,-128 Q 42,-162 98,-126 Q 48,-132 0,-104 Q -48,-132 -98,-126 Z" fill="url(#chevronBand)" opacity="0.82" filter="url(#softBlur)" />
+        <path d="M 0,-4 C -1,-62 -1,-132 0,-196" fill="none" stroke="#0d541d" stroke-width="3.2" stroke-opacity="0.5" stroke-linecap="round" />
+        <path d="M -1.5,-6 C -2.5,-62 -2.2,-132 -1,-195" fill="none" stroke="#d4ff82" stroke-width="1.5" stroke-opacity="0.58" stroke-linecap="round" />
+        <g fill="none" stroke="#c8f77e" stroke-linecap="round" stroke-opacity="0.34">
+          <path d="M -1,-42 Q -32,-66 -66,-98" stroke-width="1.3" />
+          <path d="M -1,-80 Q -44,-106 -88,-144" stroke-width="1.35" />
+          <path d="M -1,-120 Q -44,-150 -82,-188" stroke-width="1.25" />
+          <path d="M -1,-156 Q -32,-184 -54,-214" stroke-width="1.1" />
+          <path d="M 1,-42 Q 32,-66 66,-98" stroke-width="1.25" />
+          <path d="M 1,-80 Q 44,-106 88,-144" stroke-width="1.3" />
+          <path d="M 1,-120 Q 44,-150 82,-188" stroke-width="1.2" />
+          <path d="M 1,-156 Q 32,-184 54,-214" stroke-width="1.05" />
+        </g>
+      </g>
+      <path d="M 0,0 C -14,-24 -76,-64 -102,-124 C -124,-176 -92,-234 -42,-234 C -16,-234 -4,-214 0,-196 C 4,-214 16,-234 42,-234 C 92,-234 124,-176 102,-124 C 76,-64 14,-24 0,0 Z" fill="none" stroke="#bcf56c" stroke-width="1.2" stroke-opacity="0.44" />
+    </g>
+
+    <!-- Reusable Crystal Morning Dewdrop -->
+    <g id="dewdropRound">
+      <ellipse cx="4.5" cy="7.5" rx="17" ry="14" fill="#093f16" fill-opacity="0.42" filter="url(#dewShadowBlur)" />
+      <ellipse cx="4.5" cy="5.5" rx="11.5" ry="9.5" fill="url(#dewCaustic)" filter="url(#microBlur)" />
+      <ellipse cx="0" cy="0" rx="16.5" ry="15" fill="url(#dewBody)" stroke="#e9ffba" stroke-width="0.8" stroke-opacity="0.58" />
+      <path d="M -5,11 C 3,14 12,10 13.5,1 C 11,7 4,10.5 -5,11 Z" fill="#f8ffbf" fill-opacity="0.90" filter="url(#microBlur)" />
+      <ellipse cx="-6.2" cy="-5.8" rx="5.2" ry="3.1" transform="rotate(-34 -6.2 -5.8)" fill="#ffffff" fill-opacity="0.96" />
+      <circle cx="-1.2" cy="-9.2" r="1.5" fill="#ffffff" fill-opacity="0.84" />
+      <circle cx="8.2" cy="6.2" r="1.4" fill="#ffffff" fill-opacity="0.68" />
+    </g>
+
+    <!-- Ultra-Delicate Needle-Fine Morning Sun Glint -->
+    <g id="sunGlint">
+      <circle cx="0" cy="0" r="4.5" fill="#ffffff" fill-opacity="0.55" filter="url(#softBlur)" />
+      <path d="M 0,-15 Q 0.45,-0.45 15,0 Q 0.45,0.45 0,15 Q -0.45,0.45 -15,0 Q -0.45,-0.45 0,-15 Z" fill="#ffffff" fill-opacity="0.92" />
+      <path d="M -6,-6 Q 0,-0.3 6,6 Q 0,0.3 -6,-6 Z M 6,-6 Q 0.3,0 -6,6 Q -0.3,0 6,-6 Z" fill="#ffffff" fill-opacity="0.55" />
+    </g>
+  </defs>
+
+  <!-- 1. LUMINOUS SUNLIT MORNING BACKDROP -->
+  <rect width="800" height="800" fill="url(#bgGlow)" />
+
+  <!-- Silky Soft-Blurred Diagonal Morning Light Shafts -->
+  <g filter="url(#beamBlur)" opacity="0.78">
+    <polygon points="-40,-40 280,-40 620,840 180,840" fill="url(#sunBeam)" />
+    <polygon points="150,-40 420,-40 820,660 520,840" fill="url(#sunBeam)" opacity="0.65" />
+  </g>
+
+  <!-- Floating Dewy Sunlit Bokeh Orbs -->
+  <g>
+    <circle cx="130" cy="135" r="78" fill="url(#bokehLight)" />
+    <circle cx="680" cy="165" r="58" fill="url(#bokehLight)" opacity="0.8" />
+    <circle cx="655" cy="645" r="92" fill="url(#bokehLight)" opacity="0.72" />
+    <circle cx="145" cy="615" r="54" fill="url(#bokehLight)" opacity="0.65" />
+    <circle cx="255" cy="82" r="28" fill="url(#bokehLight)" opacity="0.9" />
+    <circle cx="575" cy="96" r="24" fill="url(#bokehLight)" opacity="0.75" />
+  </g>
+
+  <!-- 2. HERO FOUR-LEAF CLOVER CENTERED WITH FULL GRACEFUL STEM -->
+  <g filter="url(#cloverShadow)">
+    <!-- Graceful S-Curved Verdant Stem (Petiole) from (405, 342) cleanly down to (306, 718) -->
+    <g id="cloverStem">
+      <path d="M 406,344 C 414,424 404,516 374,598 C 356,646 334,682 306,718" fill="none" stroke="url(#stemMain)" stroke-width="15" stroke-linecap="round" />
+      <path d="M 411,348 C 419,426 409,518 379,600 C 361,648 339,684 311,720" fill="none" stroke="#0d4a1b" stroke-width="3.2" stroke-opacity="0.34" stroke-linecap="round" />
+      <path d="M 402,346 C 409,424 399,514 369,596 C 352,642 331,677 304,712" fill="none" stroke="url(#stemHighlight)" stroke-width="4.2" stroke-linecap="round" />
+      <!-- Freshly cut translucent stem tip -->
+      <ellipse cx="306" cy="718" rx="7.4" ry="3.8" transform="rotate(34 306 718)" fill="#8ce052" stroke="#1b742a" stroke-width="1.2" />
+      <ellipse cx="305.5" cy="717.5" rx="3.4" ry="1.6" transform="rotate(34 305.5 717.5)" fill="#e8ffad" fill-opacity="0.75" />
+    </g>
+
+    <!-- FOUR HEART-SHAPED LEAFLETS RADIATING FROM (405, 342) -->
+    <!-- Rear Leaflet 1: Upper-Right -->
+    <g transform="translate(405, 342) rotate(43) scale(0.95, 0.97)" filter="url(#leafDrop)">
+      <use href="#leafletRear" />
+    </g>
+
+    <!-- Rear Leaflet 2: Lower-Left -->
+    <g transform="translate(405, 342) rotate(-136) scale(0.96, 0.98)" filter="url(#leafDrop)">
+      <use href="#leafletRear" />
+    </g>
+
+    <!-- Front Leaflet 3: Lower-Right -->
+    <g transform="translate(405, 342) rotate(132) scale(0.92, 0.95)" filter="url(#leafDrop)">
+      <use href="#leafletFront" />
+    </g>
+
+    <!-- Front Leaflet 4: Upper-Left Hero Sunlit Leaflet -->
+    <g transform="translate(405, 342) rotate(-46) scale(1.01, 1.01)" filter="url(#leafDrop)">
+      <use href="#leafletFront" />
+    </g>
+
+    <!-- Central Petiole Junction Core -->
+    <circle cx="405" cy="342" r="24" fill="url(#centerCore)" />
+    <circle cx="405" cy="342" r="9.2" fill="#46ba38" stroke="#c8ff78" stroke-width="1.2" stroke-opacity="0.72" />
+    <circle cx="402.5" cy="339.5" r="3.4" fill="#eeffb3" fill-opacity="0.90" />
+
+    <!-- 3. CRYSTAL-CLEAR MORNING DEWDROPS ("青翠欲滴") -->
+    <!-- Hero Plump Dewdrop on Upper-Left Sunlit Leaflet -->
+    <g transform="translate(278, 206) rotate(-18) scale(1.34)">
+      <use href="#dewdropRound" />
+    </g>
+    <!-- Companion Small Bead beside it -->
+    <g transform="translate(245, 236) rotate(-10) scale(0.56)">
+      <use href="#dewdropRound" />
+    </g>
+
+    <!-- Glistening Dewdrop on Upper-Right Leaflet -->
+    <g transform="translate(530, 194) rotate(12) scale(0.94)">
+      <use href="#dewdropRound" />
+    </g>
+    <!-- Tiny Micro Bead near Upper-Right Lobe -->
+    <g transform="translate(562, 228) scale(0.42)">
+      <use href="#dewdropRound" />
+    </g>
+
+    <!-- Dewdrop on Lower-Left Leaflet -->
+    <g transform="translate(270, 452) rotate(-25) scale(1.02)">
+      <use href="#dewdropRound" />
+    </g>
+
+    <!-- Signature "欲滴" Teardrop Clinging to & Hanging Off the Tip of the Lower-Right Leaflet! -->
+    <g transform="translate(556, 514)">
+      <ellipse cx="4" cy="14" rx="13" ry="18" fill="#0d4a1b" fill-opacity="0.24" filter="url(#dewShadowBlur)" />
+      <ellipse cx="2" cy="13" rx="10" ry="11" fill="url(#dewCaustic)" filter="url(#microBlur)" />
+      <path d="M 0,-25 C 2,-11 15,2 15,15 C 15,24.5 8.5,31 0,31 C -8.5,31 -15,24.5 -15,15 C -15,2 -2,-11 0,-25 Z" fill="url(#dewBody)" stroke="#ebffc2" stroke-width="1" stroke-opacity="0.68" />
+      <path d="M -8,22 C -2,29 8,27 11,17 C 8,22.5 1,25 -8,22 Z" fill="#f9ffc4" fill-opacity="0.94" filter="url(#microBlur)" />
+      <ellipse cx="-5.5" cy="9" rx="4.0" ry="7.2" transform="rotate(-14 -5.5 9)" fill="#ffffff" fill-opacity="0.96" />
+      <circle cx="-1.5" cy="-2" r="1.5" fill="#ffffff" fill-opacity="0.82" />
+    </g>
+
+    <!-- Tiny Glistening Drop Clinging to the Curving Stem -->
+    <g transform="translate(384, 566) rotate(22) scale(0.54)">
+      <use href="#dewdropRound" />
+    </g>
+  </g>
+
+  <!-- 4. DELICATE NEEDLE-FINE MORNING SUNLIGHT GLINTS -->
+  <g>
+    <use href="#sunGlint" transform="translate(270, 198) scale(1.0)" />
+    <use href="#sunGlint" transform="translate(550, 521) scale(0.92)" />
+    <use href="#sunGlint" transform="translate(524, 188) scale(0.72)" />
+    <use href="#sunGlint" transform="translate(264, 446) scale(0.65)" />
+  </g>
+</svg>

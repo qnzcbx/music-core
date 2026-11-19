@@ -57,7 +57,7 @@ watch(
     paintedRevision = -1;
     schedule();
   },
-  { immediate: true },
+  { immediate: true, flush: "sync" },
 );
 onMounted(() => {
   observer = new ResizeObserver(schedule);

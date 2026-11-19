@@ -15,7 +15,7 @@ export function useCoverPalette(cover: Readonly<Ref<string | null | undefined>>)
     (url) => {
       void selection.select(url);
     },
-    { immediate: true },
+    { immediate: true, flush: "sync" },
   );
   onUnmounted(selection.dispose);
   return readonly(palette);

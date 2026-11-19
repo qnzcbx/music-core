@@ -178,6 +178,7 @@ async function remove() {
             aria-hidden="true"
           >
             <CoverArt
+              clover-fallback
               :src="song.cover"
               loading="lazy"
             />
@@ -332,9 +333,9 @@ async function remove() {
             }
           "
         >
-          <AlertDialogTitle>{{
-            removal?.recordId ? '删除下载记录？' : '移除本地歌曲？'
-          }}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {{ removal?.recordId ? '删除下载记录？' : '移除本地歌曲？' }}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             「{{ removal ? filename(removal) : '' }}」将从本地歌曲和下载歌曲中移除。
           </AlertDialogDescription>

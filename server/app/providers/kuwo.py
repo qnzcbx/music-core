@@ -53,10 +53,14 @@ def candidate_from(raw: dict) -> SongCandidate | None:
             duration = None
     except (TypeError, ValueError):
         duration = None
-    cover = raw.get('hts_MVPIC') or raw.get('albumpic') or raw.get('pic')
-    if not isinstance(cover, str) or not cover.startswith(('http://', 'https://')):
-        cover = None
+    cover = next((value for field in ('hts_MVPIC', 'albumpic', 'pic')
+                  if isinstance(value := raw.get(field), str) and value.startswith(('http://', 'https://'))), None)
     album = raw.get('ALBUM') or raw.get('album')
+    short = raw.get('web_albumpic_short')
+    if cover is None and isinstance(short, str) and re.fullmatch(
+        r'[0-9]{1,4}/[A-Za-z0-9]{1,24}/[0-9]{1,8}/[0-9]{1,24}\.jpg', short
+    ):
+        cover = f'https://img1.kuwo.cn/star/albumcover/{short}'
     try:
         return SongCandidate(identity=TrackIdentity(providerId='kuwo', platformId=str(pid).removeprefix('MUSIC_')),
             title=html.unescape(title), artists=artists, album=html.unescape(album) if isinstance(album,str) and album else None,

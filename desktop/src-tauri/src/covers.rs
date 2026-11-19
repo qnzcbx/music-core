@@ -67,28 +67,32 @@ pub fn valid_url(source: &str, value: &str) -> bool {
         _ => false,
     }
 }
+fn display_url(source: &str, url: &str) -> Option<reqwest::Url> {
+    if !valid_url(source, url) {
+        return None;
+    }
+    // 老搜索响应中的 HTTP 封面统一通过同一已确认 CDN 的 HTTPS 请求。
+    let mut parsed = reqwest::Url::parse(url).ok()?;
+    parsed.set_scheme("https").ok()?;
+    // 网易云原图可能超过代理的 2 MiB 限制。搜索和播放器共用 500px 缩略图。
+    if source == "netease" {
+        let query: Vec<_> = parsed
+            .query_pairs()
+            .filter(|(key, _)| key != "param")
+            .into_iter()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        parsed.set_query(None);
+        parsed
+            .query_pairs_mut()
+            .extend_pairs(query)
+            .append_pair("param", "500y500");
+    }
+    Some(parsed)
+}
 impl Covers {
     pub fn register(&self, source: &str, url: &str, port: u16) -> Option<String> {
-        if !valid_url(source, url) {
-            return None;
-        }
-        // 老搜索响应中的 HTTP 封面统一通过同一已确认 CDN 的 HTTPS 请求。
-        let mut parsed = reqwest::Url::parse(url).ok()?;
-        parsed.set_scheme("https").ok()?;
-        // 网易云原图可能超过代理的 2 MiB 限制。搜索和播放器共用 500px 缩略图。
-        if source == "netease" {
-            let query: Vec<_> = parsed
-                .query_pairs()
-                .filter(|(key, _)| key != "param")
-                .into_iter()
-                .map(|(k, v)| (k.into_owned(), v.into_owned()))
-                .collect();
-            parsed.set_query(None);
-            parsed
-                .query_pairs_mut()
-                .extend_pairs(query)
-                .append_pair("param", "500y500");
-        }
+        let parsed = display_url(source, url)?;
         let url = parsed.as_str();
         let mut entries = self.0.lock().unwrap();
         entries.retain(|_, entry| entry.created.elapsed() < Duration::from_secs(3600));
@@ -115,17 +119,21 @@ impl Covers {
         );
         Some(format!("http://127.0.0.1:{port}/covers/{id}"))
     }
-    pub fn map_page(&self, page: &mut serde_json::Value, port: u16) {
+    pub fn register_palette(&self, url: &str, port: u16) -> Option<String> {
+        if url.len() > 2048 || !url.starts_with("https://") {
+            return None;
+        }
+        ["qq", "netease", "kuwo", "migu"]
+            .iter()
+            .find_map(|source| self.register(source, url, port))
+    }
+    pub fn map_page(page: &mut serde_json::Value) {
         if let Some(items) = page["items"].as_array_mut() {
             for item in items {
                 let cover = item["cover"].as_str().and_then(|url| {
-                    self.register(
-                        item["identity"]["providerId"].as_str().unwrap_or(""),
-                        url,
-                        port,
-                    )
+                    display_url(item["identity"]["providerId"].as_str().unwrap_or(""), url)
                 });
-                item["cover"] = serde_json::json!(cover);
+                item["cover"] = serde_json::json!(cover.map(|url| url.to_string()));
             }
         }
     }
@@ -243,6 +251,33 @@ mod tests {
             entries.values().next().unwrap().url,
             format!("{}?param=500y500", url.replacen("http:", "https:", 1))
         );
+    }
+    #[test]
+    fn search_keeps_cdn_addresses_without_registering_them() {
+        let covers = Covers::default();
+        let qq = "https://y.gtimg.cn/music/photo_new/T002R500x500M000000lqMaM0HR7AF.jpg";
+        let mut page = serde_json::json!({"items":[
+            {"identity":{"providerId":"qq"},"cover":qq},
+            {"identity":{"providerId":"netease"},"cover":"http://p2.music.126.net/a.jpg?param=100y100"},
+            {"identity":{"providerId":"qq"},"cover":null},
+            {"identity":{"providerId":"qq"},"cover":"https://evil.example/a.jpg"}
+        ]});
+        Covers::map_page(&mut page);
+        assert_eq!(page["items"][0]["cover"], qq);
+        assert_eq!(
+            page["items"][1]["cover"],
+            "https://p2.music.126.net/a.jpg?param=500y500"
+        );
+        assert!(page["items"][2]["cover"].is_null());
+        assert!(page["items"][3]["cover"].is_null());
+        assert!(covers.0.lock().unwrap().is_empty());
+        assert!(covers
+            .register_palette("https://evil.example/a.jpg", 1234)
+            .is_none());
+        assert!(covers
+            .register_palette(qq, 1234)
+            .unwrap()
+            .starts_with("http://127.0.0.1:1234/covers/"));
     }
     #[tokio::test]
     async fn cached_image_reads_share_one_upstream_request() {

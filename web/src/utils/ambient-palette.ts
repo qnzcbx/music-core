@@ -1,3 +1,5 @@
+import { CLOVER_COVER } from './displayed-cover.ts';
+import { apiFetch, isDesktop } from '../api/transport.ts';
 export type RGB = readonly [number, number, number];
 export interface AmbientPalette {
   key: string;
@@ -108,6 +110,15 @@ export function coverReadUrl(value:string):string|null {
   try{const url=new URL(value);if(url.protocol==='https:'&&['y.gtimg.cn','d.musicapp.migu.cn'].includes(url.hostname))return '/api/covers?url='+encodeURIComponent(value);}catch{/* 无效地址由图片加载器报告。 */}
   return null;
 }
+async function paletteRelayUrl(value: string): Promise<string | null> {
+  if (!isDesktop) return coverReadUrl(value);
+  if (!value.startsWith('https://')) return null;
+  const response = await apiFetch('/api/covers/palette', { method: 'POST', body: JSON.stringify({url: value}) });
+  if (!response.ok) return null;
+  const result = await response.json();
+  return typeof result?.url === 'string' && /^http:\/\/127\.0\.0\.1:\d+\/covers\/[a-f0-9]{32}$/.test(result.url)
+    ? result.url : null;
+}
 function readPixels(url:string,anonymous=true,timeoutMs=4500,sample?: (image:HTMLImageElement)=>RGB[]):Promise<RGB[]> {
   return new Promise((resolve,reject)=>{
     const image=new Image();if(anonymous)image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';image.decoding='async';
@@ -135,11 +146,12 @@ export async function extractWithDiagnostic(url:string,sample?: (image:HTMLImage
   try{return {colors:await readPixels(url,true,4500,sample),diagnostic:{status:'success',via:'direct' as const}};}
   catch(first){
     let failure=first;
-    const relay=coverReadUrl(url);
+    const canRelay=url !== CLOVER_COVER && (isDesktop || !!coverReadUrl(url));
     // 匿名加载失败时，区分“展示也失败”和“可展示但像素被跨域保护”。
-    if(relay&&first instanceof CoverPaletteError&&first.stage==='image-request-failed'){
+    if(canRelay&&first instanceof CoverPaletteError&&first.stage==='image-request-failed'){
       try{return {colors:await readPixels(url,false,4500,sample),diagnostic:{status:'success',via:'direct' as const}};}catch(probe){failure=probe;}
     }
+    const relay=canRelay ? await paletteRelayUrl(url).catch(() => null) : null;
     if(!relay)throw failure;
     try{return {colors:await readPixels(relay,true,10000,sample),diagnostic:{status:'success',via:'relay' as const,initialFailure:failure instanceof CoverPaletteError?failure.stage:'image-request-failed'}};}
     catch(error){throw new CoverPaletteError('relay-'+(error instanceof CoverPaletteError?error.stage:'image-request-failed'));}

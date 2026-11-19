@@ -175,3 +175,11 @@ def test_api_upstream_sanitization():
         response=c.post('/api/search',json={'providerId':'kuwo','query':'歌'})
         assert response.status_code==502
         assert 'synthetic-sensitive' not in response.text
+
+
+def test_search_cover_uses_kuwo_album_path_when_absolute_cover_is_missing():
+    short = '120/s4s50/91/3189617145.jpg'
+    row = {**ROW, 'hts_MVPIC': '', 'albumpic': 'invalid', 'pic': None, 'web_albumpic_short': short}
+    assert str(candidate_from(row).cover) == 'https://img1.kuwo.cn/star/albumcover/' + short
+    assert str(candidate_from({**row, 'pic': 'https://img1.kuwo.cn/test.jpg'}).cover) == 'https://img1.kuwo.cn/test.jpg'
+    assert candidate_from({**row, 'web_albumpic_short': '../test.jpg'}).cover is None

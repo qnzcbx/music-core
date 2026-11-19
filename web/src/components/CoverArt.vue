@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-const props = defineProps<{ src?: string | null; alt?: string; loading?: "lazy" | "eager" }>();
+import { computed, ref, watch } from "vue";
+import { CLOVER_COVER, displayedCover } from '../utils/displayed-cover';
+const emit = defineEmits<{ displayed: [url: string | null] }>();
+const props = defineProps<{ src?: string | null; cloverFallback?: boolean; alt?: string; loading?: "lazy" | "eager" }>();
+const fallbackLoaded = ref(false);
 const failed = ref(false),
   loaded = ref(false);
 watch(
@@ -9,11 +12,19 @@ watch(
     failed.value = false;
     loaded.value = false;
   },
+  { flush: "sync" },
 );
+const displayed = computed(() => displayedCover(props.src, loaded.value ? 'loaded' : failed.value ? 'failed' : 'pending',
+  !!props.cloverFallback, fallbackLoaded.value));
+watch(displayed, url => emit('displayed', url), { immediate: true });
 </script>
 <template>
   <span class="cover-art">
-    <span class="cover-fallback" aria-hidden="true"><span>♫</span></span>
+    <span class="cover-fallback" aria-hidden="true">
+      <img v-if="cloverFallback && !loaded" class="clover-placeholder"
+        :src="CLOVER_COVER" alt="" :loading="loading" @load="fallbackLoaded = true" />
+      <span v-else>♫</span>
+    </span>
     <img
       :key="src ?? ''"
       v-if="src && !failed"
@@ -55,7 +66,7 @@ img {
   object-fit: cover;
   opacity: 0;
 }
-img.cover-loaded {
+img.cover-loaded, img.clover-placeholder {
   opacity: 1;
 }
 </style>

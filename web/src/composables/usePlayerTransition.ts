@@ -16,7 +16,6 @@ import { Flip } from "gsap/Flip";
 import type { PlayableSong as Song } from "../types/music";
 import { isPlayerPath } from "../utils/player-view-song";
 import { useReducedMotion } from "./useReducedMotion";
-import { useCoverPalette } from "./useCoverPalette";
 import { isPlayerLayout, isLyricAlignment, startPlayerLayoutSelection } from "../appearance/player-layout";
 import { createPlayerLayoutTransition, type PlayerVisualPhase } from "./playerLayoutTransition";
 gsap.registerPlugin(Flip);
@@ -25,7 +24,6 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
   const router = useRouter();
   const reduced = useReducedMotion();
   const immersive = computed(() => isPlayerPath(router.currentRoute.value.path));
-  const palette = useCoverPalette(computed(() => current.value?.cover));
   const phase = ref<PlayerVisualPhase>("idle"),
     miniHeight = ref(116);
   const selection = startPlayerLayoutSelection();
@@ -351,7 +349,6 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
   return {
     immersive,
     phase,
-    palette,
     backgroundMode: selection.backgroundMode,
     selectBackground: selection.selectBackground,
     ringPreset: selection.ringPreset,

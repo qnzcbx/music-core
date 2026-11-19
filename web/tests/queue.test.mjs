@@ -110,3 +110,15 @@ test('清空整个队列在打开中停止，旧请求晚到不能恢复队列�
  await f.queue.clear();assert.equal(f.stops.length,1);assert.equal(f.queue.current.value,null);assert.deepEqual(f.queue.entries.value,[]);
  release();await opening;assert.deepEqual(f.queue.navigation.history,[]);assert.deepEqual(JSON.parse(raw).queue,[]);f.close();
 });
+
+test('online queue discards expired desktop relay URLs but preserves the track and stable cover',()=>{
+ let raw;const f=fixture({getItem:()=>null,setItem:(_key,value)=>{raw=value;}});
+ const stale='http://127.0.0.1:4321/covers/0123456789abcdef0123456789abcdef';
+ const stable='https://y.gtimg.cn/music/photo_new/T002R500x500M000000lqMaM0HR7AF.jpg';
+ f.queue.add({...song('12'),cover:stale});f.queue.add({...song('13'),cover:stable});
+ assert.equal(raw.includes(stale),false);
+ const old=JSON.parse(raw);old.queue[0].metadata.cover=stale;
+ const restored=decodePlayer(JSON.stringify(old)).value.queue;
+ assert.deepEqual(restored.map(row=>[row.track.platformId,row.metadata.cover]),[['12',null],['13',stable]]);
+ f.close();
+});

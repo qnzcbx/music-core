@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod covers;
+mod desktop_lyrics;
 mod download_history;
 mod download_media;
 mod download_resolver;
@@ -35,8 +36,16 @@ async fn desktop_request(
         "/api/search" => {
             let mut page = provider::search(&state.client, &body).await?;
             state.downloads.register(&mut page);
-            state.covers.map_page(&mut page, state.port);
+            covers::Covers::map_page(&mut page);
             Ok(page)
+        }
+        "/api/covers/palette" => {
+            let url = body["url"].as_str().ok_or("封面地址无效")?;
+            let relay = state
+                .covers
+                .register_palette(url, state.port)
+                .ok_or("封面地址不支持代理")?;
+            Ok(json!({"url": relay}))
         }
         "/api/lyrics" => lyrics::get(&state.client, &body).await,
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),
@@ -198,7 +207,22 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![desktop_request])
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(lyrics) = window.get_webview_window("desktop-lyrics") {
+                    let _ = lyrics.destroy();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            desktop_request,
+            desktop_lyrics::toggle_desktop_lyrics,
+            desktop_lyrics::place_desktop_lyrics,
+            desktop_lyrics::show_desktop_lyrics,
+            desktop_lyrics::toggle_desktop_lyrics_settings,
+            desktop_lyrics::desktop_lyrics_settings_window,
+            desktop_lyrics::close_desktop_lyrics
+        ])
         .build(tauri::generate_context!())
         .expect("桌面应用初始化失败")
         .run(|app, event| {
