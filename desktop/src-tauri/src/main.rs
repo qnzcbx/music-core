@@ -36,8 +36,16 @@ async fn desktop_request(
         "/api/search" => {
             let mut page = provider::search(&state.client, &body).await?;
             state.downloads.register(&mut page);
-            state.covers.map_page(&mut page, state.port);
+            covers::Covers::map_page(&mut page);
             Ok(page)
+        }
+        "/api/covers/palette" => {
+            let url = body["url"].as_str().ok_or("封面地址无效")?;
+            let relay = state
+                .covers
+                .register_palette(url, state.port)
+                .ok_or("封面地址不支持代理")?;
+            Ok(json!({"url": relay}))
         }
         "/api/lyrics" => lyrics::get(&state.client, &body).await,
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),

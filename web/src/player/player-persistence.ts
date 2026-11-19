@@ -18,11 +18,14 @@ const text = (value: unknown, fallback = '', limit = 200) =>
   typeof value === 'string'
     ? value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, limit) || fallback
     : fallback;
-function cover(value: unknown): string | null {
+function cover(value: unknown, online = false): string | null {
   if (typeof value !== 'string' || value.length > 2048) return null;
   try {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    // Desktop relay URLs belong to one process; keep online queue entries without stale art.
+    if (online && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && url.pathname.startsWith('/covers/'))
+      return null;
     let credential = false;
     url.searchParams.forEach((_value, key) => {
       if (/cookie|auth|token|signature|headers|^sign$|^key$/i.test(key)) credential = true;
@@ -123,7 +126,7 @@ function normalize(input: ObjectValue): PersistedPlayer {
           meta.durationSeconds <= 86400
             ? meta.durationSeconds
             : null,
-        cover: cover(meta.cover),
+        cover: cover(meta.cover, true),
       },
     });
   }
