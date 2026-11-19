@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useIntersectionObserver } from '@vueuse/core';
 import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -40,6 +41,20 @@ const visibleSongs = computed(() => {
     [song.title, song.artist].some((value) => value.toLowerCase().includes(search)),
   );
 });
+const pageSize = 48;
+const renderedCount = ref(pageSize);
+const listEnd = ref<HTMLElement>();
+const scrollRoot = computed(() => listEnd.value?.closest<HTMLElement>("#app-content"));
+const renderedSongs = computed(() => visibleSongs.value.slice(0, renderedCount.value));
+const hasMoreSongs = computed(() => visibleSongs.value.length > renderedCount.value);
+function showMoreSongs() {
+  if (hasMoreSongs.value)
+    renderedCount.value = Math.min(renderedCount.value + pageSize, visibleSongs.value.length);
+}
+watch([() => props.tab, () => query.value.trim()], () => { renderedCount.value = pageSize; });
+useIntersectionObserver(listEnd, ([entry]) => {
+  if (entry?.isIntersecting) showMoreSongs();
+}, { root: scrollRoot, rootMargin: '0px 0px 240px 0px' });
 const empty = computed(() => loaded.value && !songs.value.length);
 const busy = ref(false);
 const loaded = ref(false);
@@ -287,13 +302,17 @@ watch(
       没有找到匹配的本地歌曲
     </p>
     <DesktopSongList
-      :songs="visibleSongs"
+      :songs="renderedSongs"
       @removed="refresh()"
     />
+    <div v-if="hasMoreSongs" ref="listEnd" class="local-list-end">
+      <button type="button" @click="showMoreSongs">显示更多歌曲</button>
+    </div>
   </section>
 </template>
 
 <style scoped>
+.local-list-end { padding: 12px 0; text-align: center; }
 .local-toolbar {
   padding: 0 0 12px;
 }
