@@ -8,6 +8,7 @@ mod downloads;
 mod fallback;
 mod local_library;
 mod lyrics;
+mod media_cache;
 mod provider;
 mod sessions;
 mod transcode;
@@ -35,8 +36,8 @@ async fn desktop_request(
         "/api/providers" => Ok(provider::catalog()),
         "/api/search" => {
             let mut page = provider::search(&state.client, &body).await?;
-            state.downloads.register(&mut page);
             covers::Covers::map_page(&mut page);
+            state.downloads.register(&mut page);
             Ok(page)
         }
         "/api/covers/palette" => {
@@ -47,7 +48,30 @@ async fn desktop_request(
                 .ok_or("封面地址不支持代理")?;
             Ok(json!({"url": relay}))
         }
-        "/api/lyrics" => lyrics::get(&state.client, &body).await,
+        "/api/lyrics" => match &state.covers.1 {
+            Some(cache) => cache.lyrics(&state.client, &body).await,
+            None => lyrics::get(&state.client, &body).await,
+        },
+        "/api/media-cache/cover" => {
+            let cover = match &state.covers.1 {
+                Some(cache) => {
+                    cache
+                        .cover(
+                            &state.covers,
+                            &body["identity"],
+                            body["cover"].as_str(),
+                            state.port,
+                        )
+                        .await
+                }
+                None => None,
+            };
+            Ok(json!({"cover":cover}))
+        }
+        "/api/media-cache/clear" => {
+            state.downloads.clear_media_cache()?;
+            Ok(Value::Null)
+        }
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),
         "/api/downloads" => {
             if body.is_null() {
@@ -90,6 +114,22 @@ async fn desktop_request(
                 return Ok(Value::Null);
             }
             let file = song.playback_path()?;
+            let track = song.download_identity.as_ref();
+            let cache = state.covers.1.as_ref();
+            let cover = track.and_then(|track| cache?.cached_for_track(track, state.port));
+            let lyrics = track.and_then(|track| cache?.cached_lyrics(track));
+            if path == "/api/local-library/open" && (cover.is_none() || lyrics.is_none()) {
+                if let (Some(track), Some(cache)) = (track.cloned(), cache.cloned()) {
+                    let (client, covers, port) =
+                        (state.client.clone(), state.covers.clone(), state.port);
+                    tauri::async_runtime::spawn(async move {
+                        let _ = tokio::join!(
+                            cache.cover(&covers, &track, None, port),
+                            cache.lyrics(&client, &track)
+                        );
+                    });
+                }
+            }
             if path == "/api/local-library/reveal" {
                 downloads::reveal_file(&file)?;
                 return Ok(Value::Null);
@@ -101,7 +141,7 @@ async fn desktop_request(
             };
             let id = state.sessions.insert_local(file, mime);
             Ok(
-                json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port)}),
+                json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port),"cover":cover,"lyrics":lyrics}),
             )
         }
         "/api/playback/open" => {
@@ -168,7 +208,13 @@ fn main() {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .read_timeout(std::time::Duration::from_secs(30))
                 .build()?;
-            let covers = covers::Covers::default();
+            let mut covers = covers::Covers::default();
+            covers.1 =
+                media_cache::MediaCache::open(&app.path().app_data_dir()?.join("media-cache"))
+                    .map_err(|error| {
+                        eprintln!("桌面媒体缓存不可用: {error}");
+                    })
+                    .ok();
             let port = tauri::async_runtime::block_on(transport::start_with_covers(
                 transport::Transport {
                     sessions: sessions.clone(),
@@ -188,7 +234,7 @@ fn main() {
                 client,
                 port,
                 fallbacks,
-                covers,
+                covers: covers.clone(),
                 library: std::sync::Arc::new(std::sync::Mutex::new(
                     local_library::Library::open(
                         app.path().app_config_dir()?.join("desktop-library.json"),
@@ -201,6 +247,7 @@ fn main() {
                         app.path().audio_dir()?.join("拾音"),
                     )
                     .map_err(std::io::Error::other)?;
+                    downloads.media_covers = covers.clone();
                     downloads.tools_dir = Some(app.path().resource_dir()?.join("tools"));
                     downloads
                 },
