@@ -219,6 +219,8 @@ fn main() {
             desktop_lyrics::toggle_desktop_lyrics,
             desktop_lyrics::place_desktop_lyrics,
             desktop_lyrics::show_desktop_lyrics,
+            desktop_lyrics::toggle_desktop_lyrics_settings,
+            desktop_lyrics::desktop_lyrics_settings_window,
             desktop_lyrics::close_desktop_lyrics
         ])
         .build(tauri::generate_context!())
