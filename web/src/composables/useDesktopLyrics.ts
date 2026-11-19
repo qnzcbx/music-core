@@ -22,7 +22,7 @@ export const desktopLyrics = { open: readonly(open), pending: readonly(pending),
   finally { pending.value = false; }
 } };
 
-export function publishDesktopLyrics(player: ReturnType<typeof usePlayer>, lyrics: ReturnType<typeof useLyrics>) {
+export function publishDesktopLyrics(player: ReturnType<typeof usePlayer>, lyrics: {state: Readonly<ReturnType<typeof useLyrics>["state"]>}) {
   if (!isDesktop || !bridge) return;
   const channel = new BroadcastChannel(lyricChannel);
   const playback = computed<DesktopPlayback>(() => ({
@@ -34,7 +34,7 @@ export function publishDesktopLyrics(player: ReturnType<typeof usePlayer>, lyric
   }));
   const data = computed(() => {
     const song = player.selected.value;
-    return JSON.stringify(lyricSnapshot(song && !isLocalSong(song) ? trackIdentity(song) : null,
+    return JSON.stringify(lyricSnapshot(song ? isLocalSong(song) ? lyrics.state.value.document?.identity ?? null : trackIdentity(song) : null,
       lyrics.state.value.document, player.time.value));
   });
   let sequence = 0, disposed = false, unlisten: (()=>void) | undefined;

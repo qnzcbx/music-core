@@ -24,6 +24,7 @@ fn now() -> u64 {
 #[derive(Clone)]
 struct Recording {
     quality: String,
+    cover: Option<String>,
     identity: Value,
     title: String,
     artist: String,
@@ -98,6 +99,7 @@ pub struct Downloads {
     settings_path: Option<PathBuf>,
     pub tools_dir: Option<PathBuf>,
     history: Option<Arc<Mutex<crate::download_history::History>>>,
+    pub media_covers: crate::covers::Covers,
 }
 fn key(identity: &Value) -> String {
     format!(
@@ -428,6 +430,18 @@ impl Downloads {
         Ok(downloads)
     }
 
+    pub fn clear_media_cache(&self, scope: crate::media_cache::ClearScope) -> Result<(), String> {
+        let cache = self.media_covers.1.as_ref().ok_or("媒体缓存不可用")?;
+        let history = self
+            .history
+            .as_ref()
+            .ok_or("下载记录不可用")?
+            .lock()
+            .unwrap();
+        cache
+            .clear(&history.list(), scope)
+            .map_err(|_| "媒体缓存清理失败".into())
+    }
     pub fn saved(&self) -> Result<Value, String> {
         Ok(json!(self.saved_records()?))
     }
@@ -622,9 +636,13 @@ impl Downloads {
             source_preserved,
         };
         let saved_id = record.id.clone();
+        let identity = record.identity.clone();
         if let Err(error) = history.lock().unwrap().add(record) {
             self.update(id, json!({"historyError":error,"savedPath":target}));
             return Err(error);
+        }
+        if let Some(cache) = &self.media_covers.1 {
+            cache.pin(&saved_id, &identity);
         }
         self.update(id, json!({"savedId":saved_id,"savedPath":target}));
         Ok(())
@@ -670,6 +688,7 @@ impl Downloads {
                     records.insert(
                         key(&row["identity"]),
                         Recording {
+                            cover: row["cover"].as_str().map(str::to_owned),
                             quality: "standard".into(),
                             identity: row["identity"].clone(),
                             title: row["title"].as_str().unwrap_or("歌曲").into(),
@@ -845,6 +864,24 @@ impl Downloads {
         let manager = self.clone();
         tokio::spawn(async move {
             manager.run(&id, &client, cancel).await;
+            let recording = manager
+                .jobs
+                .lock()
+                .unwrap()
+                .get(&id)
+                .filter(|job| job.public["savedId"].is_string())
+                .map(|job| job.recording.clone());
+            if let (Some(recording), Some(cache)) = (recording, manager.media_covers.1.as_ref()) {
+                let _ = tokio::join!(
+                    cache.cover(
+                        &manager.media_covers,
+                        &recording.identity,
+                        recording.cover.as_deref(),
+                        0
+                    ),
+                    cache.lyrics(&client, &recording.identity)
+                );
+            }
         });
         Ok(public)
     }
@@ -1297,6 +1334,7 @@ mod tests {
                     ..Downloads::default()
                 };
                 let r = Recording {
+                    cover: None,
                     quality: if ["yiluxiangbei", "qifengle"].contains(&label) {
                         "auto"
                     } else {
@@ -1361,6 +1399,7 @@ mod tests {
             std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
                 .unwrap();
         let r = Recording {
+            cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
             title: "fixture".into(),
@@ -1533,6 +1572,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         let r = Recording {
+            cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
             title: "已有测试音频".into(),
@@ -1642,6 +1682,7 @@ mod tests {
         let target = manager.automatic_target("cancelled.mp3").unwrap();
         let part = target.with_extension("part");
         let r = Recording {
+            cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
             title: "cancel".into(),
@@ -1698,6 +1739,7 @@ mod tests {
         let mut manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         manager.tools_dir = Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools"));
         let r = Recording {
+            cover: None,
             quality: "lossless".into(),
             identity: json!({"providerId":"netease","platformId":"2668397359"}),
             title: "晴天 (原唱 周杰伦)".into(),
@@ -1763,6 +1805,7 @@ mod tests {
         let bytes = fixture(20);
         std::fs::write(&part, &bytes).unwrap();
         let r = Recording {
+            cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
             title: "fallback".into(),
@@ -1811,6 +1854,7 @@ mod tests {
         let dir = folder();
         let manager = Downloads::default();
         let r = Recording {
+            cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
             title: "auto".into(),
@@ -1848,6 +1892,7 @@ mod tests {
         let part = dir.join("owned.part");
         let manager = Downloads::default();
         let mut r = Recording {
+            cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
             title: "夹具".into(),
@@ -1962,6 +2007,7 @@ mod tests {
                 .unwrap(),
         );
         let r = Recording {
+            cover: None,
             quality: quality.into(),
             identity: json!({"providerId":"qq","platformId":"0027oMO61wWi55"}),
             title: "发如雪".into(),
@@ -2020,6 +2066,7 @@ mod tests {
             "artist_title"
         );
         let mut recording = Recording {
+            cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
             title: "贝多芬：致爱丽丝".into(),
@@ -2143,6 +2190,7 @@ mod tests {
         std::fs::write(&untouched, b"other task").unwrap();
         let manager = Downloads::default();
         let r = Recording {
+            cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"fixture"}),
             title: "夹具".into(),
@@ -2239,6 +2287,7 @@ mod tests {
             .build()
             .unwrap();
         let r = Recording {
+            cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
             title: "贝多芬：致爱丽丝".into(),

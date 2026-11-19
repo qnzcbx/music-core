@@ -396,6 +396,8 @@ async function remove() {
 .song-row {
   position: relative;
   min-height: 72px;
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 71px;
   border-bottom: 1px solid var(--app-border-soft);
   font-size: 13px;
 }

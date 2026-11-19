@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, shallowRef, watch } from "vue";
+import { isDesktop } from "../../api/transport";
+import { MAX_QUEUE } from "../../player/player-persistence";
+import { requestJson } from "../../api/http";
 import { useCoreClient } from "../../composables/useCoreClient";
 import PlayIcon from "~icons/lucide/play";
 import PauseIcon from "~icons/lucide/pause";
@@ -12,8 +15,27 @@ import OrderIcon from "~icons/lucide/list-ordered";
 import RepeatIcon from "~icons/lucide/repeat";
 import RepeatOneIcon from "~icons/lucide/repeat-1";
 import ShuffleIcon from "~icons/lucide/shuffle";
-const { player, downloads } = useCoreClient();
+const { player, downloads, coverRevision } = useCoreClient();
 const { entries, current, navigation } = player.queue;
+// Runtime URLs are display-only and never merged into persisted queue metadata.
+const cachedCovers = shallowRef(new Map<string, string>());
+if (isDesktop) {
+  watch([() => entries.value.slice(0, MAX_QUEUE), coverRevision], async ([batch], _, onCleanup) => {
+    let current = true;
+    onCleanup(() => { current = false; });
+    if (!batch.length) { cachedCovers.value = new Map(); return; }
+    try {
+      const urls = await requestJson<(string | null)[]>('/api/media-cache/queue-covers', {
+        method: 'POST',
+        body: JSON.stringify({ entries: batch.map(row => 'kind' in row ? {fileId:row.fileId} : {track:row.track}) }),
+      });
+      if (current) cachedCovers.value = new Map(batch.flatMap((row, index) => {
+        const url = urls[index];
+        return url ? [[row.key, url] as const] : [];
+      }));
+    } catch { if (current) cachedCovers.value = new Map(); }
+  }, { immediate: true });
+}
 const modes = [
   { id: "order", label: "顺序播放", icon: OrderIcon },
   { id: "repeat_all", label: "列表循环", icon: RepeatIcon },
@@ -75,7 +97,7 @@ function downloadEntry(entry: QueueEntry) {
           :data-queue-key="entry.key"
         >
           <div class="queue-cover">
-            <CoverArt clover-fallback :src="entry.metadata.cover" />
+            <CoverArt clover-fallback :src="cachedCovers.get(entry.key) ?? entry.metadata.cover" />
             <span
               class="queue-cover-play"
               :data-icon="

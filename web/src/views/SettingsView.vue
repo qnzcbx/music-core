@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isDesktop } from '../api/transport';
 import { useHomeBackground } from '../features/home/background';
 import { inject, ref, onUnmounted } from 'vue';
 import { APPEARANCE, type Appearance } from '../appearance/theme';
@@ -88,7 +89,7 @@ const {
     </section>
 
     <section>
-      <h2>下载</h2>
+      <h2>{{ isDesktop ? '下载与缓存' : '下载' }}</h2>
       <DownloadSettings />
     </section>
     <section>

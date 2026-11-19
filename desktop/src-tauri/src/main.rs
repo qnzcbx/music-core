@@ -8,12 +8,13 @@ mod downloads;
 mod fallback;
 mod local_library;
 mod lyrics;
+mod media_cache;
 mod provider;
 mod sessions;
 mod transcode;
 mod transport;
 use serde_json::{json, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct Desktop {
     sessions: sessions::Sessions,
@@ -35,8 +36,8 @@ async fn desktop_request(
         "/api/providers" => Ok(provider::catalog()),
         "/api/search" => {
             let mut page = provider::search(&state.client, &body).await?;
-            state.downloads.register(&mut page);
             covers::Covers::map_page(&mut page);
+            state.downloads.register(&mut page);
             Ok(page)
         }
         "/api/covers/palette" => {
@@ -47,7 +48,77 @@ async fn desktop_request(
                 .ok_or("封面地址不支持代理")?;
             Ok(json!({"url": relay}))
         }
-        "/api/lyrics" => lyrics::get(&state.client, &body).await,
+        "/api/lyrics" => match &state.covers.1 {
+            Some(cache) => cache.lyrics(&state.client, &body).await,
+            None => lyrics::get(&state.client, &body).await,
+        },
+        "/api/media-cache/cover" => {
+            let cover = match &state.covers.1 {
+                Some(cache) => {
+                    cache
+                        .cover(
+                            &state.covers,
+                            &body["identity"],
+                            body["cover"].as_str(),
+                            state.port,
+                        )
+                        .await
+                }
+                None => None,
+            };
+            Ok(json!({"cover":cover}))
+        }
+        "/api/media-cache/queue-covers" => {
+            let entries = body["entries"]
+                .as_array()
+                .filter(|entries| entries.len() <= 200)
+                .ok_or("invalid_input")?;
+            let mut urls = Vec::with_capacity(entries.len());
+            let mut local = std::collections::HashMap::new();
+            if entries.iter().any(|entry| entry["fileId"].is_string()) {
+                let (records, excluded) = state.downloads.library_snapshot()?;
+                for record in records {
+                    let id = local_library::path_key(&record.path);
+                    if !excluded.contains(&id) {
+                        local.entry(id).or_insert(record.identity);
+                    }
+                }
+            }
+            for entry in entries {
+                let identity = match entry["fileId"].as_str() {
+                    Some(id) => local.get(id),
+                    None => entry.get("track"),
+                };
+                urls.push(identity.and_then(|identity| {
+                    state.covers.1.as_ref()?.indexed_cover(identity, state.port)
+                }));
+            }
+            Ok(json!(urls))
+        }
+        "/api/media-cache/settings" => {
+            let cache = state.covers.1.as_ref().ok_or("媒体缓存不可用")?;
+            if body["action"] == "open" {
+                std::process::Command::new("explorer.exe")
+                    .arg(cache.directory())
+                    .spawn()
+                    .map_err(|_| "无法打开缓存文件夹")?;
+            } else if !body.is_null() {
+                return Err("invalid_input".into());
+            }
+            Ok(json!({"directory":cache.directory()}))
+        }
+        "/api/media-cache/clear" => {
+            use media_cache::ClearScope;
+            let scope = match body["scope"].as_str() {
+                Some("cover") => ClearScope::Cover,
+                Some("lyrics") => ClearScope::Lyrics,
+                Some("all") => ClearScope::All,
+                None if body.is_null() => ClearScope::All,
+                _ => return Err("invalid_input".into()),
+            };
+            state.downloads.clear_media_cache(scope)?;
+            Ok(Value::Null)
+        }
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),
         "/api/downloads" => {
             if body.is_null() {
@@ -68,8 +139,13 @@ async fn desktop_request(
             }
             let (downloads, excluded) = state.downloads.library_snapshot()?;
             let library = state.library.clone();
+            let (cache, port) = (state.covers.1.clone(), state.port);
             tauri::async_runtime::spawn_blocking(move || {
-                library.lock().unwrap().view(downloads, &excluded)
+                let mut view = library.lock().unwrap().view(downloads.clone(), &excluded);
+                if let Some(cache) = cache {
+                    cache.decorate_library(&mut view, &downloads, port);
+                }
+                view
             })
             .await
             .map_err(|_| "local_library_unavailable".into())
@@ -90,6 +166,22 @@ async fn desktop_request(
                 return Ok(Value::Null);
             }
             let file = song.playback_path()?;
+            let track = song.download_identity.as_ref();
+            let cache = state.covers.1.as_ref();
+            let cover = track.and_then(|track| cache?.cached_for_track(track, state.port));
+            let lyrics = track.and_then(|track| cache?.cached_lyrics(track));
+            if path == "/api/local-library/open" && (cover.is_none() || lyrics.is_none()) {
+                if let (Some(track), Some(cache)) = (track.cloned(), cache.cloned()) {
+                    let (client, covers, port) =
+                        (state.client.clone(), state.covers.clone(), state.port);
+                    tauri::async_runtime::spawn(async move {
+                        let _ = tokio::join!(
+                            cache.cover(&covers, &track, None, port),
+                            cache.lyrics(&client, &track)
+                        );
+                    });
+                }
+            }
             if path == "/api/local-library/reveal" {
                 downloads::reveal_file(&file)?;
                 return Ok(Value::Null);
@@ -101,7 +193,7 @@ async fn desktop_request(
             };
             let id = state.sessions.insert_local(file, mime);
             Ok(
-                json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port)}),
+                json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port),"cover":cover,"lyrics":lyrics}),
             )
         }
         "/api/playback/open" => {
@@ -168,7 +260,13 @@ fn main() {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .read_timeout(std::time::Duration::from_secs(30))
                 .build()?;
-            let covers = covers::Covers::default();
+            let mut covers = covers::Covers::default();
+            covers.1 =
+                media_cache::MediaCache::open(&app.path().app_data_dir()?.join("media-cache"))
+                    .map_err(|error| {
+                        eprintln!("桌面媒体缓存不可用: {error}");
+                    })
+                    .ok();
             let port = tauri::async_runtime::block_on(transport::start_with_covers(
                 transport::Transport {
                     sessions: sessions.clone(),
@@ -176,6 +274,15 @@ fn main() {
                 },
                 covers.clone(),
             ))?;
+            if let Some(cache) = covers.1.clone() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        cache.cover_changed().await;
+                        let _ = handle.emit("desktop-cached-covers-changed", ());
+                    }
+                });
+            }
             let cleanup = sessions.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -188,7 +295,7 @@ fn main() {
                 client,
                 port,
                 fallbacks,
-                covers,
+                covers: covers.clone(),
                 library: std::sync::Arc::new(std::sync::Mutex::new(
                     local_library::Library::open(
                         app.path().app_config_dir()?.join("desktop-library.json"),
@@ -201,6 +308,7 @@ fn main() {
                         app.path().audio_dir()?.join("拾音"),
                     )
                     .map_err(std::io::Error::other)?;
+                    downloads.media_covers = covers.clone();
                     downloads.tools_dir = Some(app.path().resource_dir()?.join("tools"));
                     downloads
                 },

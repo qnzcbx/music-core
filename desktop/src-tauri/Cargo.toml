@@ -25,3 +25,4 @@ rfd = "0.17"
 symphonia = { version = "0.5", features = ["all"] }
 tempfile = "3"
 sha2 = "0.10"
+rusqlite = { version = "0.37", features = ["bundled"] }

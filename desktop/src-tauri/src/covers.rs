@@ -16,10 +16,13 @@ type ImageResult = Result<(Vec<u8>, String), String>;
 struct Entry {
     url: String,
     created: Instant,
-    image: OnceCell<ImageResult>,
+    image: OnceCell<(Vec<u8>, String)>,
 }
 #[derive(Clone, Default)]
-pub struct Covers(Arc<Mutex<HashMap<String, Arc<Entry>>>>);
+pub struct Covers(
+    Arc<Mutex<HashMap<String, Arc<Entry>>>>,
+    pub Option<crate::media_cache::MediaCache>,
+);
 
 pub fn valid_url(source: &str, value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value) else {
@@ -137,10 +140,32 @@ impl Covers {
             }
         }
     }
+    pub async fn load(&self, source: &str, url: &str) -> ImageResult {
+        let relay = self.register(source, url, 0).ok_or("封面地址无效")?;
+        let id = relay.rsplit('/').next().ok_or("封面注册失败")?;
+        let entry = self
+            .0
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .ok_or("封面注册失败")?;
+        entry
+            .image
+            .get_or_try_init(|| read(&entry.url))
+            .await
+            .cloned()
+    }
     pub fn router(self) -> Router {
-        Router::new()
+        let cache = self.1.clone();
+        let router = Router::new()
             .route("/covers/{id}", get(serve))
-            .with_state(self)
+            .with_state(self);
+        if let Some(cache) = cache {
+            router.merge(cache.router())
+        } else {
+            router
+        }
     }
 }
 pub fn image_type(bytes: &[u8]) -> Option<&'static str> {
@@ -210,7 +235,7 @@ async fn serve(State(covers): State<Covers>, Path(id): Path<String>) -> Response
     if entry.created.elapsed() > Duration::from_secs(3600) {
         return StatusCode::GONE.into_response();
     }
-    match entry.image.get_or_init(|| read(&entry.url)).await {
+    match entry.image.get_or_try_init(|| read(&entry.url)).await {
         Ok((bytes, kind)) => Response::builder()
             .header("Content-Type", kind)
             .header("Access-Control-Allow-Origin", "*")

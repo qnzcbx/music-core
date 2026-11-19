@@ -1,3 +1,4 @@
+import type { LyricDocument } from '../types/core';
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { RecoveryPlayer } from './recovery-player.mjs';
@@ -15,6 +16,7 @@ export function usePlayer() {
   const audio = document.createElement('audio');
   audio.preload = 'metadata';
   audio.hidden = true;
+  const localLyrics = shallowRef<LyricDocument | null>(null);
   const selected = shallowRef<PlayableSong | null>(null),
     time = ref(0),
     duration = ref(0),
@@ -146,10 +148,21 @@ export function usePlayer() {
     const revision = ++selectionRevision;
     clearTimeout(timer);
     timer = undefined;
-    selected.value = song;
+    localLyrics.value = null;
+    selected.value = isDesktop && !isLocalSong(song) ? {...song, cover:null} : song;
     if (!isLocalSong(song)) {
       localIntent.value = false;
-      await controller.select(trackIdentity(song), startAt);
+      const identity = trackIdentity(song);
+      if (isDesktop) {
+        void requestJson<{cover: string | null}>('/api/media-cache/cover', {
+          method: 'POST', body: JSON.stringify({identity, cover: song.cover}),
+        }).then(({cover}) => {
+          if (revision === selectionRevision && !disposed) selected.value = {...song, cover:cover ?? song.cover};
+        }).catch(() => {
+          if (revision === selectionRevision && !disposed) selected.value = song;
+        });
+      }
+      await controller.select(identity, startAt);
       return;
     }
     phase.value = 'opening';
@@ -161,7 +174,7 @@ export function usePlayer() {
     const signal = localAbort.signal;
     try {
       if (isDesktop) {
-        const session = await requestJson<{ playbackId: string; streamUrl: string }>(
+        const session = await requestJson<{ playbackId: string; streamUrl: string; cover?: string | null; lyrics?: LyricDocument | null }>(
           '/api/local-library/open',
           { method: 'POST', body: JSON.stringify({ id: song.fileId }) },
         );
@@ -172,6 +185,8 @@ export function usePlayer() {
         if (!isPlaybackUrl(session.streamUrl)) throw new Error('本地媒体地址无效');
         desktopLocalSession = session.playbackId;
         audio.src = session.streamUrl;
+        localLyrics.value = session.lyrics ?? null;
+        if (session.cover) selected.value = {...song, cover: session.cover};
       } else {
         const files = await listDownloadFiles(signal);
         if (revision !== selectionRevision || disposed) return;
@@ -239,6 +254,7 @@ export function usePlayer() {
     selectionRevision++;
     clearTimeout(timer);
     timer = undefined;
+    localLyrics.value = null;
     selected.value = null;
     time.value = 0;
     duration.value = 0;
@@ -363,6 +379,7 @@ export function usePlayer() {
   return {
     audio,
     selected,
+    localLyrics,
     selectedId,
     time,
     duration,

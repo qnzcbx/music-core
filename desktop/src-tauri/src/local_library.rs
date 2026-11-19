@@ -102,6 +102,8 @@ pub struct Song {
     saved_at: Option<u64>,
     source_preserved: bool,
     downloaded: bool,
+    #[serde(skip)]
+    pub download_identity: Option<Value>,
     manual: bool,
     directories: Vec<String>,
 }
@@ -236,6 +238,7 @@ impl Library {
                     source_preserved: false,
                     path,
                     downloaded: false,
+                    download_identity: None,
                     manual: false,
                     directories: Vec::new(),
                 }
@@ -246,6 +249,7 @@ impl Library {
             if let Some(song) = entry(&mut songs, saved.path) {
                 song.downloaded = true;
                 if song.saved_at.is_none() {
+                    song.download_identity = Some(saved.identity);
                     if !saved.title.is_empty() {
                         song.title = saved.title;
                     }

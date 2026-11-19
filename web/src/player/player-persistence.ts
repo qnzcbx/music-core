@@ -24,7 +24,7 @@ function cover(value: unknown, online = false): string | null {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
     // Desktop relay URLs belong to one process; keep online queue entries without stale art.
-    if (online && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && url.pathname.startsWith('/covers/'))
+    if (['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && (url.pathname.startsWith('/cached-covers/') || (online && url.pathname.startsWith('/covers/'))))
       return null;
     let credential = false;
     url.searchParams.forEach((_value, key) => {
