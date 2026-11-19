@@ -95,8 +95,28 @@ async fn desktop_request(
             }
             Ok(json!(urls))
         }
+        "/api/media-cache/settings" => {
+            let cache = state.covers.1.as_ref().ok_or("媒体缓存不可用")?;
+            if body["action"] == "open" {
+                std::process::Command::new("explorer.exe")
+                    .arg(cache.directory())
+                    .spawn()
+                    .map_err(|_| "无法打开缓存文件夹")?;
+            } else if !body.is_null() {
+                return Err("invalid_input".into());
+            }
+            Ok(json!({"directory":cache.directory()}))
+        }
         "/api/media-cache/clear" => {
-            state.downloads.clear_media_cache()?;
+            use media_cache::ClearScope;
+            let scope = match body["scope"].as_str() {
+                Some("cover") => ClearScope::Cover,
+                Some("lyrics") => ClearScope::Lyrics,
+                Some("all") => ClearScope::All,
+                None if body.is_null() => ClearScope::All,
+                _ => return Err("invalid_input".into()),
+            };
+            state.downloads.clear_media_cache(scope)?;
             Ok(Value::Null)
         }
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),

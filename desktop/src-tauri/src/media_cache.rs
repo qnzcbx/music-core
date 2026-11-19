@@ -16,6 +16,12 @@ use std::{
 
 #[derive(Clone)]
 pub struct MediaCache(Arc<Inner>);
+#[derive(Clone, Copy)]
+pub enum ClearScope {
+    Cover,
+    Lyrics,
+    All,
+}
 struct Inner {
     db: Mutex<Connection>,
     root: PathBuf,
@@ -247,7 +253,15 @@ impl MediaCache {
         }
     }
     // JSON download history remains authoritative, including old records and removals.
-    pub fn clear(&self, saved: &[crate::download_history::SavedDownload]) -> rusqlite::Result<()> {
+    pub fn directory(&self) -> &Path {
+        &self.0.root
+    }
+
+    pub fn clear(
+        &self,
+        saved: &[crate::download_history::SavedDownload],
+        scope: ClearScope,
+    ) -> rusqlite::Result<()> {
         let mut db = self.0.db.lock().unwrap();
         let tx = db.transaction()?;
         tx.execute("DELETE FROM download_refs", [])?;
@@ -259,13 +273,29 @@ impl MediaCache {
                 )?;
             }
         }
-        tx.execute("DELETE FROM tracks WHERE NOT EXISTS(SELECT 1 FROM download_refs r WHERE r.source=tracks.source AND r.track=tracks.track)",[])?;
-        let keys = {
+        let unpinned = "NOT EXISTS(SELECT 1 FROM download_refs r WHERE r.source=tracks.source AND r.track=tracks.track)";
+        let clear_cover = matches!(scope, ClearScope::Cover | ClearScope::All);
+        if clear_cover {
+            tx.execute(
+                &format!("UPDATE tracks SET cover_key=NULL, origin=NULL WHERE {unpinned}"),
+                [],
+            )?;
+        }
+        if matches!(scope, ClearScope::Lyrics | ClearScope::All) {
+            tx.execute(
+                &format!("UPDATE tracks SET lyrics=NULL WHERE {unpinned}"),
+                [],
+            )?;
+        }
+        tx.execute(&format!("DELETE FROM tracks WHERE cover_key IS NULL AND origin IS NULL AND lyrics IS NULL AND {unpinned}"), [])?;
+        let keys = if clear_cover {
             let mut stmt=tx.prepare("SELECT key FROM covers WHERE NOT EXISTS(SELECT 1 FROM tracks WHERE tracks.cover_key=covers.key)")?;
             let rows = stmt
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
+        } else {
+            Vec::new()
         };
         for key in &keys {
             tx.execute("DELETE FROM covers WHERE key=?1", [key])?;
@@ -276,7 +306,9 @@ impl MediaCache {
                 let _ = std::fs::remove_file(self.0.root.join(format!("covers/{key}.img")));
             }
         }
-        self.0.cover_changed.notify_one();
+        if clear_cover {
+            self.0.cover_changed.notify_one();
+        }
         Ok(())
     }
     pub fn router(self) -> Router {
@@ -325,6 +357,34 @@ mod tests {
             saved_at: 1,
             source_preserved: false,
         }
+    }
+    #[test]
+    fn clear_cover_and_lyrics_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = MediaCache::open(dir.path()).unwrap();
+        let key = digest(b"ordinary");
+        let doc = json!({"identity":track("ordinary"),"status":"plain","plainText":"fixture"});
+        let seed = || {
+            cache.put_image(&key, b"\xff\xd8\xfffixture").unwrap();
+            cache
+                .0
+                .db
+                .lock()
+                .unwrap()
+                .execute(
+                    "INSERT OR REPLACE INTO tracks VALUES('qq','ordinary',?1,NULL,?2)",
+                    params![key, doc.to_string()],
+                )
+                .unwrap();
+        };
+        seed();
+        cache.clear(&[], ClearScope::Lyrics).unwrap();
+        assert!(cache.cached_lyrics(&track("ordinary")).is_none());
+        assert!(cache.read_image(&key).is_some());
+        seed();
+        cache.clear(&[], ClearScope::Cover).unwrap();
+        assert_eq!(cache.cached_lyrics(&track("ordinary")), Some(doc));
+        assert!(cache.read_image(&key).is_none());
     }
     #[tokio::test]
     async fn repeated_download_reuses_resources_and_clear_preserves_other_record() {
@@ -379,7 +439,7 @@ mod tests {
         assert_eq!(view["songs"][0]["cover"], view["downloads"][0]["cover"]);
         assert!(view["songs"][0]["cover"].as_str().unwrap().ends_with(&key));
         assert!(view["songs"][1]["cover"].is_null());
-        cache.clear(&[flac]).unwrap();
+        cache.clear(&[flac], ClearScope::All).unwrap();
         assert!(cache.cached_lyrics(&track("ordinary")).is_none());
         assert_eq!(cache.cached_lyrics(&track("sample")), Some(doc));
         assert!(cache
@@ -392,7 +452,7 @@ mod tests {
         )
         .unwrap();
         assert!(cache.cached_for_track(&track("sample"), 4321).is_none());
-        cache.clear(&[]).unwrap();
+        cache.clear(&[], ClearScope::All).unwrap();
         assert!(!folder.path().join(format!("covers/{key}.img")).exists());
     }
 }

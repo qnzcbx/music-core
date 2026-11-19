@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { isDesktop } from '../api/transport';
-import { requestJson } from '../api/http';
 import { useHomeBackground } from '../features/home/background';
 import { inject, ref, onUnmounted } from 'vue';
 import { APPEARANCE, type Appearance } from '../appearance/theme';
@@ -11,17 +10,6 @@ import SearchBar from '../components/SearchBar.vue';
 import PlayerLayoutSelector from '../components/PlayerLayoutSelector.vue';
 const { background: homeBackground, selectBackground: selectHomeBackground } = useHomeBackground();
 const appearance = inject<Appearance>(APPEARANCE)!;
-const clearingMedia = ref(false), mediaMessage = ref('');
-async function clearMediaCache() {
-  if (clearingMedia.value) return;
-  clearingMedia.value = true;
-  try {
-    await requestJson('/api/media-cache/clear', {method:'POST'});
-    mediaMessage.value = '已清理普通封面和歌词缓存，下载歌曲的资源已保留。';
-  } catch {
-    mediaMessage.value = '媒体缓存清理失败，请稍后重试。';
-  } finally { clearingMedia.value = false; }
-}
 const mode = ref(appearance.mode);
 onUnmounted(
   appearance.subscribe(() => {
@@ -46,11 +34,6 @@ const {
 <template>
   <section class="settings-view">
     <h1 class="page-title">设置</h1>
-    <section v-if="isDesktop">
-      <h2>媒体缓存</h2>
-      <button type="button" :disabled="clearingMedia" @click="clearMediaCache">清理普通封面与歌词缓存</button>
-      <p v-if="mediaMessage" role="status">{{ mediaMessage }}</p>
-    </section>
     <section>
       <h2>外观</h2>
       <h3>主题</h3>
@@ -106,7 +89,7 @@ const {
     </section>
 
     <section>
-      <h2>下载</h2>
+      <h2>{{ isDesktop ? '下载与缓存' : '下载' }}</h2>
       <DownloadSettings />
     </section>
     <section>

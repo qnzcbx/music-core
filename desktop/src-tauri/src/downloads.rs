@@ -430,7 +430,7 @@ impl Downloads {
         Ok(downloads)
     }
 
-    pub fn clear_media_cache(&self) -> Result<(), String> {
+    pub fn clear_media_cache(&self, scope: crate::media_cache::ClearScope) -> Result<(), String> {
         let cache = self.media_covers.1.as_ref().ok_or("媒体缓存不可用")?;
         let history = self
             .history
@@ -439,7 +439,7 @@ impl Downloads {
             .lock()
             .unwrap();
         cache
-            .clear(&history.list())
+            .clear(&history.list(), scope)
             .map_err(|_| "媒体缓存清理失败".into())
     }
     pub fn saved(&self) -> Result<Value, String> {

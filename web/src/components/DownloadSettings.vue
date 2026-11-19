@@ -22,9 +22,38 @@ const migrate = ref(false);
 const preview = ref<{ source: string; sources: string[]; target: string; count: number }>();
 const result = ref('');
 const directoryError = ref('');
+const cacheDirectory = ref('');
+const cacheBusy = ref(false);
+const cacheFeedback = ref('');
+const cacheActions = [
+  { value: 'cover', label: '清理封面缓存' },
+  { value: 'lyrics', label: '清理歌词缓存' },
+  { value: 'all', label: '全部清理' },
+] as const;
+async function operateCache(action: 'open' | typeof cacheActions[number]['value']) {
+  if (cacheBusy.value) return;
+  cacheBusy.value = true;
+  cacheFeedback.value = '';
+  try {
+    if (action === 'open') {
+      await requestJson('/api/media-cache/settings', {method:'POST', body:JSON.stringify({action})});
+    } else {
+      await requestJson('/api/media-cache/clear', {method:'POST', body:JSON.stringify({scope:action})});
+      cacheFeedback.value = '已清理所选缓存，下载歌曲的离线资源已保留。';
+    }
+  } catch {
+    cacheFeedback.value = action === 'open' ? '无法打开缓存文件夹。' : '缓存清理失败，请重试。';
+  } finally { cacheBusy.value = false; }
+}
 async function load() {
   try {
     settings.value = await requestJson('/api/downloads/settings');
+    if (settings.value?.mode === 'desktop') {
+      try {
+        const cache = await requestJson<{directory:string}>('/api/media-cache/settings');
+        cacheDirectory.value = cache.directory;
+      } catch { cacheFeedback.value = '缓存目录暂不可用。'; }
+    }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法读取下载设置';
   }
@@ -240,6 +269,29 @@ async function change(naming: string) {
           {{ choice.label }}
         </label>
       </fieldset>
+      <template v-if="settings.mode === 'desktop'">
+        <section class="desktop-directory" aria-labelledby="cache-directory-heading">
+          <h3 id="cache-directory-heading">歌曲缓存设置</h3>
+          <div class="desktop-directory-fields">
+            <p>封面和歌词缓存在此文件夹。</p>
+            <div class="desktop-directory-actions">
+              <input class="path-input" aria-label="歌曲缓存目录" :value="cacheDirectory" readonly />
+              <button type="button" :disabled="cacheBusy || !cacheDirectory" @click="operateCache('open')">打开文件夹</button>
+            </div>
+          </div>
+        </section>
+        <section class="desktop-directory cache-usage" aria-labelledby="cache-usage-heading">
+          <h3 id="cache-usage-heading">缓存占用设置</h3>
+          <div class="desktop-directory-fields">
+            <div class="desktop-directory-actions">
+              <button v-for="action in cacheActions" :key="action.value" type="button"
+                :disabled="cacheBusy || !cacheDirectory" @click="operateCache(action.value)">{{ action.label }}</button>
+            </div>
+            <p>仅清理普通缓存，已下载歌曲的离线封面和歌词会保留。</p>
+            <p v-if="cacheFeedback" role="status">{{ cacheFeedback }}</p>
+          </div>
+        </section>
+      </template>
       <dialog
         ref="dialog"
         class="directory-dialog"
@@ -475,6 +527,7 @@ button:disabled {
   padding: 16px 0;
   border-block: 1px solid var(--app-border-soft);
 }
+.cache-usage .desktop-directory-actions { flex-wrap: wrap; }
 .desktop-directory h3,
 .desktop-directory p {
   margin: 0;
