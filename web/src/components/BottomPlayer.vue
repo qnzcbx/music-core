@@ -93,7 +93,7 @@ function seek(event: Event) {
         @click="visuals.open"
       >
         <span class="mini-cover-art">
-          <CoverArt :src="selected?.cover" />
+          <CoverArt clover-fallback :src="selected?.cover" />
         </span>
         <span v-if="selected" class="cover-expand" aria-hidden="true">
           <ExpandIcon />

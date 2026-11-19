@@ -1,3 +1,4 @@
+import { CLOVER_COVER } from './displayed-cover.ts';
 import { apiFetch, isDesktop } from '../api/transport.ts';
 export type RGB = readonly [number, number, number];
 export interface AmbientPalette {
@@ -145,7 +146,7 @@ export async function extractWithDiagnostic(url:string,sample?: (image:HTMLImage
   try{return {colors:await readPixels(url,true,4500,sample),diagnostic:{status:'success',via:'direct' as const}};}
   catch(first){
     let failure=first;
-    const canRelay=isDesktop || !!coverReadUrl(url);
+    const canRelay=url !== CLOVER_COVER && (isDesktop || !!coverReadUrl(url));
     // 匿名加载失败时，区分“展示也失败”和“可展示但像素被跨域保护”。
     if(canRelay&&first instanceof CoverPaletteError&&first.stage==='image-request-failed'){
       try{return {colors:await readPixels(url,false,4500,sample),diagnostic:{status:'success',via:'direct' as const}};}catch(probe){failure=probe;}

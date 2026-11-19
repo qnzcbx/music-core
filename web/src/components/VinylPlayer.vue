@@ -11,6 +11,8 @@ import { ref, watch, nextTick } from "vue";
 
 const props = defineProps<{
   cover?: string | null;
+  coverKey: string;
+  displayedCover?: string | null;
   playing: boolean;
   palette: AmbientPalette;
   label: string;
@@ -25,7 +27,7 @@ function syncRing() {
   if (cover && ring) ring.currentTime = cover.currentTime;
 }
 watch(() => [props.layout, props.playing], () => { void nextTick(syncRing); });
-const emit = defineEmits<{ coverElement: [element: unknown] }>();
+const emit = defineEmits<{ coverElement: [element: unknown]; displayed: [key: string, url: string | null] }>();
 </script>
 <template>
   <div
@@ -36,7 +38,7 @@ const emit = defineEmits<{ coverElement: [element: unknown] }>();
   >
     <div class="turntable" role="img" :aria-label="`${label} · ${playing ? '播放中' : '已暂停'}`">
       <ClassicMachine v-if="layout === 'classic'" :playing="playing" :dark="!!dark" />
-      <div v-if="layout === 'classic'" class="classic-disc"><div class="classic-record-rotor"><ClassicRecord :cover="cover" @ready="syncRing" /></div><div class="classic-gloss" /></div>
+      <div v-if="layout === 'classic'" class="classic-disc"><div class="classic-record-rotor"><ClassicRecord :cover="displayedCover" @ready="syncRing" /></div><div class="classic-gloss" /></div>
       <div class="platter-shadow" />
       <div class="vinyl-grooves"><span class="vinyl-reflection" /></div>
       <template v-if="layout === 'vinyl-wide'">
@@ -51,7 +53,7 @@ const emit = defineEmits<{ coverElement: [element: unknown] }>();
       >
         <div class="record-art-rotor">
           <Teleport to="#player-square-cover" defer :disabled="layout !== 'square-cover'">
-            <CoverArt data-player-cover :src="cover" :alt="`${label}封面`" />
+            <CoverArt :key="coverKey" @displayed="emit('displayed', coverKey, $event)" clover-fallback data-player-cover :src="cover" :alt="`${label}封面`" />
           </Teleport>
         </div>
         <i class="spindle" aria-hidden="true" />

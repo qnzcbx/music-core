@@ -2,6 +2,7 @@
 import { computed, watch, onUnmounted, ref } from "vue";
 import LyricPanel from "../components/LyricPanel.vue";
 import AmbientBackground from "../components/AmbientBackground.vue";
+import { useCoverPalette } from "../composables/useCoverPalette";
 import VinylPlayer from "../components/VinylPlayer.vue";
 import CollapseIcon from "~icons/lucide/chevron-down";
 import ReturnIcon from "~icons/lucide/undo-2";
@@ -11,7 +12,6 @@ import { useCoreClient } from "../composables/useCoreClient";
 import { usePlayerVisuals } from "../composables/usePlayerTransition";
 const { player, lyrics } = useCoreClient();
 const {
-  palette,
   backgroundMode,
   ringPreset,
   phase,
@@ -32,6 +32,13 @@ const eligible = computed(
     player.playing.value && player.phase.value === "ready" && player.message.value !== "正在缓冲",
 );
 const chrome = useImmersiveControls(root, controls, eligible);
+const coverKey = computed(() => JSON.stringify([player.queue.current.value, song.value?.cover]));
+const coverResult = ref<{ key: string; url: string | null }>();
+const displayedCover = computed(() => coverResult.value?.key === coverKey.value ? coverResult.value?.url : null);
+function showCover(key: string, url: string | null) {
+  if (key === coverKey.value) coverResult.value = { key, url };
+}
+const palette = useCoverPalette(displayedCover);
 const backgroundPalette = computed(() => {
   if (backgroundMode.value !== 'cover') {
     const dark = backgroundMode.value === 'dark';
@@ -134,6 +141,9 @@ onUnmounted(() => {
         />
         <VinylPlayer
           :cover="song.cover"
+          :cover-key="coverKey"
+          :displayed-cover="displayedCover"
+          @displayed="showCover"
           :playing="player.playing.value"
           :palette="palette"
           :label="song.name"

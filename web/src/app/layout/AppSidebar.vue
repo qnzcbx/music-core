@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { RouterLink } from "vue-router";
-import DiscIcon from "~icons/lucide/disc-3";
 import OpenIcon from "~icons/lucide/panel-left-open";
 import CloseIcon from "~icons/lucide/panel-left-close";
 import { navigation } from "./navigation";
@@ -11,7 +10,7 @@ defineEmits<{ toggle: [] }>();
 <template>
   <aside class="app-sidebar" aria-label="应用导航" :data-expanded="expanded">
     <RouterLink to="/" class="shell-brand" aria-label="拾音 首页" title="拾音 首页">
-      <DiscIcon aria-hidden="true" />
+      <span class="shell-brand-icon" aria-hidden="true"></span>
       <span class="sidebar-label wordmark">拾音</span>
     </RouterLink>
     <nav aria-label="主导航">
@@ -56,6 +55,9 @@ defineEmits<{ toggle: [] }>();
 </template>
 <style scoped>
 .app-sidebar {
+  --sidebar-icon-slot: 28px;
+  --sidebar-label-gap: 14px;
+
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -68,81 +70,120 @@ defineEmits<{ toggle: [] }>();
   overflow-x: hidden;
   overflow-y: auto;
 }
-.app-sidebar svg {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
+
 .shell-brand,
 .sidebar-link,
 .sidebar-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 0;
+  box-sizing: border-box;
   min-width: 0;
   min-height: 46px;
   padding: 12px;
   border-radius: 10px;
-  white-space: nowrap;
   color: var(--app-text-muted);
+  text-align: left;
   text-decoration: none;
+  white-space: nowrap;
 }
-[data-expanded="true"] :is(.shell-brand, .sidebar-link, .sidebar-toggle) {
-  gap: 18px;
+
+/* 展开时统一图标列宽，文字从同一位置开始。 */
+.app-sidebar[data-expanded="true"]
+  :is(.shell-brand, .sidebar-link, .sidebar-toggle) {
+  grid-template-columns: var(--sidebar-icon-slot) minmax(0, 1fr);
+  column-gap: var(--sidebar-label-gap);
 }
+
+/* 展开时在图标列内居中，收起时在整行内居中。 */
+.shell-brand-icon,
+.sidebar-link > svg,
+.sidebar-toggle > svg {
+  justify-self: center;
+}
+
+.sidebar-link > svg,
+.sidebar-toggle > svg {
+  width: 20px;
+  height: 20px;
+}
+
 .shell-brand {
-  color: var(--app-link);
   margin-bottom: 48px;
+  color: var(--app-link);
 }
-.shell-brand svg {
-  width: 22px;
-  height: 22px;
+
+.shell-brand-icon {
+  width: var(--sidebar-icon-slot);
+  height: var(--sidebar-icon-slot);
+  background: currentColor;
+  mask: url("/shiyin-icon-mono.svg") center / contain no-repeat;
+  /* 双手的视觉重心偏下，只微调图标，不移动整行。 */
+  transform: translateY(-1px);
 }
+
 .shell-brand .wordmark {
   font-size: 22px;
+  line-height: 1.15;
 }
+
 nav {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   gap: 10px;
 }
+
 .sidebar-link {
   font-size: 13px;
 }
+
 .sidebar-link:hover,
 .sidebar-toggle:hover {
   background: var(--app-hover);
   color: var(--app-link);
 }
+
 .sidebar-link.router-link-exact-active {
   background: var(--app-surface-raised);
   color: var(--app-link);
   box-shadow: 0 2px 9px var(--app-shadow-soft);
 }
+
 .sidebar-label {
+  min-width: 0;
   max-width: 0;
   overflow: hidden;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.18s;
 }
-[data-expanded="true"] .sidebar-label {
+
+/* 收起时不让文字形成额外的 Grid 行。 */
+.app-sidebar:not([data-expanded="true"])
+  :is(.shell-brand, .sidebar-link, .sidebar-toggle) > .sidebar-label {
+  display: none;
+}
+
+.app-sidebar[data-expanded="true"] .sidebar-label {
   max-width: 170px;
   opacity: 1;
   visibility: visible;
 }
+
 .sidebar-foot {
   margin-top: auto;
   padding-top: 32px;
 }
+
 .sidebar-caption {
   display: block;
-  font-size: 11px;
-  color: var(--app-text-soft);
   margin: 0 14px 20px;
+  color: var(--app-text-soft);
+  font-size: 11px;
   white-space: nowrap;
 }
+
 .sidebar-toggle {
   width: 100%;
   border: 0;
@@ -151,19 +192,23 @@ nav {
   font-size: 12px;
   cursor: pointer;
 }
+
 a:focus-visible,
 button:focus-visible {
   outline: 2px solid var(--app-focus);
   outline-offset: -2px;
 }
+
 @media (max-width: 600px) {
   .app-sidebar {
     padding: 16px 4px 10px;
   }
+
   .shell-brand {
     margin-bottom: 30px;
   }
 }
+
 @media (prefers-reduced-motion: reduce) {
   .sidebar-label {
     transition: none;

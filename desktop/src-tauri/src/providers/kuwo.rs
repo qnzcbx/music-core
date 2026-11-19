@@ -1,5 +1,23 @@
 use serde_json::{json, Value};
 
+fn cover_url(raw: &Value) -> Option<String> {
+    ["hts_MVPIC", "albumpic", "pic"]
+        .iter()
+        .filter_map(|key| raw[*key].as_str())
+        .find(|url| crate::covers::valid_url("kuwo", url))
+        .map(str::to_owned)
+        .or_else(|| {
+            let short = raw["web_albumpic_short"].as_str()?;
+            static ALBUM_PATH: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+                regex::Regex::new(r"^[0-9]{1,4}/[A-Za-z0-9]{1,24}/[0-9]{1,8}/[0-9]{1,24}\.jpg$")
+                    .unwrap()
+            });
+            ALBUM_PATH
+                .is_match(short)
+                .then(|| format!("https://img1.kuwo.cn/star/albumcover/{short}"))
+        })
+}
+
 pub fn candidate(raw: &Value) -> Option<Value> {
     let id = raw.get("MUSICRID")?.as_str()?.trim_start_matches("MUSIC_");
     if !valid_id(id) {
@@ -18,7 +36,7 @@ pub fn candidate(raw: &Value) -> Option<Value> {
         .collect();
     Some(json!({"identity":{"providerId":"kuwo","platformId":id},
         "title":html_escape::decode_html_entities(title),"artists":artists,
-        "album":raw["ALBUM"],"cover":raw.get("hts_MVPIC").or(raw.get("albumpic")).or(raw.get("pic")),"downloadAllowed":crate::downloads::eligibility(raw),
+        "album":raw["ALBUM"],"cover":cover_url(raw),"downloadAllowed":crate::downloads::eligibility(raw),
         "durationSeconds":raw["DURATION"].as_str().and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite() && *n >= 0.0)}))
 }
 
@@ -146,6 +164,21 @@ pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<Strin
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn uses_album_short_path_when_cover_is_missing() {
+        let mut row = serde_json::json!({"MUSICRID":"MUSIC_409123142","SONGNAME":"test",
+            "hts_MVPIC":"","albumpic":"invalid","web_albumpic_short":"120/s4s50/91/3189617145.jpg"});
+        assert_eq!(
+            super::candidate(&row).unwrap()["cover"],
+            "https://img1.kuwo.cn/star/albumcover/120/s4s50/91/3189617145.jpg"
+        );
+        row["pic"] = serde_json::json!("https://img1.kuwo.cn/test.jpg");
+        assert_eq!(super::candidate(&row).unwrap()["cover"], row["pic"]);
+        row["pic"] = serde_json::Value::Null;
+        row["web_albumpic_short"] = serde_json::json!("../test.jpg");
+        assert!(super::candidate(&row).unwrap()["cover"].is_null());
+    }
+
     use super::*;
     #[tokio::test]
     #[ignore = "需要连接真实酷我服务"]

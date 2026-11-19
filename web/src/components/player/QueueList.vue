@@ -75,7 +75,7 @@ function downloadEntry(entry: QueueEntry) {
           :data-queue-key="entry.key"
         >
           <div class="queue-cover">
-            <CoverArt :src="entry.metadata.cover" />
+            <CoverArt clover-fallback :src="entry.metadata.cover" />
             <span
               class="queue-cover-play"
               :data-icon="
