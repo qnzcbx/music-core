@@ -249,7 +249,7 @@ async function change(naming: string) {
         </section>
       </template>
       <p v-else>下载位置由浏览器管理</p>
-      <fieldset :disabled="saving || (settings.mode === 'local' && !settings.canManage)">
+      <fieldset :class="{ 'desktop-naming': settings.mode === 'desktop' }" :disabled="saving || (settings.mode === 'local' && !settings.canManage)">
         <legend>文件命名格式</legend>
         <label
           v-for="choice in [
@@ -270,7 +270,7 @@ async function change(naming: string) {
         </label>
       </fieldset>
       <template v-if="settings.mode === 'desktop'">
-        <section class="desktop-directory" aria-labelledby="cache-directory-heading">
+        <section class="desktop-directory cache-row" aria-labelledby="cache-directory-heading">
           <h3 id="cache-directory-heading">歌曲缓存设置</h3>
           <div class="desktop-directory-fields">
             <p>封面和歌词缓存在此文件夹。</p>
@@ -280,7 +280,7 @@ async function change(naming: string) {
             </div>
           </div>
         </section>
-        <section class="desktop-directory cache-usage" aria-labelledby="cache-usage-heading">
+        <section class="desktop-directory cache-row cache-usage" aria-labelledby="cache-usage-heading">
           <h3 id="cache-usage-heading">缓存占用设置</h3>
           <div class="desktop-directory-fields">
             <div class="desktop-directory-actions">
@@ -527,6 +527,9 @@ button:disabled {
   padding: 16px 0;
   border-block: 1px solid var(--app-border-soft);
 }
+.desktop-naming { margin-bottom: 16px; }
+.desktop-directory.cache-row { border-bottom: 0; }
+.desktop-directory.cache-usage { padding-bottom: 0; }
 .cache-usage .desktop-directory-actions { flex-wrap: wrap; }
 .desktop-directory h3,
 .desktop-directory p {
