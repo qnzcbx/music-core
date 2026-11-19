@@ -41,7 +41,11 @@ onUnmounted(appearance.subscribe(() => { theme.value = appearance.effective; }))
 <style scoped>
 .home-ink-background {
   position: absolute;
-  inset: 0;
+  /* The home view clips the scene. Sidebar motion must not resize the WebGL buffers. */
+  inset-block: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
   overflow: hidden;
   background: var(--app-bg);
 }
