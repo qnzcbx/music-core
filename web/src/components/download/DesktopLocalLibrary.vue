@@ -22,7 +22,7 @@ type Library = {
   directories: { id: string; path: string; available: boolean }[];
 };
 
-const { downloads } = useCoreClient();
+const { downloads, coverRevision } = useCoreClient();
 const library = ref<Library>({ songs: [], downloads: [], directories: [] });
 const scanDialog = ref<HTMLDialogElement>();
 const scanOpen = ref(false);
@@ -96,7 +96,7 @@ async function refresh(action?: 'files' | 'choose' | 'refresh' | 'remove', id?: 
 }
 
 onMounted(() => void refresh());
-watch(downloads.saved, () => void refresh());
+watch([downloads.saved, coverRevision], () => void refresh());
 watch(
   () => props.tab,
   () => {

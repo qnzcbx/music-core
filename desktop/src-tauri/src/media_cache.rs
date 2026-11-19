@@ -20,6 +20,7 @@ struct Inner {
     db: Mutex<Connection>,
     root: PathBuf,
     gates: [tokio::sync::Mutex<()>; 32],
+    cover_changed: tokio::sync::Notify,
 }
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -57,6 +58,7 @@ impl MediaCache {
             db: Mutex::new(db),
             root: root.to_owned(),
             gates: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
+            cover_changed: tokio::sync::Notify::new(),
         })))
     }
     fn gate(&self, key: &str) -> &tokio::sync::Mutex<()> {
@@ -122,17 +124,62 @@ impl MediaCache {
             .or(previous.as_deref())?;
         let key = cover_key(source, url);
         let _guard = self.gate(&format!("cover:{key}")).lock().await;
-        {
+        let changed = {
             let db = self.0.db.lock().ok()?;
             db.execute("INSERT INTO tracks(source,track,cover_key,origin) VALUES (?1,?2,?3,?4)
-                ON CONFLICT(source,track) DO UPDATE SET cover_key=excluded.cover_key,origin=excluded.origin",params![source,id,key,url]).ok()?;
-        }
-        if self.read_image(&key).is_none() {
+                ON CONFLICT(source,track) DO UPDATE SET cover_key=excluded.cover_key,origin=excluded.origin
+                WHERE tracks.cover_key IS NOT excluded.cover_key OR tracks.origin IS NOT excluded.origin",params![source,id,key,url]).ok()? > 0
+        };
+        let missing = self.read_image(&key).is_none();
+        if missing {
             let (bytes, _) = covers.load(source, url).await.ok()?;
             self.put_image(&key, &bytes)?;
         }
+        if changed || missing {
+            self.0.cover_changed.notify_one();
+        }
         Some(format!("http://127.0.0.1:{port}/cached-covers/{key}"))
     }
+    pub async fn cover_changed(&self) {
+        self.0.cover_changed.notified().await;
+    }
+
+    // Lists read the index only; the image route validates bytes when actually displayed.
+    pub fn indexed_cover(&self, track: &Value, port: u16) -> Option<String> {
+        let (source, id) = identity(track)?;
+        let key: String = self.0.db.lock().ok()?.query_row(
+            "SELECT c.key FROM tracks t JOIN covers c ON c.key=t.cover_key WHERE t.source=?1 AND t.track=?2",
+            params![source,id], |r|r.get(0)
+        ).ok()?;
+        if key.len() != 64 || !key.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        Some(format!("http://127.0.0.1:{port}/cached-covers/{key}"))
+    }
+
+    pub fn decorate_library(
+        &self,
+        view: &mut Value,
+        records: &[crate::download_history::SavedDownload],
+        port: u16,
+    ) {
+        let mut covers = std::collections::HashMap::new();
+        for row in records {
+            covers
+                .entry(crate::local_library::path_key(&row.path))
+                .or_insert_with(|| self.indexed_cover(&row.identity, port));
+        }
+        for list in ["songs", "downloads"] {
+            if let Some(rows) = view[list].as_array_mut() {
+                for row in rows {
+                    if let Some(Some(url)) = row["id"].as_str().and_then(|id| covers.get(id)) {
+                        row["cover"] = serde_json::json!(url);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn cached_for_track(&self, track: &Value, port: u16) -> Option<String> {
         let (source, id) = identity(track)?;
         let key = self
@@ -229,6 +276,7 @@ impl MediaCache {
                 let _ = std::fs::remove_file(self.0.root.join(format!("covers/{key}.img")));
             }
         }
+        self.0.cover_changed.notify_one();
         Ok(())
     }
     pub fn router(self) -> Router {
@@ -324,6 +372,13 @@ mod tests {
             assert!(cover.ends_with(&key));
             assert_eq!(cache.lyrics(&client, &row.identity).await.unwrap(), doc);
         }
+        let local_id = crate::local_library::path_key(&flac.path);
+        let mut view =
+            json!({"songs":[{"id":local_id},{"id":"manual"}],"downloads":[{"id":local_id}]});
+        cache.decorate_library(&mut view, std::slice::from_ref(&flac), 4321);
+        assert_eq!(view["songs"][0]["cover"], view["downloads"][0]["cover"]);
+        assert!(view["songs"][0]["cover"].as_str().unwrap().ends_with(&key));
+        assert!(view["songs"][1]["cover"].is_null());
         cache.clear(&[flac]).unwrap();
         assert!(cache.cached_lyrics(&track("ordinary")).is_none());
         assert_eq!(cache.cached_lyrics(&track("sample")), Some(doc));

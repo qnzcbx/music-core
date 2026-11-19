@@ -14,7 +14,7 @@ mod sessions;
 mod transcode;
 mod transport;
 use serde_json::{json, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct Desktop {
     sessions: sessions::Sessions,
@@ -68,6 +68,33 @@ async fn desktop_request(
             };
             Ok(json!({"cover":cover}))
         }
+        "/api/media-cache/queue-covers" => {
+            let entries = body["entries"]
+                .as_array()
+                .filter(|entries| entries.len() <= 200)
+                .ok_or("invalid_input")?;
+            let mut urls = Vec::with_capacity(entries.len());
+            let mut local = std::collections::HashMap::new();
+            if entries.iter().any(|entry| entry["fileId"].is_string()) {
+                let (records, excluded) = state.downloads.library_snapshot()?;
+                for record in records {
+                    let id = local_library::path_key(&record.path);
+                    if !excluded.contains(&id) {
+                        local.entry(id).or_insert(record.identity);
+                    }
+                }
+            }
+            for entry in entries {
+                let identity = match entry["fileId"].as_str() {
+                    Some(id) => local.get(id),
+                    None => entry.get("track"),
+                };
+                urls.push(identity.and_then(|identity| {
+                    state.covers.1.as_ref()?.indexed_cover(identity, state.port)
+                }));
+            }
+            Ok(json!(urls))
+        }
         "/api/media-cache/clear" => {
             state.downloads.clear_media_cache()?;
             Ok(Value::Null)
@@ -92,8 +119,13 @@ async fn desktop_request(
             }
             let (downloads, excluded) = state.downloads.library_snapshot()?;
             let library = state.library.clone();
+            let (cache, port) = (state.covers.1.clone(), state.port);
             tauri::async_runtime::spawn_blocking(move || {
-                library.lock().unwrap().view(downloads, &excluded)
+                let mut view = library.lock().unwrap().view(downloads.clone(), &excluded);
+                if let Some(cache) = cache {
+                    cache.decorate_library(&mut view, &downloads, port);
+                }
+                view
             })
             .await
             .map_err(|_| "local_library_unavailable".into())
@@ -222,6 +254,15 @@ fn main() {
                 },
                 covers.clone(),
             ))?;
+            if let Some(cache) = covers.1.clone() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        cache.cover_changed().await;
+                        let _ = handle.emit("desktop-cached-covers-changed", ());
+                    }
+                });
+            }
             let cleanup = sessions.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
