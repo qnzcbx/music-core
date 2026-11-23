@@ -55,7 +55,7 @@ defineEmits<{ toggle: [] }>();
 </template>
 <style scoped>
 .app-sidebar {
-  --sidebar-icon-slot: 28px;
+  --sidebar-icon-slot: 30px;
   --sidebar-label-gap: 14px;
 
   display: flex;
@@ -116,10 +116,15 @@ defineEmits<{ toggle: [] }>();
 .shell-brand-icon {
   width: var(--sidebar-icon-slot);
   height: var(--sidebar-icon-slot);
-  background: currentColor;
-  mask: url("/shiyin-icon-mono.svg") center / contain no-repeat;
-  /* 双手的视觉重心偏下，只微调图标，不移动整行。 */
-  transform: translateY(-1px);
+  background: url("/shiyin-icon-light.svg") center / contain no-repeat;
+}
+
+:global(html[data-theme='dark'] .app-sidebar .shell-brand-icon) {
+  background-image: url("/shiyin-icon-dark.svg");
+}
+
+:global(html[data-theme='dark'] .app-sidebar .shell-brand .wordmark) {
+  color: var(--app-text);
 }
 
 .shell-brand .wordmark {
