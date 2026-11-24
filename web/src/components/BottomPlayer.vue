@@ -1,42 +1,44 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { isDesktop } from "../api/transport";
-import { desktopLyrics } from "../composables/useDesktopLyrics";
-import { useCoreClient } from "../composables/useCoreClient";
-import { usePlayerVisuals } from "../composables/usePlayerTransition";
-import { useMediaQuery } from "@vueuse/core";
-import DownloadStateIcon from "./DownloadStateIcon.vue";
-import { isLocalSong } from "../types/music";
-import { trackIdentity } from "../utils/player-queue";
-import { downloadBlockReason } from "../utils/track-access";
-import ExpandIcon from "~icons/lucide/expand";
-import BackIcon from "~icons/lucide/shrink";
-import PlayerLayoutSelector from "./PlayerLayoutSelector.vue";
-import CoverArt from "./CoverArt.vue";
-import LoadingIcon from "~icons/lucide/loader-circle";
-import PlayIcon from "~icons/lucide/play";
-import PauseIcon from "~icons/lucide/pause";
-import PreviousIcon from "~icons/lucide/skip-back";
-import NextIcon from "~icons/lucide/skip-forward";
-import PlaybackModeMenu from "./player/PlaybackModeMenu.vue";
-import VolumePopover from "./player/VolumePopover.vue";
-import QueuePanel from "./player/QueuePanel.vue";
-import "../styles/player-layers.css";
+import { computed, onMounted, ref, watch } from 'vue';
+import { isDesktop } from '../api/transport';
+import { desktopLyrics } from '../composables/useDesktopLyrics';
+import { useCoreClient } from '../composables/useCoreClient';
+import { usePlayerVisuals } from '../composables/usePlayerTransition';
+import { useMediaQuery } from '@vueuse/core';
+import DownloadStateIcon from './DownloadStateIcon.vue';
+import { isLocalSong } from '../types/music';
+import { trackIdentity } from '../utils/player-queue';
+import { downloadBlockReason } from '../utils/track-access';
+import ExpandIcon from '~icons/lucide/expand';
+import BackIcon from '~icons/lucide/shrink';
+import PlayerLayoutSelector from './PlayerLayoutSelector.vue';
+import CoverArt from './CoverArt.vue';
+import LoadingIcon from '~icons/lucide/loader-circle';
+import PlayIcon from '~icons/lucide/play';
+import PauseIcon from '~icons/lucide/pause';
+import PreviousIcon from '~icons/lucide/skip-back';
+import NextIcon from '~icons/lucide/skip-forward';
+import PlaybackModeMenu from './player/PlaybackModeMenu.vue';
+import VolumePopover from './player/VolumePopover.vue';
+import QueuePanel from './player/QueuePanel.vue';
+import '../styles/player-layers.css';
+
 const { player, downloads } = useCoreClient();
 const props = defineProps<{ immersive?: boolean }>();
 const visuals = usePlayerVisuals();
-const mobile = useMediaQuery("(max-width:600px)");
+const mobile = useMediaQuery('(max-width:600px)');
 const compactMini = computed(() => !props.immersive && mobile.value);
 const compactImmersive = computed(() => !!props.immersive && mobile.value);
 const emit = defineEmits<{ lockChange: [locked: boolean] }>();
 const panels: Record<string, boolean> = {};
+
 function panel(name: string, open: boolean) {
   panels[name] = open;
-  emit("lockChange", Object.values(panels).some(Boolean));
+  emit('lockChange', Object.values(panels).some(Boolean));
 }
 watch(compactImmersive, () => {
-  for (const key of ["volume", "queue"]) delete panels[key];
-  emit("lockChange", Object.values(panels).some(Boolean));
+  for (const key of ['volume', 'queue']) delete panels[key];
+  emit('lockChange', Object.values(panels).some(Boolean));
 });
 const { selected, time, duration, playing, message, phase } = player;
 const host = ref<HTMLElement>(),
@@ -44,7 +46,7 @@ const host = ref<HTMLElement>(),
 onMounted(() => {
   if (!props.immersive && host.value) {
     visuals.setMiniFooter(host.value);
-    visuals.setMiniCover(host.value.querySelector(".mini-cover-art"));
+    visuals.setMiniCover(host.value.querySelector('.mini-cover-art'));
   }
 });
 const downloadable = computed(() =>
@@ -61,12 +63,13 @@ function transportAction() {
   return player.toggle();
 }
 const format = (value: number) =>
-  `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
+  `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
 function seek(event: Event) {
   player.seek(Number((event.target as HTMLInputElement).value));
   preview.value = null;
 }
 </script>
+
 <template>
   <footer
     ref="host"
@@ -74,7 +77,10 @@ function seek(event: Event) {
     :class="{ 'immersive-controls': immersive }"
     :data-phase="phase"
   >
-    <div v-if="!compactImmersive" class="player-info">
+    <div
+      v-if="!compactImmersive"
+      class="player-info"
+    >
       <button
         v-if="immersive"
         class="immersive-back"
@@ -93,26 +99,39 @@ function seek(event: Event) {
         @click="visuals.open"
       >
         <span class="mini-cover-art">
-          <CoverArt clover-fallback :src="selected?.cover" />
+          <CoverArt
+            clover-fallback
+            :src="selected?.cover"
+          />
         </span>
-        <span v-if="selected" class="cover-expand" aria-hidden="true">
+        <span
+          v-if="selected"
+          class="cover-expand"
+          aria-hidden="true"
+        >
           <ExpandIcon />
         </span>
       </button>
       <div class="player-meta">
         <span class="track-title">
-          {{ selected?.title || selected?.name || "拾音" }}
+          {{ selected?.title || selected?.name || '拾音' }}
         </span>
         <span class="player-artist">
-          {{ selected?.artist || (selected ? "" : "听我想听") }}
+          {{ selected?.artist || (selected ? '' : '听我想听') }}
         </span>
         <span class="player-album">{{ selected?.album }}</span>
       </div>
     </div>
 
-    <div v-if="!compactMini" class="transport">
+    <div
+      v-if="!compactMini"
+      class="transport"
+    >
       <div class="transport-buttons">
-        <PlaybackModeMenu :immersive="immersive" @open-change="panel('mode', $event)" />
+        <PlaybackModeMenu
+          :immersive="immersive"
+          @open-change="panel('mode', $event)"
+        />
         <button
           aria-label="上一首"
           :disabled="!player.queue.hasPrevious.value"
@@ -127,7 +146,10 @@ function seek(event: Event) {
           :title="player.actionLabel.value"
           @click="transportAction"
         >
-          <LoadingIcon v-if="player.busy.value" class="play-loading" />
+          <LoadingIcon
+            v-if="player.busy.value"
+            class="play-loading"
+          />
           <PauseIcon v-else-if="pauseAction" />
           <PlayIcon v-else />
         </button>
@@ -144,7 +166,11 @@ function seek(event: Event) {
           compact
           @open-change="panel('queue', $event)"
         />
-        <VolumePopover v-else :immersive="immersive" @open-change="panel('volume', $event)" />
+        <VolumePopover
+          v-else
+          :immersive="immersive"
+          @open-change="panel('volume', $event)"
+        />
       </div>
       <div class="progress-row">
         <time>{{ format(progress) }}</time>
@@ -160,11 +186,14 @@ function seek(event: Event) {
           @change="seek"
           @blur="preview = null"
         />
-        <time>{{ duration ? format(duration) : "—:—" }}</time>
+        <time>{{ duration ? format(duration) : '—:—' }}</time>
       </div>
     </div>
-    
-    <div v-if="!compactImmersive" class="player-tools">
+
+    <div
+      v-if="!compactImmersive"
+      class="player-tools"
+    >
       <button
         v-if="!immersive"
         aria-label="下载当前歌曲"
@@ -183,7 +212,10 @@ function seek(event: Event) {
         :aria-label="player.actionLabel.value"
         @click="transportAction"
       >
-        <LoadingIcon v-if="player.busy.value" class="play-loading" />
+        <LoadingIcon
+          v-if="player.busy.value"
+          class="play-loading"
+        />
         <PauseIcon v-else-if="pauseAction" />
         <PlayIcon v-else />
       </button>
@@ -191,8 +223,15 @@ function seek(event: Event) {
         v-else
         :disabled="isDesktop ? desktopLyrics.pending.value : !selected"
         :aria-pressed="isDesktop ? desktopLyrics.open.value : undefined"
-        :title="isDesktop ? (desktopLyrics.error.value || (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词')) : '查看歌词'"
-        :aria-label="isDesktop ? (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词') : '查看歌词'"
+        :title="
+          isDesktop
+            ? desktopLyrics.error.value ||
+              (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词')
+            : '查看歌词'
+        "
+        :aria-label="
+          isDesktop ? (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词') : '查看歌词'
+        "
         @click="isDesktop ? desktopLyrics.toggle() : visuals.open()"
       >
         词
@@ -203,24 +242,25 @@ function seek(event: Event) {
         @open-change="panel('queue', $event)"
       />
     </div>
-        <PlayerLayoutSelector
-          v-if="immersive"
-          class="immersive-style-entry"
-          icon-only
-          above
-          :layout="visuals.layout.value"
-          :alignment="visuals.lyricAlignment.value"
-          :background="visuals.backgroundMode.value"
-          :ring-preset="visuals.ringPreset.value"
-          @background="visuals.selectBackground"
-          @ring="visuals.selectRingPreset"
-          :transitioning="visuals.phase.value === 'layout'"
-          @select="visuals.selectLayout"
-          @align="visuals.selectLyricAlignment"
-          @open-change="panel('style', $event)"
-        />
+    <PlayerLayoutSelector
+      v-if="immersive"
+      class="immersive-style-entry"
+      icon-only
+      above
+      :layout="visuals.layout.value"
+      :alignment="visuals.lyricAlignment.value"
+      :background="visuals.backgroundMode.value"
+      :ring-preset="visuals.ringPreset.value"
+      @background="visuals.selectBackground"
+      @ring="visuals.selectRingPreset"
+      :transitioning="visuals.phase.value === 'layout'"
+      @select="visuals.selectLayout"
+      @align="visuals.selectLyricAlignment"
+      @open-change="panel('style', $event)"
+    />
   </footer>
 </template>
+
 <style scoped>
 .player-meta .playback-status.notice-visible {
   position: static;
@@ -330,7 +370,7 @@ function seek(event: Event) {
 }
 .transport-buttons :deep(button):hover:not(:disabled),
 .player-tools > :deep(button):hover:not(:disabled),
-.player :deep(button)[aria-expanded="true"] {
+.player :deep(button)[aria-expanded='true'] {
   background: color-mix(in srgb, var(--mini-text) 12%, transparent);
 }
 .transport-buttons .play-toggle {
@@ -443,6 +483,7 @@ function seek(event: Event) {
   }
 }
 </style>
+
 <style scoped>
 .immersive-controls {
   position: fixed;
@@ -545,7 +586,7 @@ function seek(event: Event) {
   border: 1px solid transparent;
   color: var(--player-control);
 }
-.immersive-controls :deep(.layout-card[aria-pressed="true"]) {
+.immersive-controls :deep(.layout-card[aria-pressed='true']) {
   border-color: var(--player-focus);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -664,8 +705,24 @@ function seek(event: Event) {
 </style>
 
 <style scoped>
-.immersive-style-entry { position:fixed; right:136px; bottom:28px; z-index:50; }
-@media(max-width:600px) { .immersive-style-entry { right:18px; top:18px; bottom:auto; } }
+.immersive-style-entry {
+  position: fixed;
+  right: 136px;
+  bottom: 28px;
+  z-index: 50;
+}
+@media (max-width: 600px) {
+  .immersive-style-entry {
+    right: 18px;
+    top: 18px;
+    bottom: auto;
+  }
+}
 </style>
 
-<style scoped>.player button[aria-pressed='true'] { color: var(--primary, #399985); background: color-mix(in srgb, currentColor 12%, transparent); }</style>
+<style scoped>
+.player button[aria-pressed='true'] {
+  color: var(--primary, #399985);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+</style>

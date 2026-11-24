@@ -52,6 +52,7 @@ onMounted(() => {
   void downloads.refresh();
 });
 </script>
+
 <template>
   <section class="downloads-view">
     <header class="downloads-heading">
@@ -231,6 +232,7 @@ onMounted(() => {
     </AlertDialogRoot>
   </section>
 </template>
+
 <style scoped>
 .downloads-view {
   min-width: 0;

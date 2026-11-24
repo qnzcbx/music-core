@@ -30,29 +30,39 @@ const cacheActions = [
   { value: 'lyrics', label: '清理歌词缓存' },
   { value: 'all', label: '全部清理' },
 ] as const;
-async function operateCache(action: 'open' | typeof cacheActions[number]['value']) {
+async function operateCache(action: 'open' | (typeof cacheActions)[number]['value']) {
   if (cacheBusy.value) return;
   cacheBusy.value = true;
   cacheFeedback.value = '';
   try {
     if (action === 'open') {
-      await requestJson('/api/media-cache/settings', {method:'POST', body:JSON.stringify({action})});
+      await requestJson('/api/media-cache/settings', {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+      });
     } else {
-      await requestJson('/api/media-cache/clear', {method:'POST', body:JSON.stringify({scope:action})});
+      await requestJson('/api/media-cache/clear', {
+        method: 'POST',
+        body: JSON.stringify({ scope: action }),
+      });
       cacheFeedback.value = '已清理所选缓存，下载歌曲的离线资源已保留。';
     }
   } catch {
     cacheFeedback.value = action === 'open' ? '无法打开缓存文件夹。' : '缓存清理失败，请重试。';
-  } finally { cacheBusy.value = false; }
+  } finally {
+    cacheBusy.value = false;
+  }
 }
 async function load() {
   try {
     settings.value = await requestJson('/api/downloads/settings');
     if (settings.value?.mode === 'desktop') {
       try {
-        const cache = await requestJson<{directory:string}>('/api/media-cache/settings');
+        const cache = await requestJson<{ directory: string }>('/api/media-cache/settings');
         cacheDirectory.value = cache.directory;
-      } catch { cacheFeedback.value = '缓存目录暂不可用。'; }
+      } catch {
+        cacheFeedback.value = '缓存目录暂不可用。';
+      }
     }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法读取下载设置';
@@ -168,6 +178,7 @@ async function change(naming: string) {
   }
 }
 </script>
+
 <template>
   <div class="download-settings">
     <p
@@ -180,8 +191,8 @@ async function change(naming: string) {
       <template v-if="settings.mode === 'local'">
         <h3>音乐库保存目录</h3>
         <div class="directory-row">
-          <code>{{ settings.directory }}</code
-          ><button
+          <code>{{ settings.directory }}</code>
+          <button
             type="button"
             :disabled="settings.deploymentLocked || !settings.canManage || saving"
             @click="openDirectory"
@@ -209,7 +220,7 @@ async function change(naming: string) {
       </template>
       <template v-else-if="settings.mode === 'desktop'">
         <section
-          class="desktop-directory"
+          class="desktop-directory download-directory"
           aria-labelledby="download-directory-heading"
         >
           <h3 id="download-directory-heading">下载目录</h3>
@@ -244,12 +255,14 @@ async function change(naming: string) {
                 恢复默认
               </button>
             </div>
-            <p>更改目录只影响后续下载，已有文件保留在原位置。</p>
           </div>
         </section>
       </template>
       <p v-else>下载位置由浏览器管理</p>
-      <fieldset :class="{ 'desktop-naming': settings.mode === 'desktop' }" :disabled="saving || (settings.mode === 'local' && !settings.canManage)">
+      <fieldset
+        :class="{ 'desktop-naming': settings.mode === 'desktop' }"
+        :disabled="saving || (settings.mode === 'local' && !settings.canManage)"
+      >
         <legend>文件命名格式</legend>
         <label
           v-for="choice in [
@@ -270,25 +283,54 @@ async function change(naming: string) {
         </label>
       </fieldset>
       <template v-if="settings.mode === 'desktop'">
-        <section class="desktop-directory cache-row" aria-labelledby="cache-directory-heading">
+        <section
+          class="desktop-directory cache-row"
+          aria-labelledby="cache-directory-heading"
+        >
           <h3 id="cache-directory-heading">歌曲缓存设置</h3>
           <div class="desktop-directory-fields">
             <p>封面和歌词缓存在此文件夹。</p>
             <div class="desktop-directory-actions">
-              <input class="path-input" aria-label="歌曲缓存目录" :value="cacheDirectory" readonly />
-              <button type="button" :disabled="cacheBusy || !cacheDirectory" @click="operateCache('open')">打开文件夹</button>
+              <input
+                class="path-input"
+                aria-label="歌曲缓存目录"
+                :value="cacheDirectory"
+                readonly
+              />
+              <button
+                type="button"
+                :disabled="cacheBusy || !cacheDirectory"
+                @click="operateCache('open')"
+              >
+                打开文件夹
+              </button>
             </div>
           </div>
         </section>
-        <section class="desktop-directory cache-row cache-usage" aria-labelledby="cache-usage-heading">
+        <section
+          class="desktop-directory cache-row cache-usage"
+          aria-labelledby="cache-usage-heading"
+        >
           <h3 id="cache-usage-heading">缓存占用设置</h3>
           <div class="desktop-directory-fields">
             <div class="desktop-directory-actions">
-              <button v-for="action in cacheActions" :key="action.value" type="button"
-                :disabled="cacheBusy || !cacheDirectory" @click="operateCache(action.value)">{{ action.label }}</button>
+              <button
+                v-for="action in cacheActions"
+                :key="action.value"
+                type="button"
+                :disabled="cacheBusy || !cacheDirectory"
+                @click="operateCache(action.value)"
+              >
+                {{ action.label }}
+              </button>
             </div>
             <p>仅清理普通缓存，已下载歌曲的离线封面和歌词会保留。</p>
-            <p v-if="cacheFeedback" role="status">{{ cacheFeedback }}</p>
+            <p
+              v-if="cacheFeedback"
+              role="status"
+            >
+              {{ cacheFeedback }}
+            </p>
           </div>
         </section>
       </template>
@@ -310,31 +352,35 @@ async function change(naming: string) {
                   { id: 'custom', name: '自定义位置' },
                 ]"
                 :key="option.id"
-                ><input
+              >
+                <input
                   v-model="location"
                   type="radio"
                   name="library-location"
                   :value="option.id"
-                />{{ option.name }}</label
-              >
+                />{{ option.name }}
+              </label>
             </fieldset>
             <label
               v-if="location === 'custom'"
               class="path-label"
-              >绝对目录路径<input
+            >
+              绝对目录路径
+              <input
                 v-model="customPath"
                 class="path-input"
                 type="text"
                 :disabled="saving"
                 placeholder="粘贴后端机器上的目录路径"
-            /></label>
-            <label class="migration-choice"
-              ><input
+              />
+            </label>
+            <label class="migration-choice">
+              <input
                 v-model="migrate"
                 type="checkbox"
                 :disabled="saving"
-              />同时迁移旧下载</label
-            >
+              />同时迁移旧下载
+            </label>
             <p v-if="migrate">
               迁移只处理有项目下载发布记录的文件；个人音乐及无法确认来源的旧文件不会搬动。
             </p>
@@ -392,6 +438,7 @@ async function change(naming: string) {
     </template>
   </div>
 </template>
+
 <style scoped>
 code {
   display: block;
@@ -527,10 +574,21 @@ button:disabled {
   padding: 16px 0;
   border-block: 1px solid var(--app-border-soft);
 }
-.desktop-naming { margin-bottom: 16px; }
-.desktop-directory.cache-row { border-bottom: 0; }
-.desktop-directory.cache-usage { padding-bottom: 0; }
-.cache-usage .desktop-directory-actions { flex-wrap: wrap; }
+.desktop-naming {
+  margin-bottom: 16px;
+}
+.desktop-directory.download-directory {
+  border-block-start: 0;
+}
+.desktop-directory.cache-row {
+  border-bottom: 0;
+}
+.desktop-directory.cache-usage {
+  padding-bottom: 0;
+}
+.cache-usage .desktop-directory-actions {
+  flex-wrap: wrap;
+}
 .desktop-directory h3,
 .desktop-directory p {
   margin: 0;

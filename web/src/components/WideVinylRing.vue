@@ -50,6 +50,7 @@ onBeforeUnmount(() => {
   field = undefined;
 });
 </script>
+
 <template>
   <canvas
     ref="canvas"
@@ -58,6 +59,7 @@ onBeforeUnmount(() => {
     :data-ring-preset="preset"
   />
 </template>
+
 <style scoped>
 .wide-ring-canvas {
   display: block;

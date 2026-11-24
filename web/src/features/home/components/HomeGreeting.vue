@@ -2,9 +2,11 @@
 import { homeGreeting } from "../greeting";
 const greeting = homeGreeting();
 </script>
+
 <template>
   <h1 class="home-greeting">{{ greeting }}</h1>
 </template>
+
 <style scoped>
 .home-greeting {
   margin: 0 0 32px;

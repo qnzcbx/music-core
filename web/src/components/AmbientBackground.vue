@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, shallowRef, ref, watch, computed } from "vue";
-import type { AmbientPalette } from "../utils/ambient-palette";
-import { useReducedMotion } from "../composables/useReducedMotion";
+import { nextTick, onUnmounted, shallowRef, ref, watch, computed } from 'vue';
+import type { AmbientPalette } from '../utils/ambient-palette';
+import { useReducedMotion } from '../composables/useReducedMotion';
+
 const props = withDefaults(
   defineProps<{
     palette: AmbientPalette;
     intensity?: number;
     blur?: number;
-    variant?: "player" | "page";
+    variant?: 'player' | 'page';
   }>(),
-  { intensity: 1, blur: 42, variant: "player" },
+  { intensity: 1, blur: 42, variant: 'player' },
 );
 const reduced = useReducedMotion();
 const layers = shallowRef([props.palette, props.palette]);
@@ -19,16 +20,17 @@ let pending: AmbientPalette | undefined,
   timer: ReturnType<typeof setTimeout> | undefined,
   frame = 0,
   generation = 0;
+
 const config = computed(() => ({
-  "--ambient-intensity": Math.max(0, Math.min(1, props.intensity)),
-  "--ambient-blur": `${Math.max(0, Math.min(90, props.blur))}px`,
+  '--ambient-intensity': Math.max(0, Math.min(1, props.intensity)),
+  '--ambient-blur': `${Math.max(0, Math.min(90, props.blur))}px`,
 }));
 const style = (palette: AmbientPalette) => ({
-  "--ambient-base-left": palette.baseLeft,
-  "--ambient-base-right": palette.baseRight,
-  "--ambient-left": palette.left,
-  "--ambient-center": palette.center,
-  "--ambient-right": palette.right,
+  '--ambient-base-left': palette.baseLeft,
+  '--ambient-base-right': palette.baseRight,
+  '--ambient-left': palette.left,
+  '--ambient-center': palette.center,
+  '--ambient-right': palette.right,
 });
 async function apply(palette: AmbientPalette) {
   if (palette.key === layers.value[active.value]!.key) {
@@ -93,6 +95,7 @@ onUnmounted(() => {
   pending = undefined;
 });
 </script>
+
 <template>
   <div
     class="ambient-background"
@@ -119,6 +122,7 @@ onUnmounted(() => {
     />
   </div>
 </template>
+
 <style scoped>
 .ambient-background {
   position: absolute;
@@ -145,7 +149,7 @@ onUnmounted(() => {
     linear-gradient(122deg, var(--ambient-base-left), var(--ambient-base-right));
 }
 .ambient-background::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   opacity: 0.17;

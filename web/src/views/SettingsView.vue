@@ -31,6 +31,7 @@ const {
   selectRingPreset,
 } = usePlayerVisuals();
 </script>
+
 <template>
   <section class="settings-view">
     <h1 class="page-title">设置</h1>
@@ -101,6 +102,7 @@ const {
     </section>
   </section>
 </template>
+
 <style scoped>
 .settings-view {
   min-width: 0;

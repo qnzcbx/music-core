@@ -161,6 +161,7 @@ onScopeDispose(() => {
   controllers.forEach((c) => c.abort());
 });
 </script>
+
 <template>
   <dialog
     ref="dialog"
@@ -201,10 +202,10 @@ onScopeDispose(() => {
             name="download-quality"
             :value="choice.id"
           />
-          <span
-            ><strong>{{ choice.name }}</strong
-            ><small role="status">{{ summary(choice.id) }}</small></span
-          >
+          <span>
+            <strong>{{ choice.name }}</strong>
+            <small role="status">{{ summary(choice.id) }}</small>
+          </span>
         </label>
         <button
           v-if="retryable(results[choice.id]) && !pending.has(choice.id)"
@@ -221,26 +222,29 @@ onScopeDispose(() => {
       :disabled="submitting"
     >
       <legend>压缩为 MP3</legend>
-      <label
-        ><input
+      <label>
+        <input
           v-model="outputMode"
           type="radio"
           name="output-mode"
           value="mp3_320"
-        /><span
-          ><strong>节省空间 · MP3 320 kbps</strong><small>{{ estimated(320000) }}</small></span
-        ></label
-      >
-      <label
-        ><input
+        />
+        <span>
+          <strong>节省空间 · MP3 320 kbps</strong><small>{{ estimated(320000) }}</small>
+        </span>
+      </label>
+      <label>
+        <input
           v-model="outputMode"
           type="radio"
           name="output-mode"
           value="mp3_192"
-        /><span
-          ><strong>更小的文件 · MP3 192 kbps</strong><small>{{ estimated(192000) }}</small></span
-        ></label
-      >
+        />
+        <span>
+          <strong>更小的文件 · MP3 192 kbps</strong>
+          <small>{{ estimated(192000) }}</small>
+        </span>
+      </label>
     </fieldset>
     <p
       v-if="outputMode !== 'original'"
@@ -268,6 +272,7 @@ onScopeDispose(() => {
     </footer>
   </dialog>
 </template>
+
 <style scoped>
 .quality-dialog {
   position: fixed;

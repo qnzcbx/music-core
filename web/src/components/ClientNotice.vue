@@ -2,9 +2,11 @@
 import { ref, watch, onScopeDispose } from 'vue';
 import { activeDownload } from '../composables/useDownloads';
 import { useCoreClient } from '../composables/useCoreClient';
+
 const { player, downloads } = useCoreClient();
 const text = ref('');
 let timer: ReturnType<typeof setTimeout>;
+
 function show(message: string) {
   text.value = message;
   clearTimeout(timer);
@@ -90,6 +92,7 @@ watch(
 );
 onScopeDispose(() => clearTimeout(timer));
 </script>
+
 <template>
   <aside
     v-if="text"
@@ -105,6 +108,7 @@ onScopeDispose(() => clearTimeout(timer));
     </button>
   </aside>
 </template>
+
 <style scoped>
 .client-notice {
   position: fixed;

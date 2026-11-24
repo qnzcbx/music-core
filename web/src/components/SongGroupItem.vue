@@ -7,6 +7,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import DownIcon from "~icons/lucide/chevron-down";
 import UpIcon from "~icons/lucide/chevron-up";
 import { useProviders, providerFor } from "../composables/useProviders";
+
 const props = defineProps<{
   group: SongGroup;
   now: number;
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 }>();
 const container = ref<HTMLElement>();
 const { providers } = useProviders();
+
 const otherVersions = computed(() =>
   props.group.versions
     .filter((song) => song.id !== props.group.representative.id)
@@ -41,6 +43,7 @@ const otherVersions = computed(() =>
       return rank(a) - rank(b);
     }),
 );
+
 let observer: IntersectionObserver | undefined;
 watch(
   [container, () => props.preResolveEnabled],
@@ -76,6 +79,7 @@ onUnmounted(() => {
   emit("eligible", props.group.key, false, false);
 });
 </script>
+
 <template>
   <div
     ref="container"
@@ -129,6 +133,7 @@ onUnmounted(() => {
     </Transition>
   </div>
 </template>
+
 <style scoped>
 .song-group {
   min-width: 0;

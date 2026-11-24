@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router';
 import DeadAirSleeve from '../components/DeadAirSleeve.vue';
 </script>
+
 <template>
   <section
     class="not-found stage"
@@ -51,6 +52,7 @@ import DeadAirSleeve from '../components/DeadAirSleeve.vue';
     </div>
   </section>
 </template>
+
 <style scoped>
 .not-found {
   --paper: var(--app-bg);

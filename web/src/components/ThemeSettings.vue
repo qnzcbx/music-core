@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { inject, onMounted, onUnmounted, ref, useId } from "vue";
-import { APPEARANCE, type Appearance, type ThemeMode } from "../appearance/theme";
-import SettingsIcon from "~icons/lucide/settings-2";
+import { inject, onMounted, onUnmounted, ref, useId } from 'vue';
+import { APPEARANCE, type Appearance, type ThemeMode } from '../appearance/theme';
+import SettingsIcon from '~icons/lucide/settings-2';
+
 defineProps<{ sidebar?: boolean; compact?: boolean }>();
 const appearance = inject<Appearance>(APPEARANCE)!;
 const mode = ref(appearance.mode);
@@ -11,24 +12,26 @@ const unsubscribe = appearance.subscribe(() => {
 const panel = ref<HTMLDetailsElement>();
 const groupName = `appearance-${useId()}`;
 const choices: { value: ThemeMode; label: string; hint: string }[] = [
-  { value: "light", label: "浅色", hint: "灰与白" },
-  { value: "dark", label: "深色", hint: "绿与黑" },
-  { value: "system", label: "跟随系统", hint: "随设备外观自动切换" },
+  { value: 'light', label: '浅色', hint: '灰与白' },
+  { value: 'dark', label: '深色', hint: '绿与黑' },
+  { value: 'system', label: '跟随系统', hint: '随设备外观自动切换' },
 ];
+
 function close(restore = false) {
   if (!panel.value?.open) return;
   panel.value.open = false;
-  if (restore) panel.value.querySelector("summary")?.focus();
+  if (restore) panel.value.querySelector('summary')?.focus();
 }
 function outside(event: PointerEvent) {
   if (!panel.value?.contains(event.target as Node)) close();
 }
-onMounted(() => document.addEventListener("pointerdown", outside));
+onMounted(() => document.addEventListener('pointerdown', outside));
 onUnmounted(() => {
   unsubscribe();
-  document.removeEventListener("pointerdown", outside);
+  document.removeEventListener('pointerdown', outside);
 });
 </script>
+
 <template>
   <details
     ref="panel"
@@ -41,13 +44,18 @@ onUnmounted(() => {
       aria-label="外观设置"
       title="外观设置"
     >
-      <SettingsIcon aria-hidden="true" width="18" height="18" />
+      <SettingsIcon
+        aria-hidden="true"
+        width="18"
+        height="18"
+      />
       <span v-if="!compact">
-        {{
-          sidebar ? "外观设置" : "外观"
-        }}
+        {{ sidebar ? '外观设置' : '外观' }}
       </span>
-      <span v-if="!sidebar" class="hidden sm:inline">
+      <span
+        v-if="!sidebar"
+        class="hidden sm:inline"
+      >
         · {{ choices.find((choice) => choice.value === mode)?.label }}
       </span>
     </summary>
@@ -78,9 +86,10 @@ onUnmounted(() => {
     </fieldset>
   </details>
 </template>
+
 <style scoped>
 .theme-settings {
-  font-family: "Microsoft YaHei UI", sans-serif;
+  font-family: 'Microsoft YaHei UI', sans-serif;
 }
 .theme-settings summary {
   list-style: none;

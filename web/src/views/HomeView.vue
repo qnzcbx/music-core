@@ -26,6 +26,7 @@ watch(
 onBeforeUnmount(() => unbind?.());
 const inkText = ref('');
 </script>
+
 <template>
   <section
     class="home-view"
@@ -37,7 +38,8 @@ const inkText = ref('');
       :text="inkText"
     />
     <div class="home-main">
-      <HomeGreeting /><HomeSearch
+      <HomeGreeting />
+      <HomeSearch
         @draft-change="inkText = $event"
         @input-ready="searchElement = $event"
       />
@@ -51,6 +53,7 @@ const inkText = ref('');
     </div>
   </section>
 </template>
+
 <style scoped>
 .home-view {
   position: relative;

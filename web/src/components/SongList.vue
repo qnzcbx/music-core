@@ -2,6 +2,7 @@
 import SongGroupItem from "./SongGroupItem.vue";
 import type { SongGroup } from "../utils/song-group";
 import type { SearchEntry as Song, DownloadJob } from "../types/music";
+
 defineProps<{
   songs: Song[];
   groups: SongGroup[];
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   eligible: [key: string, eligible: boolean, visible: boolean];
 }>();
 </script>
+
 <template>
   <section class="results">
     <div class="song-list-columns" aria-hidden="true">
@@ -54,6 +56,7 @@ const emit = defineEmits<{
     <slot />
   </section>
 </template>
+
 <style scoped>
 .results {
   overflow-anchor: none;

@@ -7,9 +7,10 @@ import { navigation } from "./navigation";
 defineProps<{ expanded: boolean; searchQuery: string }>();
 defineEmits<{ toggle: [] }>();
 </script>
+
 <template>
   <aside class="app-sidebar" aria-label="应用导航" :data-expanded="expanded">
-    <RouterLink to="/" class="shell-brand" aria-label="拾音 首页" title="拾音 首页">
+    <RouterLink to="/" class="shell-brand" aria-label="拾音">
       <span class="shell-brand-icon" aria-hidden="true"></span>
       <span class="sidebar-label wordmark">拾音</span>
     </RouterLink>
@@ -53,6 +54,7 @@ defineEmits<{ toggle: [] }>();
     </div>
   </aside>
 </template>
+
 <style scoped>
 .app-sidebar {
   --sidebar-icon-slot: 30px;

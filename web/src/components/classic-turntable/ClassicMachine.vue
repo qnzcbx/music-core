@@ -175,8 +175,9 @@ const id = useId();
           r="174"
           fill="var(--platter-rim)"
           opacity=".57"
-        /></svg
-      ><svg
+        />
+      </svg>
+      <svg
         class="tonearm"
         viewBox="0 0 456 429"
         xmlns="http://www.w3.org/2000/svg"

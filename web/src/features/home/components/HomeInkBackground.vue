@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { defineAsyncComponent, inject, onUnmounted, ref } from "vue";
-import "ink-breath/vue.css";
-import { APPEARANCE, type Appearance } from "../../../appearance/theme";
-import { useReducedMotion } from "../../../composables/useReducedMotion";
+import { defineAsyncComponent, inject, onUnmounted, ref } from 'vue';
+import 'ink-breath/vue.css';
+import { APPEARANCE, type Appearance } from '../../../appearance/theme';
+import { useReducedMotion } from '../../../composables/useReducedMotion';
 
 defineProps<{ text: string }>();
 const appearance = inject<Appearance>(APPEARANCE)!;
@@ -11,17 +11,25 @@ const reduced = useReducedMotion();
 const failed = ref(false);
 // 场景资源加载失败时保留首页搜索；水墨模块只在首页需要时加载。
 const InkScene = defineAsyncComponent({
-  loader: () => import("ink-breath/vue").then(module => module.InkScene),
+  loader: () => import('ink-breath/vue').then((module) => module.InkScene),
   onError(_error, _retry, fail) {
     failed.value = true;
     fail();
   },
 });
-onUnmounted(appearance.subscribe(() => { theme.value = appearance.effective; }));
+onUnmounted(
+  appearance.subscribe(() => {
+    theme.value = appearance.effective;
+  }),
+);
 </script>
 
 <template>
-  <div class="home-ink-background" aria-hidden="true" :data-ink-state="failed ? 'unavailable' : reduced ? 'reduced' : 'animated'">
+  <div
+    class="home-ink-background"
+    aria-hidden="true"
+    :data-ink-state="failed ? 'unavailable' : reduced ? 'reduced' : 'animated'"
+  >
     <InkScene
       v-if="!failed"
       motif="lotus-fish"
@@ -41,7 +49,7 @@ onUnmounted(appearance.subscribe(() => { theme.value = appearance.effective; }))
 <style scoped>
 .home-ink-background {
   position: absolute;
-  /* The home view clips the scene. Sidebar motion must not resize the WebGL buffers. */
+  /* 首页视图会裁剪场景，侧边栏的动效不得改变 WebGL 缓冲区尺寸。 */
   inset-block: 0;
   left: 50%;
   width: 100vw;

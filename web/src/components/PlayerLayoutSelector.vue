@@ -77,6 +77,7 @@ function outside(event: PointerEvent) {
 onMounted(() => document.addEventListener('pointerdown', outside));
 onUnmounted(() => document.removeEventListener('pointerdown', outside));
 </script>
+
 <template>
   <component
     :is="inline ? 'section' : 'details'"
@@ -93,7 +94,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       aria-label="播放器样式"
       title="播放器样式"
     >
-      <StyleIcon aria-hidden="true" /><span v-if="!iconOnly">样式</span>
+      <StyleIcon aria-hidden="true" />
+      <span v-if="!iconOnly">样式</span>
     </summary>
     <div
       class="layout-panel"
@@ -140,8 +142,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 <span
                   v-if="layout === item.id"
                   class="preview-check"
-                  >✓</span
                 >
+                  ✓
+                </span>
               </span>
               <span class="layout-name">{{ item.name }}</span>
             </button>
@@ -203,11 +206,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           class="editor-section"
         >
           <legend>
-            唱片颜色<span
+            唱片颜色
+            <span
               class="selected-option"
               aria-live="polite"
-              >已选{{ ringName }}</span
             >
+              已选{{ ringName }}
+            </span>
           </legend>
           <div class="ring-options">
             <button
@@ -268,6 +273,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
     </div>
   </component>
 </template>
+
 <style scoped>
 .layout-selector {
   color: var(--player-control, var(--app-text));

@@ -1,24 +1,25 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { useCoreClient } from "../composables/useCoreClient";
+import { computed } from 'vue';
+import { useCoreClient } from '../composables/useCoreClient';
 const { player, downloads } = useCoreClient();
-import PauseIcon from "~icons/lucide/pause";
-import LoadingIcon from "~icons/lucide/loader-circle";
-import PlayIcon from "~icons/lucide/play";
-import DownloadStateIcon from "./DownloadStateIcon.vue";
-import NextIcon from "~icons/lucide/list-plus";
+import PauseIcon from '~icons/lucide/pause';
+import LoadingIcon from '~icons/lucide/loader-circle';
+import PlayIcon from '~icons/lucide/play';
+import DownloadStateIcon from './DownloadStateIcon.vue';
+import NextIcon from '~icons/lucide/list-plus';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-} from "./ui/dropdown-menu";
-import CoverArt from "./CoverArt.vue";
-import { providerName, providerFor } from "../composables/useProviders";
-import { availabilityOf, availabilityLabels } from "../utils/candidate-availability";
-import type { SearchEntry as Song, DownloadJob } from "../types/music";
-import { playbackBlockReason, downloadBlockReason } from "../utils/track-access";
-import { queueEntryFrom } from "../utils/player-queue";
+} from './ui/dropdown-menu';
+import CoverArt from './CoverArt.vue';
+import { providerName, providerFor } from '../composables/useProviders';
+import { availabilityOf, availabilityLabels } from '../utils/candidate-availability';
+import type { SearchEntry as Song, DownloadJob } from '../types/music';
+import { playbackBlockReason, downloadBlockReason } from '../utils/track-access';
+import { queueEntryFrom } from '../utils/player-queue';
+
 const props = defineProps<{
   song: Song;
   now?: number;
@@ -34,57 +35,59 @@ const emit = defineEmits<{
   download: [song: Song];
   playNext: [song: Song, origin: HTMLElement];
 }>();
+
 const identityError = computed(() => {
   try {
     queueEntryFrom(props.song);
-    return "";
+    return '';
   } catch (error) {
-    return error instanceof Error ? error.message : "缺少稳定歌曲身份";
+    return error instanceof Error ? error.message : '缺少稳定歌曲身份';
   }
 });
 const source = computed(() =>
-  providerName(("providerId" in props.song && props.song.providerId) || props.song.source),
+  providerName(('providerId' in props.song && props.song.providerId) || props.song.source),
 );
-const versionLabel = computed(() => props.song.name + " · " + source.value);
-const candidate = computed(() => ("resolveState" in props.song ? props.song : null));
+const versionLabel = computed(() => props.song.name + ' · ' + source.value);
+const candidate = computed(() => ('resolveState' in props.song ? props.song : null));
 const playLabel = computed(() =>
-  candidate.value?.resolveState === "failed" ? "重试试听" : "试听",
+  candidate.value?.resolveState === 'failed' ? '重试试听' : '试听',
 );
 const downloadUnsupported = computed(
   () =>
     !downloadBlockReason(props.song) &&
-    providerFor(("providerId" in props.song && props.song.providerId) || props.song.source)
+    providerFor(('providerId' in props.song && props.song.providerId) || props.song.source)
       ?.capabilities.download === false,
 );
 const availability = computed(() => availabilityOf(props.song, props.now));
 const stateText = computed(() =>
   candidate.value?.canPlay === false
-    ? "已解析，格式不支持"
+    ? '已解析，格式不支持'
     : availabilityLabels[availability.value],
 );
 const disabled = computed(
   () =>
     !!playbackBlockReason(props.song) ||
     (candidate.value
-      ? (candidate.value.resolveState === "resolving" && !candidate.value.resolvingBackground) ||
+      ? (candidate.value.resolveState === 'resolving' && !candidate.value.resolvingBackground) ||
         candidate.value.canPlay === false
       : !props.song.playable),
 );
 const durationText = computed(() =>
-  typeof props.song.duration === "number" && Number.isFinite(props.song.duration)
+  typeof props.song.duration === 'number' && Number.isFinite(props.song.duration)
     ? Math.floor(props.song.duration / 60) +
-      ":" +
-      String(Math.floor(props.song.duration % 60)).padStart(2, "0")
-    : props.song.duration || "—",
+      ':' +
+      String(Math.floor(props.song.duration % 60)).padStart(2, '0')
+    : props.song.duration || '—',
 );
 const album = computed(() =>
-  props.song.album && props.song.album !== "NULL" ? props.song.album : "—",
+  props.song.album && props.song.album !== 'NULL' ? props.song.album : '—',
 );
-const downloadKey = computed(() => (identityError.value ? "" : queueEntryFrom(props.song).key));
+const downloadKey = computed(() => (identityError.value ? '' : queueEntryFrom(props.song).key));
 function download() {
   void downloads.choose(props.song);
 }
 </script>
+
 <template>
   <article
     class="song-row"
@@ -103,7 +106,11 @@ function download() {
     />
     <div class="row-identity">
       <div class="cover">
-        <CoverArt clover-fallback :src="song.cover" loading="lazy" />
+        <CoverArt
+          clover-fallback
+          :src="song.cover"
+          loading="lazy"
+        />
         <span
           class="cover-play"
           :data-icon="
@@ -128,7 +135,11 @@ function download() {
         <div class="song-subline">
           <span class="row-artist">{{ song.artist }}</span>
           <span class="row-source">{{ source }}</span>
-          <span v-if="groupExpanded" class="version-badge">当前主版本</span>
+          <span
+            v-if="groupExpanded"
+            class="version-badge"
+            >当前主版本</span
+          >
           <span
             v-if="availability !== 'unknown' || candidate?.canPlay === false"
             class="resource-state"
@@ -138,14 +149,24 @@ function download() {
           </span>
         </div>
         <small class="mobile-metadata">{{ album }} · {{ durationText }}</small>
-        <small v-if="song.license?.id" class="license">{{ song.license.id }}</small>
-        <small v-if="song.credits?.some((c) => c.role === 'uploader')" class="license">
+        <small
+          v-if="song.license?.id"
+          class="license"
+          >{{ song.license.id }}</small
+        >
+        <small
+          v-if="song.credits?.some((c) => c.role === 'uploader')"
+          class="license"
+        >
           上传者署名
         </small>
       </div>
     </div>
 
-    <div class="song-actions" aria-label="版本操作">
+    <div
+      class="song-actions"
+      aria-label="版本操作"
+    >
       <button
         :disabled="
           !!identityError ||
@@ -171,17 +192,20 @@ function download() {
             @click.stop
           >
             <NextIcon aria-hidden="true" />
-        </button>
-      </DropdownMenuTrigger>
-        <DropdownMenuContent class="music-layer" align="end">
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          class="music-layer"
+          align="end"
+        >
           <DropdownMenuItem
             class="mode-option"
             @select="selected ? player.toggle() : emit('play', song)"
           >
             立即播放
           </DropdownMenuItem>
-          <DropdownMenuItem 
-            class="mode-option" 
+          <DropdownMenuItem
+            class="mode-option"
             @select="player.queue.add(song)"
           >
             添加到播放队列
@@ -196,12 +220,13 @@ function download() {
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
-    
+
     <span class="row-album">{{ album }}</span>
     <time class="row-duration">{{ durationText }}</time>
     <div class="row-versions"><slot /></div>
   </article>
 </template>
+
 <style scoped>
 .song-row {
   position: relative;
@@ -481,14 +506,14 @@ function download() {
 
 <style scoped>
 .song-actions:has(
-  [data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])
+  [data-download-state]:not([data-download-state='none']):not([data-download-state='cancelled'])
 ) {
   opacity: 1;
 }
 @media (min-width: 601px) and (hover: hover) {
   .song-row:not(:hover):not(:focus-within)
     .song-actions:has(
-      [data-download-state]:not([data-download-state="none"]):not([data-download-state="cancelled"])
+      [data-download-state]:not([data-download-state='none']):not([data-download-state='cancelled'])
     )
     .action-play-next {
     opacity: 0;

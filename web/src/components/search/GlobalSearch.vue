@@ -5,6 +5,7 @@ import SearchIcon from '~icons/lucide/search';
 import XIcon from '~icons/lucide/x';
 import { routeSearchQuery } from '../../app/router/search-route';
 import { useCoreClient } from '../../composables/useCoreClient';
+
 const { searchState } = useCoreClient();
 defineProps<{ hero?: boolean }>();
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const composing = ref(false);
 const route = useRoute(),
   router = useRouter();
 const draft = ref(routeSearchQuery(route.query.q));
+
 // 中文输入完成后再更新首页水墨文字，避免拼音中间态反复重绘。
 watch([draft, composing], ([text, pending]) => {
   if (!pending) emit('draftChange', text);
@@ -25,6 +27,7 @@ watch(
     draft.value = routeSearchQuery(route.query.q);
   },
 );
+
 const inputElement = ref<HTMLInputElement>();
 watch(inputElement, (element) => emit('inputReady', element ?? null), { flush: 'post' });
 onBeforeUnmount(() => emit('inputReady', null));
@@ -48,6 +51,7 @@ function submit() {
   else void searchState.search();
 }
 </script>
+
 <template>
   <form
     class="global-search"
@@ -97,6 +101,7 @@ function submit() {
     </button>
   </form>
 </template>
+
 <style scoped>
 .global-search {
   display: flex;

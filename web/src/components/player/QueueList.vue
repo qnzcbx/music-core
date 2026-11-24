@@ -1,46 +1,66 @@
 <script setup lang="ts">
-import { computed, shallowRef, watch } from "vue";
-import { isDesktop } from "../../api/transport";
-import { MAX_QUEUE } from "../../player/player-persistence";
-import { requestJson } from "../../api/http";
-import { useCoreClient } from "../../composables/useCoreClient";
-import PlayIcon from "~icons/lucide/play";
-import PauseIcon from "~icons/lucide/pause";
-import LoadingIcon from "~icons/lucide/loader-circle";
-import DownloadStateIcon from "../DownloadStateIcon.vue";
-import type { QueueEntry } from "../../types/music";
-import CoverArt from "../CoverArt.vue";
-import TrashIcon from "~icons/lucide/trash-2";
-import OrderIcon from "~icons/lucide/list-ordered";
-import RepeatIcon from "~icons/lucide/repeat";
-import RepeatOneIcon from "~icons/lucide/repeat-1";
-import ShuffleIcon from "~icons/lucide/shuffle";
+import { computed, shallowRef, watch } from 'vue';
+import { isDesktop } from '../../api/transport';
+import { MAX_QUEUE } from '../../player/player-persistence';
+import { requestJson } from '../../api/http';
+import { useCoreClient } from '../../composables/useCoreClient';
+import PlayIcon from '~icons/lucide/play';
+import PauseIcon from '~icons/lucide/pause';
+import LoadingIcon from '~icons/lucide/loader-circle';
+import DownloadStateIcon from '../DownloadStateIcon.vue';
+import type { QueueEntry } from '../../types/music';
+import CoverArt from '../CoverArt.vue';
+import TrashIcon from '~icons/lucide/trash-2';
+import OrderIcon from '~icons/lucide/list-ordered';
+import RepeatIcon from '~icons/lucide/repeat';
+import RepeatOneIcon from '~icons/lucide/repeat-1';
+import ShuffleIcon from '~icons/lucide/shuffle';
+
 const { player, downloads, coverRevision } = useCoreClient();
 const { entries, current, navigation } = player.queue;
-// Runtime URLs are display-only and never merged into persisted queue metadata.
+// 运行时的 URL 仅用于展示，绝不并入持久化的队列元数据。
 const cachedCovers = shallowRef(new Map<string, string>());
+
 if (isDesktop) {
-  watch([() => entries.value.slice(0, MAX_QUEUE), coverRevision], async ([batch], _, onCleanup) => {
-    let current = true;
-    onCleanup(() => { current = false; });
-    if (!batch.length) { cachedCovers.value = new Map(); return; }
-    try {
-      const urls = await requestJson<(string | null)[]>('/api/media-cache/queue-covers', {
-        method: 'POST',
-        body: JSON.stringify({ entries: batch.map(row => 'kind' in row ? {fileId:row.fileId} : {track:row.track}) }),
+  watch(
+    [() => entries.value.slice(0, MAX_QUEUE), coverRevision],
+    async ([batch], _, onCleanup) => {
+      let current = true;
+      onCleanup(() => {
+        current = false;
       });
-      if (current) cachedCovers.value = new Map(batch.flatMap((row, index) => {
-        const url = urls[index];
-        return url ? [[row.key, url] as const] : [];
-      }));
-    } catch { if (current) cachedCovers.value = new Map(); }
-  }, { immediate: true });
+      if (!batch.length) {
+        cachedCovers.value = new Map();
+        return;
+      }
+      try {
+        const urls = await requestJson<(string | null)[]>('/api/media-cache/queue-covers', {
+          method: 'POST',
+          body: JSON.stringify({
+            entries: batch.map((row) =>
+              'kind' in row ? { fileId: row.fileId } : { track: row.track },
+            ),
+          }),
+        });
+        if (current)
+          cachedCovers.value = new Map(
+            batch.flatMap((row, index) => {
+              const url = urls[index];
+              return url ? [[row.key, url] as const] : [];
+            }),
+          );
+      } catch {
+        if (current) cachedCovers.value = new Map();
+      }
+    },
+    { immediate: true },
+  );
 }
 const modes = [
-  { id: "order", label: "顺序播放", icon: OrderIcon },
-  { id: "repeat_all", label: "列表循环", icon: RepeatIcon },
-  { id: "repeat_one", label: "单曲循环", icon: RepeatOneIcon },
-  { id: "shuffle", label: "随机播放", icon: ShuffleIcon },
+  { id: 'order', label: '顺序播放', icon: OrderIcon },
+  { id: 'repeat_all', label: '列表循环', icon: RepeatIcon },
+  { id: 'repeat_one', label: '单曲循环', icon: RepeatOneIcon },
+  { id: 'shuffle', label: '随机播放', icon: ShuffleIcon },
 ] as const;
 const mode = computed(() => modes.find((m) => m.id === navigation.mode)!);
 function cycle() {
@@ -61,10 +81,11 @@ function downloadEntry(entry: QueueEntry) {
     album: entry.metadata.album,
     cover: entry.metadata.cover,
     duration: entry.metadata.durationSeconds,
-    resolveState: "idle",
+    resolveState: 'idle',
   });
 }
 </script>
+
 <template>
   <div class="queue-body">
     <header class="queue-header">
@@ -73,7 +94,11 @@ function downloadEntry(entry: QueueEntry) {
         <span>{{ entries.length }} 首歌曲</span>
       </div>
       <div class="queue-actions">
-        <button :title="mode.label" :aria-label="`当前${mode.label}，切换播放模式`" @click="cycle">
+        <button
+          :title="mode.label"
+          :aria-label="`当前${mode.label}，切换播放模式`"
+          @click="cycle"
+        >
           <component :is="mode.icon" />
         </button>
         <button
@@ -86,10 +111,23 @@ function downloadEntry(entry: QueueEntry) {
         </button>
       </div>
     </header>
-    
-    <div class="queue-content" data-reka-swipe-ignore tabindex="0" aria-label="队列歌曲列表">
-      <p v-if="!entries.length" class="queue-empty">空空如也</p>
-      <div v-else class="queue-list">
+
+    <div
+      class="queue-content"
+      data-reka-swipe-ignore
+      tabindex="0"
+      aria-label="队列歌曲列表"
+    >
+      <p
+        v-if="!entries.length"
+        class="queue-empty"
+      >
+        空空如也
+      </p>
+      <div
+        v-else
+        class="queue-list"
+      >
         <article
           v-for="entry in entries"
           :key="entry.key"
@@ -97,7 +135,10 @@ function downloadEntry(entry: QueueEntry) {
           :data-queue-key="entry.key"
         >
           <div class="queue-cover">
-            <CoverArt clover-fallback :src="cachedCovers.get(entry.key) ?? entry.metadata.cover" />
+            <CoverArt
+              clover-fallback
+              :src="cachedCovers.get(entry.key) ?? entry.metadata.cover"
+            />
             <span
               class="queue-cover-play"
               :data-icon="
@@ -130,7 +171,7 @@ function downloadEntry(entry: QueueEntry) {
             "
           >
             <span class="sr-only">
-              {{ entry.key === player.selectedId.value ? player.actionLabel.value : "播放" }}
+              {{ entry.key === player.selectedId.value ? player.actionLabel.value : '播放' }}
               {{ entry.metadata.title }}
             </span>
             <strong aria-hidden="true">{{ entry.metadata.title }}</strong>
@@ -168,7 +209,7 @@ function downloadEntry(entry: QueueEntry) {
 .queue-list article:focus-within {
   background: var(--app-hover, var(--app-selected));
 }
-.queue-list article[data-current="true"] {
+.queue-list article[data-current='true'] {
   background: var(--app-selected);
 }
 .queue-cover {
@@ -191,11 +232,11 @@ function downloadEntry(entry: QueueEntry) {
 }
 .queue-list article:hover .queue-cover-play,
 .queue-list article:focus-within .queue-cover-play,
-.queue-list article[data-current="true"] .queue-cover-play {
+.queue-list article[data-current='true'] .queue-cover-play {
   opacity: 1;
 }
 .queue-choose::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   z-index: 1;

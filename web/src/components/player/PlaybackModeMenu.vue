@@ -11,6 +11,7 @@ import OrderIcon from "~icons/lucide/list-ordered";
 import ShuffleIcon from "~icons/lucide/shuffle";
 import RepeatIcon from "~icons/lucide/repeat";
 import RepeatOneIcon from "~icons/lucide/repeat-1";
+
 const { player } = useCoreClient();
 const props = defineProps<{ immersive?: boolean }>();
 const emit = defineEmits<{ openChange: [open: boolean] }>();
@@ -23,6 +24,7 @@ const modes = [
 const opened = ref(false);
 watch(opened, (value) => emit("openChange", value));
 </script>
+
 <template>
   <DropdownMenu v-model:open="opened">
     <DropdownMenuTrigger as-child>

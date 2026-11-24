@@ -10,6 +10,7 @@ const {
   searchState: { sources, providers, providerError, loadProviders },
 } = useCoreClient();
 </script>
+
 <template>
   <div class="home-search">
     <GlobalSearch
@@ -30,6 +31,7 @@ const {
     </p>
   </div>
 </template>
+
 <style scoped>
 .home-search {
   width: 100%;

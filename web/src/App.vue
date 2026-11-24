@@ -17,6 +17,7 @@ const { immersive } = providePlayerVisuals(player.selected, player.queue.current
 const audioHost = ref<HTMLElement>();
 onMounted(() => audioHost.value?.append(player.audio));
 </script>
+
 <template>
   <div
     ref="audioHost"

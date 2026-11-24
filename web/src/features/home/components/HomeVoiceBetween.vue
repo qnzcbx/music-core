@@ -17,6 +17,7 @@ defineExpose({
     piano.value?.bindInputElement(element) ?? (() => {}),
 });
 </script>
+
 <template>
   <VoiceBetween
     ref="piano"

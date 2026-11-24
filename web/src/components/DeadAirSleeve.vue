@@ -32,6 +32,7 @@ onBeforeUnmount(() => {
   unsubscribe?.();
 });
 </script>
+
 <template>
   <figure
     class="sleeve"
@@ -96,6 +97,7 @@ onBeforeUnmount(() => {
     </figcaption>
   </figure>
 </template>
+
 <style scoped>
 .sleeve {
   width: min(100%, 550px, max(280px, calc(100cqh - 110px)));

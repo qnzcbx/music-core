@@ -38,7 +38,7 @@ export function isPlayerLayout(value: unknown): value is PlayerLayout {
 export function isLyricAlignment(value: unknown): value is LyricAlignment {
   return value === 'left' || value === 'center';
 }
-/** Synchronous, versioned visual preference; never stores player/media data. */
+/** 同步、带版本号的视觉偏好，绝不存储播放器/媒体数据。 */
 export function createPlayerLayoutSelection(
   beforeChange: () => void = () => {},
   storage?: LayoutStorage,
@@ -64,7 +64,7 @@ export function createPlayerLayoutSelection(
     }
     if (isRingPreset(saved?.ringPreset)) savedRing = saved.ringPreset;
   } catch {
-    /* Missing, corrupt or denied storage keeps the default. */
+    /* 存储缺失、损坏或被拒绝时保持默认值。 */
   }
   const layout = ref<PlayerLayout>(initial);
   const lyricAlignments = ref(alignments);
@@ -85,7 +85,7 @@ export function createPlayerLayoutSelection(
         }),
       );
     } catch {
-      /* The current root still keeps the user's choices in memory. */
+      /* 当前根节点仍在内存中保留用户的选择。 */
     }
   }
   function selectLayout(value: unknown) {
@@ -128,7 +128,7 @@ export function startPlayerLayoutSelection() {
   try {
     storage = window.localStorage;
   } catch {
-    /* Even accessing the property can throw. */
+    /* 即便只是访问该属性也可能抛异常。 */
   }
   return createPlayerLayoutSelection(undefined, storage);
 }

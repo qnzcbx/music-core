@@ -8,8 +8,10 @@ import Clock from '~icons/lucide/clock-3';
 import Loader from '~icons/lucide/loader-circle';
 import Check from '~icons/lucide/circle-check';
 import Failed from '~icons/lucide/circle-alert';
+
 const props = defineProps<{ identity: TrackIdentity | null }>();
 const { downloads } = useCoreClient();
+
 const matchedTask = computed(() =>
   [...downloads.tasks.value]
     .reverse()
@@ -18,9 +20,11 @@ const matchedTask = computed(() =>
 const state = computed(() => {
   const task = matchedTask.value;
   if (!task) {
-    const saved = downloads.desktopMode && downloads.saved?.value.some(
-      (file) => props.identity && queueKey(file.identity) === queueKey(props.identity),
-    );
+    const saved =
+      downloads.desktopMode &&
+      downloads.saved?.value.some(
+        (file) => props.identity && queueKey(file.identity) === queueKey(props.identity),
+      );
     return saved ? 'completed' : 'none';
   }
   if (task.deliveryMode === 'browser') {
@@ -57,6 +61,7 @@ const label = computed(() =>
     : labels[state.value],
 );
 </script>
+
 <template>
   <span
     class="download-state-icon"
@@ -78,6 +83,7 @@ const label = computed(() =>
     <Download v-else />
   </span>
 </template>
+
 <style scoped>
 .download-state-icon {
   display: inline-flex;

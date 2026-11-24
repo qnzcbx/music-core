@@ -95,6 +95,7 @@ function retrySource(source: string) {
   void searchState.retry(source);
 }
 </script>
+
 <template>
   <section ref="host" class="search-view">
     <header class="search-results-header">
@@ -139,6 +140,7 @@ function retrySource(source: string) {
     </div>
   </section>
 </template>
+
 <style scoped>
 .search-view {
   width: 100%;

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, toRef, watch } from "vue";
-import type { LyricLine } from "../types/core";
-import { useLyricPresentation } from "../composables/useLyrics";
+import { nextTick, onUnmounted, ref, toRef, watch } from 'vue';
+import type { LyricLine } from '../types/core';
+import { useLyricPresentation } from '../composables/useLyrics';
+
 const canSeekLyric = (seconds: number, duration: number) =>
   Number.isFinite(seconds) && seconds >= 0 && duration > 0 && seconds < duration;
 const props = defineProps<{
@@ -17,10 +18,11 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ seek: [seconds: number]; retry: [] }>();
 const { viewport, index, following, pauseFollowing, resumeFollowing, onKey, onScroll, center } =
-  useLyricPresentation(toRef(props, "lines"), toRef(props, "currentTime"));
+  useLyricPresentation(toRef(props, 'lines'), toRef(props, 'currentTime'));
 const clicked = ref(-1);
 let animationTimer: ReturnType<typeof setTimeout> | undefined;
 let clickGeneration = 0;
+
 function clearClick() {
   clickGeneration++;
   clearTimeout(animationTimer);
@@ -34,23 +36,36 @@ async function jump(i: number) {
   await nextTick();
   if (generation !== clickGeneration) return;
   clicked.value = i;
-  emit("seek", line.startMs / 1000);
+  emit('seek', line.startMs / 1000);
   resumeFollowing();
   animationTimer = setTimeout(() => {
     clicked.value = -1;
   }, 650);
 }
 watch(() => props.lines, clearClick);
-watch(() => props.alignment, center, { flush: "post" });
+watch(() => props.alignment, center, { flush: 'post' });
 onUnmounted(clearClick);
 </script>
+
 <template>
-  <section id="lyric-panel" class="lyric-panel" aria-label="歌词面板">
-    <div v-if="lines.length" class="lyric-toolbar">
+  <section
+    id="lyric-panel"
+    class="lyric-panel"
+    aria-label="歌词面板"
+  >
+    <div
+      v-if="lines.length"
+      class="lyric-toolbar"
+    >
       <span>
-        {{ following ? "正在跟随播放" : "翻阅中 · 停止滚动 3 秒后自动跟随" }}
+        {{ following ? '正在跟随播放' : '翻阅中 · 停止滚动 3 秒后自动跟随' }}
       </span>
-      <button v-if="!following" @click="resumeFollowing">立即恢复</button>
+      <button
+        v-if="!following"
+        @click="resumeFollowing"
+      >
+        立即恢复
+      </button>
     </div>
     <div
       ref="viewport"
@@ -62,9 +77,19 @@ onUnmounted(clearClick);
       @keydown="onKey"
       @scroll.passive="onScroll"
     >
-      <p v-if="loading" role="status">正在获取歌词…</p>
+      <p
+        v-if="loading"
+        role="status"
+      >
+        正在获取歌词…
+      </p>
       <div v-else-if="error">
-        <p class="error" role="alert">歌词加载失败：{{ error }}</p>
+        <p
+          class="error"
+          role="alert"
+        >
+          歌词加载失败：{{ error }}
+        </p>
         <button @click="emit('retry')">重试歌词</button>
       </div>
       <template v-else-if="!lines.length && plainText">
@@ -72,7 +97,7 @@ onUnmounted(clearClick);
         <pre>{{ plainText }}</pre>
       </template>
       <p v-else-if="!lines.length">
-        {{ status === "instrumental" ? "纯音乐" : "暂无歌词" }}
+        {{ status === 'instrumental' ? '纯音乐' : '暂无歌词' }}
       </p>
       <ol v-else>
         <li
@@ -93,22 +118,32 @@ onUnmounted(clearClick);
             @keydown.space.stop
             @click="jump(i)"
           >
-            {{ line.text || "♪ 间奏" }}
-            <small v-if="line.translation" class="lyric-translation">
+            {{ line.text || '♪ 间奏' }}
+            <small
+              v-if="line.translation"
+              class="lyric-translation"
+            >
               {{ line.translation }}
             </small>
-            <small v-if="line.romanization" class="lyric-romanization">
+            <small
+              v-if="line.romanization"
+              class="lyric-romanization"
+            >
               {{ line.romanization }}
             </small>
           </button>
         </li>
       </ol>
-      <pre v-if="unalignedTranslation" class="lyric-translation">
+      <pre
+        v-if="unalignedTranslation"
+        class="lyric-translation"
+      >
         {{ unalignedTranslation }}
       </pre>
     </div>
   </section>
 </template>
+
 <style scoped>
 .lyric-panel {
   min-width: 0;

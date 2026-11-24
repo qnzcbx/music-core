@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import SongItem from "./SongItem.vue";
-import type { SearchEntry as Song, DownloadJob } from "../types/music";
+import SongItem from './SongItem.vue';
+import type { SearchEntry as Song, DownloadJob } from '../types/music';
+
 defineProps<{
   versions: Song[];
   now: number;
@@ -14,8 +15,14 @@ const emit = defineEmits<{
   playNext: [song: Song, origin: HTMLElement];
 }>();
 </script>
+
 <template>
-  <TransitionGroup name="version-row" tag="div" class="song-versions" aria-label="歌曲版本">
+  <TransitionGroup
+    name="version-row"
+    tag="div"
+    class="song-versions"
+    aria-label="歌曲版本"
+  >
     <SongItem
       v-for="(song, index) in versions"
       :key="`${song.source}:${song.id}`"
@@ -35,6 +42,7 @@ const emit = defineEmits<{
     />
   </TransitionGroup>
 </template>
+
 <style scoped>
 .song-versions :deep(.song-row:last-child) {
   border-end-start-radius: 6px;

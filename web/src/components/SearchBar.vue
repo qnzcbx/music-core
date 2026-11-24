@@ -2,12 +2,14 @@
 import type { Provider } from "../composables/useProviders";
 import { computed } from "vue";
 import { primarySources } from "../config/source-profile.ts";
+
 const sources = defineModel<string[]>("sources", { required: true });
 const props = defineProps<{
   providers: readonly Provider[];
 }>();
 const primary = computed(() => primarySources(props.providers));
 </script>
+
 <template>
   <div class="source-options">
     <fieldset class="primary-sources" aria-label="主要音乐来源">
@@ -29,9 +31,9 @@ const primary = computed(() => primarySources(props.providers));
         </span>
       </label>
     </fieldset>
-
   </div>
 </template>
+
 <style scoped>
 .source-options {
   min-width: 0;

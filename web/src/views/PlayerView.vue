@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, watch, onUnmounted, ref } from "vue";
-import LyricPanel from "../components/LyricPanel.vue";
-import AmbientBackground from "../components/AmbientBackground.vue";
-import { useCoverPalette } from "../composables/useCoverPalette";
-import VinylPlayer from "../components/VinylPlayer.vue";
-import CollapseIcon from "~icons/lucide/chevron-down";
-import ReturnIcon from "~icons/lucide/undo-2";
-import { useImmersiveControls } from "../composables/useImmersiveControls";
-import BottomPlayer from "../components/BottomPlayer.vue";
-import { useCoreClient } from "../composables/useCoreClient";
-import { usePlayerVisuals } from "../composables/usePlayerTransition";
+import { computed, watch, onUnmounted, ref } from 'vue';
+import LyricPanel from '../components/LyricPanel.vue';
+import AmbientBackground from '../components/AmbientBackground.vue';
+import { useCoverPalette } from '../composables/useCoverPalette';
+import VinylPlayer from '../components/VinylPlayer.vue';
+import CollapseIcon from '~icons/lucide/chevron-down';
+import ReturnIcon from '~icons/lucide/undo-2';
+import { useImmersiveControls } from '../composables/useImmersiveControls';
+import BottomPlayer from '../components/BottomPlayer.vue';
+import { useCoreClient } from '../composables/useCoreClient';
+import { usePlayerVisuals } from '../composables/usePlayerTransition';
 const { player, lyrics } = useCoreClient();
 const {
   backgroundMode,
@@ -29,12 +29,14 @@ const root = ref<HTMLElement>(),
   controls = ref<HTMLElement>();
 const eligible = computed(
   () =>
-    player.playing.value && player.phase.value === "ready" && player.message.value !== "正在缓冲",
+    player.playing.value && player.phase.value === 'ready' && player.message.value !== '正在缓冲',
 );
 const chrome = useImmersiveControls(root, controls, eligible);
 const coverKey = computed(() => JSON.stringify([player.queue.current.value, song.value?.cover]));
 const coverResult = ref<{ key: string; url: string | null }>();
-const displayedCover = computed(() => coverResult.value?.key === coverKey.value ? coverResult.value?.url : null);
+const displayedCover = computed(() =>
+  coverResult.value?.key === coverKey.value ? coverResult.value?.url : null,
+);
 function showCover(key: string, url: string | null) {
   if (key === coverKey.value) coverResult.value = { key, url };
 }
@@ -43,20 +45,29 @@ const backgroundPalette = computed(() => {
   if (backgroundMode.value !== 'cover') {
     const dark = backgroundMode.value === 'dark';
     const base = dark ? '#151b20' : '#f5f4ef';
-    return { ...palette.value, key: 'fixed-' + backgroundMode.value, base, baseLeft:base, baseRight:base, left:base, center:base, right:base };
+    return {
+      ...palette.value,
+      key: 'fixed-' + backgroundMode.value,
+      base,
+      baseLeft: base,
+      baseRight: base,
+      left: base,
+      center: base,
+      right: base,
+    };
   }
-  if (palette.value.evidence !== "fallback") return palette.value;
+  if (palette.value.evidence !== 'fallback') return palette.value;
   const tints =
-    layout.value === "vinyl-wide"
-      ? ["#dedfe1", "#ecebed"]
-      : layout.value === "square-cover"
-        ? ["#e4dfdc", "#efece7"]
-        : layout.value === "lyrics-only"
-          ? ["#e6e4e0", "#f2f0ed"]
-          : ["#e1e1dc", "#f0eeea"];
+    layout.value === 'vinyl-wide'
+      ? ['#dedfe1', '#ecebed']
+      : layout.value === 'square-cover'
+        ? ['#e4dfdc', '#efece7']
+        : layout.value === 'lyrics-only'
+          ? ['#e6e4e0', '#f2f0ed']
+          : ['#e1e1dc', '#f0eeea'];
   return {
     ...palette.value,
-    key: "neutral-" + layout.value,
+    key: 'neutral-' + layout.value,
     baseLeft: tints[0]!,
     baseRight: tints[1]!,
     left: tints[0]!,
@@ -67,9 +78,9 @@ const lines = computed(() => lyrics.state.value.document?.lines ?? []);
 let coverElement: unknown, squareElement: unknown;
 function updateCover() {
   setLargeCover(
-    !song.value || layout.value === "lyrics-only"
+    !song.value || layout.value === 'lyrics-only'
       ? null
-      : layout.value === "square-cover"
+      : layout.value === 'square-cover'
         ? squareElement
         : coverElement,
   );
@@ -82,13 +93,14 @@ function registerSquare(element: unknown) {
   squareElement = element;
   updateCover();
 }
-watch([song, layout], updateCover, { flush: "post" });
+watch([song, layout], updateCover, { flush: 'post' });
 onUnmounted(() => {
   setLargeCover(null);
   setPanel(null);
   setBackButton(null);
 });
 </script>
+
 <template>
   <section
     ref="root"
@@ -100,7 +112,12 @@ onUnmounted(() => {
     :data-lyric-alignment="lyricAlignment"
     aria-label="沉浸式播放器"
     :style="{
-      '--player-accent': backgroundMode === 'cover' ? palette.accent : backgroundMode === 'dark' ? '#d9e7eb' : '#445967',
+      '--player-accent':
+        backgroundMode === 'cover'
+          ? palette.accent
+          : backgroundMode === 'dark'
+            ? '#d9e7eb'
+            : '#445967',
       '--layout-preview-left': palette.left,
       '--layout-preview-right': palette.right,
       '--player-lyric-align': lyricAlignment,
@@ -157,7 +174,7 @@ onUnmounted(() => {
         <div class="immersive-identity">
           <h1>{{ song.title || song.name }}</h1>
           <p class="immersive-artist">{{ song.artist }}</p>
-          <p class="immersive-album">{{ song.album && song.album !== "NULL" ? song.album : "" }}</p>
+          <p class="immersive-album">{{ song.album && song.album !== 'NULL' ? song.album : '' }}</p>
         </div>
         <LyricPanel
           :key="player.queue.current.value ?? ''"
@@ -175,7 +192,11 @@ onUnmounted(() => {
         />
       </div>
     </div>
-    <div v-else :ref="setPanel" class="player-empty">
+    <div
+      v-else
+      :ref="setPanel"
+      class="player-empty"
+    >
       <h1>还没有正在播放的歌曲</h1>
       <p>从搜索或播放队列选择歌曲</p>
       <button
@@ -184,7 +205,10 @@ onUnmounted(() => {
         title="收起歌曲详情页"
         @click="close"
       >
-        <ReturnIcon width="24" height="24" />
+        <ReturnIcon
+          width="24"
+          height="24"
+        />
       </button>
     </div>
     <div
@@ -200,7 +224,10 @@ onUnmounted(() => {
       @focusin="chrome.focusIn"
       @focusout="chrome.focusOut"
     >
-      <BottomPlayer immersive @lock-change="chrome.locked.value = $event" />
+      <BottomPlayer
+        immersive
+        @lock-change="chrome.locked.value = $event"
+      />
     </div>
   </section>
 </template>
@@ -208,7 +235,7 @@ onUnmounted(() => {
 <style scoped>
 .immersive-player {
   color-scheme: light;
-  --player-panel-bg:#fff;
+  --player-panel-bg: #fff;
   --player-text: #283c32;
   --player-text-muted: #53634f;
   --player-control: #3e5344;
@@ -354,7 +381,7 @@ onUnmounted(() => {
 }
 .immersive-identity h1 {
   font:
-    500 clamp(27px, 2.8vw, 39px)/1.4 "Songti SC",
+    500 clamp(27px, 2.8vw, 39px)/1.4 'Songti SC',
     SimSun,
     serif;
   margin: 0 0 10px;
@@ -433,7 +460,7 @@ onUnmounted(() => {
 }
 .player-empty h1 {
   font:
-    28px "Songti SC",
+    28px 'Songti SC',
     SimSun,
     serif;
 }
@@ -860,17 +887,17 @@ onUnmounted(() => {
   --app-selected: #e2e5e5;
   --app-accent: #526b77;
 }
-.immersive-player[data-player-layout="vinyl-wide"] :deep(.ambient-layer) {
+.immersive-player[data-player-layout='vinyl-wide'] :deep(.ambient-layer) {
   background:
     radial-gradient(ellipse 80% 100% at 95% 75%, var(--ambient-left), transparent 80%),
     linear-gradient(120deg, var(--ambient-base-right), var(--ambient-base-left));
 }
-.immersive-player[data-player-layout="square-cover"] :deep(.ambient-layer) {
+.immersive-player[data-player-layout='square-cover'] :deep(.ambient-layer) {
   background:
     radial-gradient(ellipse 60% 90% at 20% 45%, var(--ambient-left), transparent 85%),
     linear-gradient(150deg, var(--ambient-base-left), var(--ambient-base-right));
 }
-.immersive-player[data-player-layout="lyrics-only"] :deep(.ambient-layer) {
+.immersive-player[data-player-layout='lyrics-only'] :deep(.ambient-layer) {
   background:
     radial-gradient(ellipse 70% 70% at 50% 45%, var(--ambient-center), transparent 90%),
     linear-gradient(160deg, var(--ambient-base-left), var(--ambient-base-right));
@@ -883,19 +910,40 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
-.immersive-control-layer{background:transparent;border:0;box-shadow:none;backdrop-filter:none}.immersive-control-layer::before,.immersive-control-layer::after{content:none;display:none}
+.immersive-control-layer {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.immersive-control-layer::before,
+.immersive-control-layer::after {
+  content: none;
+  display: none;
+}
 </style>
 
 <style scoped>
-.immersive-player[data-player-background="dark"] {
+.immersive-player[data-player-background='dark'] {
   color-scheme: dark;
-  --player-panel-bg:#222b32;
-  --player-text:#edf1f4; --player-text-muted:#aab5be; --player-control:#e4ebf0;
-  --player-lyric:#b8c3cc; --player-lyric-near:#d3dce3; --player-active-color:#ffffff;
-  --player-accent:#d9e7eb; --player-focus:#b1cbd5; --player-surface:#222b32f5; --player-border:#49545d;
-  --app-selected:#35424c; --app-accent:#b1cbd5; --app-shadow-panel:0 12px 30px #0005;
+  --player-panel-bg: #222b32;
+  --player-text: #edf1f4;
+  --player-text-muted: #aab5be;
+  --player-control: #e4ebf0;
+  --player-lyric: #b8c3cc;
+  --player-lyric-near: #d3dce3;
+  --player-active-color: #ffffff;
+  --player-accent: #d9e7eb;
+  --player-focus: #b1cbd5;
+  --player-surface: #222b32f5;
+  --player-border: #49545d;
+  --app-selected: #35424c;
+  --app-accent: #b1cbd5;
+  --app-shadow-panel: 0 12px 30px #0005;
 }
-.immersive-player[data-player-background="light"] { --player-accent:#445967; }
+.immersive-player[data-player-background='light'] {
+  --player-accent: #445967;
+}
 </style>
 
 <style scoped>
@@ -904,12 +952,12 @@ onUnmounted(() => {
   font-family: inherit;
   font-size: clamp(20px, 1.85vw, 28px);
   font-weight: 500;
-  letter-spacing: .02em;
+  letter-spacing: 0.02em;
   margin-bottom: 6px;
 }
 .classic-layout .immersive-artist {
   font-size: clamp(14px, 1.16vw, 21px);
-  letter-spacing: .03em;
+  letter-spacing: 0.03em;
 }
 .classic-layout :deep(.lyric-scroll) {
   --lyric-height: clamp(245px, 45.5dvh, 465px);
@@ -920,13 +968,15 @@ onUnmounted(() => {
   margin-bottom: clamp(9px, 1dvh, 12px);
   font-size: clamp(15px, 1.38vw, 26px);
   line-height: 1.48;
-  letter-spacing: .02em;
-  opacity: .85;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
   color: var(--player-text-muted);
-  transition: color .3s ease, opacity .3s ease;
+  transition:
+    color 0.3s ease,
+    opacity 0.3s ease;
 }
 .classic-layout :deep(.lyric-scroll li.lyric-near) {
-  opacity: .84;
+  opacity: 0.84;
   color: var(--player-text-muted);
 }
 .classic-layout :deep(.lyric-scroll li.lyric-current) {
@@ -935,10 +985,14 @@ onUnmounted(() => {
   color: var(--player-text);
   opacity: 1;
 }
-@media (max-width:600px) {
-  .classic-layout :deep(.lyric-scroll) { --lyric-height: 230px; }
+@media (max-width: 600px) {
+  .classic-layout :deep(.lyric-scroll) {
+    --lyric-height: 230px;
+  }
 }
-@media (prefers-reduced-motion:reduce) {
-  .classic-layout :deep(.lyric-scroll li) { transition:none; }
+@media (prefers-reduced-motion: reduce) {
+  .classic-layout :deep(.lyric-scroll li) {
+    transition: none;
+  }
 }
 </style>
