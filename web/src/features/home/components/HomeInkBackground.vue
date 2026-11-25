@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent, inject, onUnmounted, ref } from 'vue';
 import 'ink-breath/vue.css';
+import { desktopMainHidden } from '../../../composables/useDesktopLyrics';
 import { APPEARANCE, type Appearance } from '../../../appearance/theme';
 import { useReducedMotion } from '../../../composables/useReducedMotion';
 
@@ -40,7 +41,7 @@ onUnmounted(
       quality="medium"
       :interactive="true"
       :auto-ink="!reduced"
-      :active="!reduced"
+      :active="!reduced && !desktopMainHidden"
       @error="failed = true"
     />
   </div>

@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod covers;
 mod desktop_lyrics;
+#[cfg(windows)]
+mod desktop_tray;
 mod download_history;
 mod download_media;
 mod download_resolver;
@@ -249,7 +251,12 @@ async fn desktop_request(
 }
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        desktop_tray::restore(app);
+    }));
+    builder
         .setup(|app| {
             let fallbacks = fallback::Config::from_env().map_err(std::io::Error::other)?;
             let sessions = sessions::Sessions::new();
@@ -313,9 +320,15 @@ fn main() {
                     downloads
                 },
             });
+            #[cfg(windows)]
+            if let Err(error) = desktop_tray::setup(app.handle()) {
+                eprintln!("系统托盘初始化失败: {error}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(windows)]
+            desktop_tray::on_close(window, event);
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 if let Some(lyrics) = window.get_webview_window("desktop-lyrics") {
                     let _ = lyrics.destroy();
@@ -324,6 +337,10 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop_request,
+            #[cfg(windows)]
+            desktop_tray::desktop_close_action,
+            #[cfg(windows)]
+            desktop_tray::desktop_tray_playback,
             desktop_lyrics::toggle_desktop_lyrics,
             desktop_lyrics::place_desktop_lyrics,
             desktop_lyrics::show_desktop_lyrics,

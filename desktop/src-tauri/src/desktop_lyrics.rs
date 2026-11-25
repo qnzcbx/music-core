@@ -37,6 +37,8 @@ pub async fn toggle_desktop_lyrics(window: WebviewWindow) -> Result<(), String> 
             if let Some(popup) = app.get_webview_window(SETTINGS) {
                 let _ = popup.destroy();
             }
+            #[cfg(windows)]
+            crate::desktop_tray::set_lyrics_visible(&app, false);
             let _ = app.emit_to("main", VISIBILITY, false);
         }
         WindowEvent::Moved(position) => {
@@ -120,6 +122,8 @@ pub async fn show_desktop_lyrics(window: WebviewWindow) -> Result<(), String> {
         return Err("invalid window".into());
     }
     window.show().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    crate::desktop_tray::set_lyrics_visible(window.app_handle(), true);
     window
         .emit_to("main", VISIBILITY, true)
         .map_err(|e| e.to_string())
