@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { bridge, hasWindowsTray } from '../composables/useDesktopLyrics';
 import { isDesktop } from '../api/transport';
 import { useHomeBackground } from '../features/home/background';
 import { inject, ref, onUnmounted } from 'vue';
@@ -9,6 +10,26 @@ import DownloadSettings from '../components/DownloadSettings.vue';
 import SearchBar from '../components/SearchBar.vue';
 import PlayerLayoutSelector from '../components/PlayerLayoutSelector.vue';
 const { background: homeBackground, selectBackground: selectHomeBackground } = useHomeBackground();
+type CloseAction = 'tray' | 'exit';
+const closeAction = ref<CloseAction>('tray');
+let savedCloseAction = closeAction.value;
+const closeActionError = ref('');
+const closeActionPending = ref(false);
+async function setCloseAction(action?: CloseAction) {
+  if (!bridge || closeActionPending.value) return;
+  closeActionPending.value = true;
+  closeActionError.value = '';
+  try {
+    savedCloseAction = await bridge.core.invoke<CloseAction>('desktop_close_action', { action });
+  } catch {
+    closeActionError.value = action ? '无法保存关闭窗口设置' : '无法读取关闭窗口设置';
+  } finally {
+    closeAction.value = savedCloseAction;
+    closeActionPending.value = false;
+  }
+}
+if (hasWindowsTray) void setCloseAction();
+
 const appearance = inject<Appearance>(APPEARANCE)!;
 const mode = ref(appearance.mode);
 onUnmounted(
@@ -35,6 +56,25 @@ const {
 <template>
   <section class="settings-view">
     <h1 class="page-title">设置</h1>
+    <section v-if="hasWindowsTray">
+      <h2>关闭窗口时</h2>
+      <fieldset aria-label="关闭窗口时" :disabled="closeActionPending">
+        <label
+          v-for="choice in [['tray', '隐藏到系统托盘'], ['exit', '退出拾音']] as const"
+          :key="choice[0]"
+        >
+          <input
+            type="radio"
+            name="desktop-close-action"
+            v-model="closeAction"
+            :value="choice[0]"
+            @change="setCloseAction(choice[0])"
+          />
+          {{ choice[1] }}
+        </label>
+      </fieldset>
+      <p v-if="closeActionError" role="alert">{{ closeActionError }}</p>
+    </section>
     <section>
       <h2>外观</h2>
       <h3>主题</h3>

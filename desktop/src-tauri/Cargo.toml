@@ -26,3 +26,7 @@ symphonia = { version = "0.5", features = ["all"] }
 tempfile = "3"
 sha2 = "0.10"
 rusqlite = { version = "0.37", features = ["bundled"] }
+
+[target."cfg(windows)".dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2.5.5"

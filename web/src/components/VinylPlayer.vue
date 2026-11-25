@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { desktopMainHidden } from '../composables/useDesktopLyrics';
 import ClassicMachine from './classic-turntable/ClassicMachine.vue';
 import ClassicRecord from './classic-turntable/ClassicRecord.vue';
 import CoverArt from './CoverArt.vue';
@@ -47,7 +48,7 @@ const emit = defineEmits<{
     :style="{
       '--vinyl-tint': palette.left,
       '--wide-cover-ratio': WIDE_COVER_RATIO,
-      '--spin-state': playing ? 'running' : 'paused',
+      '--spin-state': playing && !desktopMainHidden ? 'running' : 'paused',
     }"
   >
     <div
