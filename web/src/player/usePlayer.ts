@@ -36,7 +36,7 @@ export function usePlayer() {
   function closeDesktopLocal(id = desktopLocalSession) {
     if (!id) return;
     if (desktopLocalSession === id) desktopLocalSession = undefined;
-    void requestJson(`/api/playback/${id}/close`, { method: 'POST' }).catch(() => {});
+    return requestJson(`/api/playback/${id}/close`, { method: 'POST' }).catch(() => {});
   }
   const localIntent = ref(false);
   const local = computed(() => !!selected.value && isLocalSong(selected.value));
@@ -250,7 +250,7 @@ export function usePlayer() {
   async function stop() {
     restored = false;
     localAbort?.abort();
-    closeDesktopLocal();
+    const closing = closeDesktopLocal();
     selectionRevision++;
     clearTimeout(timer);
     timer = undefined;
@@ -260,8 +260,31 @@ export function usePlayer() {
     duration.value = 0;
     playing.value = false;
     localIntent.value = false;
-    await controller.stop();
+    await Promise.all([controller.stop(), closing]);
   }
+
+  async function releaseLocalForRecycle(fileId: string) {
+    const song = selected.value;
+    if (!song || !isLocalSong(song) || song.fileId !== fileId) return;
+    const snapshot = { position: time.value, duration: duration.value, playing: playing.value };
+    const stopped = stop();
+    const revision = selectionRevision;
+    await stopped;
+    return async (resume: boolean) => {
+      if (selectionRevision !== revision || disposed) return;
+      if (snapshot.playing && resume) {
+        await select(song, snapshot.position);
+        return;
+      }
+      selected.value = song;
+      time.value = snapshot.position;
+      duration.value = snapshot.duration;
+      restored = true;
+      phase.value = 'ready';
+      message.value = '已暂停';
+    };
+  }
+
   function seek(value: number) {
     if (!Number.isFinite(value)) return;
     if (restored) {
@@ -422,6 +445,7 @@ export function usePlayer() {
         cover: null,
         duration: null,
       }),
+    releaseLocalForRecycle,
     removeLocal: (fileId: string) => queue.remove(JSON.stringify(['local', fileId])),
     toggle: () => {
       if (!selected.value || busy.value) return;

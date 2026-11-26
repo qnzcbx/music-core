@@ -11,6 +11,8 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub struct SavedDownload {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_identity: Option<crate::file_recycle::FileIdentity>,
     pub identity: Value,
     pub title: String,
     pub artist: String,
@@ -35,6 +37,7 @@ pub struct History {
     path: PathBuf,
     default_directory: PathBuf,
     stored: Stored,
+    pending_reconciliation: bool,
 }
 
 pub(crate) fn write_snapshot(path: &Path, value: &impl Serialize) -> Result<(), String> {
@@ -69,6 +72,7 @@ impl History {
             path,
             default_directory,
             stored,
+            pending_reconciliation: false,
         })
     }
 
@@ -90,6 +94,7 @@ impl History {
     fn commit(&mut self, next: Stored) -> Result<(), String> {
         write_snapshot(&self.path, &next)?;
         self.stored = next;
+        self.pending_reconciliation = false;
         Ok(())
     }
 
@@ -107,7 +112,7 @@ impl History {
         self.commit(next)
     }
 
-    pub fn add(&mut self, record: SavedDownload) -> Result<(), String> {
+    pub fn add(&mut self, mut record: SavedDownload) -> Result<(), String> {
         // 成品已经正式发布才能入历史；不收临时文件或仅探查的资源。
         let metadata = std::fs::metadata(&record.path).map_err(|_| "file_io_error")?;
         if !record.path.is_absolute()
@@ -117,6 +122,7 @@ impl History {
         {
             return Err("source_verification_failed".into());
         }
+        record.file_identity = crate::file_recycle::capture(&record.path).ok();
         let mut next = self.stored.clone();
         next.excluded_songs
             .remove(&crate::local_library::path_key(&record.path));
@@ -136,6 +142,23 @@ impl History {
             .ok_or_else(|| "track_not_found".into())
     }
 
+    pub fn complete_recycle(&mut self, id: &str, records: &[String], hide_path: bool) -> bool {
+        // 回收成功后只对账已确认的记录；写入失败也不会重做文件操作。
+        self.stored.records.retain(|row| !records.contains(&row.id));
+        if hide_path {
+            self.stored.excluded_songs.insert(id.to_owned());
+        }
+        self.pending_reconciliation = true;
+        self.reconcile()
+    }
+
+    pub fn reconcile(&mut self) -> bool {
+        if self.pending_reconciliation && write_snapshot(&self.path, &self.stored).is_ok() {
+            self.pending_reconciliation = false;
+        }
+        !self.pending_reconciliation
+    }
+
     pub fn excluded_songs(&self) -> &BTreeSet<String> {
         &self.stored.excluded_songs
     }
@@ -152,22 +175,17 @@ impl History {
     }
 
     pub fn remove_song(&mut self, path: &Path, id: &str, delete_file: bool) -> Result<(), String> {
+        // 路径 ID 仅用于曲库聚合，不能授权物理处置。
+        if delete_file {
+            return Err("local_recycle_unavailable".into());
+        }
         if crate::local_library::path_key(path) != id || self.stored.excluded_songs.contains(id) {
             return Err("track_not_found".into());
         }
         let mut next = self.stored.clone();
-        let mut expected_size = None;
-        next.records.retain(|record| {
-            if crate::local_library::path_key(&record.path) != id {
-                return true;
-            }
-            expected_size = Some(record.size_bytes);
-            false
-        });
+        next.records
+            .retain(|record| crate::local_library::path_key(&record.path) != id);
         next.excluded_songs.insert(id.to_owned());
-        if delete_file {
-            crate::local_library::delete_audio_file(path, expected_size)?;
-        }
         self.commit(next)
     }
 }
@@ -177,6 +195,7 @@ mod tests {
     use super::*;
     fn record(path: PathBuf, fallback: bool) -> SavedDownload {
         SavedDownload {
+            file_identity: None,
             id: uuid::Uuid::new_v4().simple().to_string(),
             identity: serde_json::json!({"providerId":"qq","platformId":"fixture"}),
             title: "歌曲".into(),
@@ -190,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn only_explicit_deletion_removes_the_recorded_file() {
+    fn record_removal_preserves_audio_and_excludes_all_records_for_path() {
         let root = tempfile::tempdir().unwrap();
         let config = root.path().join("history.json");
         let path = root.path().join("song.mp3");
@@ -200,24 +219,46 @@ mod tests {
         history.add(record(path.clone(), false)).unwrap();
         history.add(record(path.clone(), false)).unwrap();
         history.remove_song(&path, &id, false).unwrap();
-        assert!(path.is_file());
+        assert_eq!(std::fs::read(&path).unwrap(), b"audio");
 
         let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
         assert!(history.list().is_empty());
         assert!(history.excluded_songs().contains(&id));
         history.add(record(path.clone(), false)).unwrap();
         assert!(!history.excluded_songs().contains(&id));
-        std::fs::write(&path, b"changed contents").unwrap();
-        assert!(history.remove_song(&path, &id, true).is_err());
-        assert_eq!(history.list().len(), 1);
-        std::fs::write(&path, b"audio").unwrap();
-        history.remove_song(&path, &id, true).unwrap();
-        assert!(!path.exists());
-        assert!(History::open(config, root.path().to_owned())
-            .unwrap()
-            .list()
-            .is_empty());
+        assert_eq!(
+            History::open(config, root.path().to_owned())
+                .unwrap()
+                .list()
+                .len(),
+            1
+        );
     }
+    #[test]
+    fn physical_removal_is_refused_without_touching_file_or_records() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("history.json");
+        let path = root.path().join("song.mp3");
+        std::fs::write(&path, b"audio").unwrap();
+        let id = crate::local_library::path_key(&path);
+        let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
+        history.add(record(path.clone(), false)).unwrap();
+        assert_eq!(
+            history.remove_song(&path, &id, true),
+            Err("local_recycle_unavailable".into())
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"audio");
+        assert_eq!(history.list().len(), 1);
+        assert!(!history.excluded_songs().contains(&id));
+        assert_eq!(
+            History::open(config, root.path().to_owned())
+                .unwrap()
+                .list()
+                .len(),
+            1
+        );
+    }
+
     #[test]
     fn settings_and_actual_paths_survive_reopening_without_moving_files() {
         let root = tempfile::tempdir().unwrap();

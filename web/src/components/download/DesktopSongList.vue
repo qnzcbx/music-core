@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue';
+import { nextTick, onScopeDispose, ref } from 'vue';
 import {
   AlertDialogCancel,
   AlertDialogContent,
@@ -19,7 +19,7 @@ import PauseIcon from '~icons/lucide/pause';
 import MoreIcon from '~icons/lucide/ellipsis';
 import TrashIcon from '~icons/lucide/trash-2';
 import CoverArt from '../CoverArt.vue';
-import { requestJson } from '../../api/http';
+import { ApiError, requestJson } from '../../api/http';
 import { useCoreClient } from '../../composables/useCoreClient';
 import { formatDownloadBytes } from '../../utils/download-display';
 
@@ -49,6 +49,25 @@ const removal = ref<DesktopSong>();
 const deleteFile = ref(false);
 const removing = ref(false);
 const removeError = ref('');
+const recyclePlan = ref<{ token: string; name: string }>();
+const preparing = ref(false);
+let confirmation = 0;
+
+function recycleRequest<T>(action: 'prepare' | 'cancel' | 'execute', body: object) {
+  return requestJson<T>(`/api/local-library/recycle/${action}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+function cancelConfirmation() {
+  confirmation++;
+  preparing.value = false;
+  const plan = recyclePlan.value;
+  recyclePlan.value = undefined;
+  if (plan) void recycleRequest('cancel', { token: plan.token }).catch(() => {});
+}
+onScopeDispose(cancelConfirmation);
 
 function filename(song: DesktopSong) {
   return song.path.split(/[\\/]/).pop() || song.path;
@@ -92,27 +111,57 @@ async function showDetails(song: DesktopSong) {
   await nextTick();
   details.value?.showModal();
 }
-function confirmRemoval(song: DesktopSong) {
+async function confirmRemoval(song: DesktopSong) {
+  cancelConfirmation();
+  const revision = confirmation;
   removal.value = song;
-  deleteFile.value = false;
+  deleteFile.value = true;
   removeError.value = '';
+  preparing.value = true;
+  try {
+    const plan = await recycleRequest<{ token: string; name: string }>('prepare', { id: song.id });
+    if (revision === confirmation) recyclePlan.value = plan;
+    else void recycleRequest('cancel', { token: plan.token }).catch(() => {});
+  } catch (reason) {
+    if (revision === confirmation) {
+      removeError.value = reason instanceof Error ? reason.message : '无法准备文件回收';
+    }
+  } finally {
+    if (revision === confirmation) preparing.value = false;
+  }
 }
 async function remove() {
   const song = removal.value;
-  if (!song || removing.value) return;
+  const plan = recyclePlan.value;
+  if (!song || removing.value || (deleteFile.value && !plan)) return;
   removing.value = true;
   removeError.value = '';
+  error.value = '';
+  let restorePlayback: ((resume: boolean) => Promise<void>) | undefined;
   try {
-    if (deleteFile.value) await player.removeLocal(song.id);
-    await requestJson('/api/local-library/remove', {
-      method: 'POST',
-      body: JSON.stringify({ id: song.id, deleteFile: deleteFile.value }),
-    });
+    if (deleteFile.value && plan) {
+      recyclePlan.value = undefined;
+      restorePlayback = await player.releaseLocalForRecycle(song.id);
+      const result = await recycleRequest<{ historySaved: boolean }>('execute', { token: plan.token });
+      if (!result.historySaved) {
+        error.value = '文件已移至系统回收站，曲库记录暂未保存。重新加载曲库将重试保存。';
+      }
+    } else {
+      cancelConfirmation();
+      await requestJson('/api/local-library/remove', {
+        method: 'POST',
+        body: JSON.stringify({ id: song.id, deleteFile: false }),
+      });
+    }
     removal.value = undefined;
-    if (!deleteFile.value) void player.removeLocal(song.id);
+    void player.removeLocal(song.id);
     void downloads.refresh();
     emit('removed');
   } catch (reason) {
+    const code = reason instanceof ApiError ? reason.code : undefined;
+    const unchanged = code === 'local_recycle_cancelled' || code === 'local_recycle_failed' ||
+      code === 'local_recycle_unavailable';
+    void restorePlayback?.(unchanged).catch(() => {});
     removeError.value = reason instanceof Error ? reason.message : '删除记录失败，请重试';
   } finally {
     removing.value = false;
@@ -319,7 +368,10 @@ async function remove() {
       :open="!!removal"
       @update:open="
         (open) => {
-          if (!open && !removing) removal = undefined;
+          if (!open && !removing) {
+            cancelConfirmation();
+            removal = undefined;
+          }
         }
       "
     >
@@ -334,10 +386,10 @@ async function remove() {
           "
         >
           <AlertDialogTitle>
-            {{ removal?.recordId ? '删除下载记录？' : '移除本地歌曲？' }}
+            删除
           </AlertDialogTitle>
           <AlertDialogDescription>
-            「{{ removal ? filename(removal) : '' }}」将从本地歌曲和下载歌曲中移除。
+            「{{ recyclePlan?.name || (removal ? filename(removal) : '') }}」
           </AlertDialogDescription>
           <label>
             <input
@@ -345,13 +397,14 @@ async function remove() {
               type="checkbox"
               :disabled="removing"
             />
-            同时删除本地音频文件
+            同时删除本地文件
           </label>
-          <p
-            v-if="deleteFile"
-            class="file-delete-warning"
-          >
-            音频文件将从磁盘删除，此操作可能无法撤销。
+          <p>
+            {{
+              deleteFile
+                ? '本地文件将移至系统回收站。'
+                : '仅从曲库移除，保留本地文件。'
+            }}
           </p>
           <p
             v-if="removeError"
@@ -363,10 +416,10 @@ async function remove() {
             <AlertDialogCancel :disabled="removing">取消</AlertDialogCancel>
             <button
               type="button"
-              :disabled="removing"
+              :disabled="removing || (deleteFile && (preparing || !recyclePlan))"
               @click="remove"
             >
-              {{ removing ? '正在删除…' : '确认删除' }}
+              {{ removing ? '正在删除…' : '删除' }}
             </button>
           </footer>
         </AlertDialogContent>

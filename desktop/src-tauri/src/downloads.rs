@@ -466,6 +466,19 @@ impl Downloads {
         Ok(history.find(id)?.path.clone())
     }
 
+    pub fn access_history<T>(
+        &self,
+        action: impl FnOnce(&mut crate::download_history::History) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut history = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap();
+        action(&mut history)
+    }
+
     pub fn library_snapshot(
         &self,
     ) -> Result<
@@ -475,13 +488,10 @@ impl Downloads {
         ),
         String,
     > {
-        let history = self
-            .history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap();
-        Ok((history.list(), history.excluded_songs().clone()))
+        self.access_history(|history| {
+            history.reconcile();
+            Ok((history.list(), history.excluded_songs().clone()))
+        })
     }
 
     pub fn restore_library_songs(&self, ids: &[String]) -> Result<(), String> {
@@ -620,6 +630,7 @@ impl Downloads {
             .recording
             .clone();
         let record = crate::download_history::SavedDownload {
+            file_identity: None,
             id: uuid::Uuid::new_v4().simple().to_string(),
             identity: r.identity,
             title: r.title,

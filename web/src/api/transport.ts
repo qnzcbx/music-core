@@ -47,7 +47,14 @@ export const apiFetch: typeof fetch = async (input, init) => {
       download_history_invalid: '下载记录文件无法读取，原文件未改动',
       local_directory_unavailable: '目录暂不可用，已有记录已保留',
       local_library_unavailable: '无法读取或保存本地歌曲记录',
-      local_file_delete_failed: '无法删除音频文件，文件可能已变更、被占用或没有删除权限',
+      local_recycle_unavailable: '此位置无法使用系统回收站。可取消勾选，仅从曲库移除。',
+      local_recycle_identity_unavailable: '无法确认文件身份，请重新导入或刷新来源文件夹。',
+      local_recycle_unsafe_path: '此文件位置无法安全回收。',
+      local_recycle_changed: '文件或曲库记录已变化，请刷新列表后重新确认。',
+      local_recycle_plan_invalid: '删除确认已过期或失效，请重新打开删除窗口。',
+      local_recycle_cancelled: '系统已取消回收，曲库记录已保留。',
+      local_recycle_failed: '系统回收失败，请检查文件是否被占用或回收站是否可用。',
+      local_recycle_uncertain: '系统没有确认回收结果。请检查原文件和回收站，曲库记录已保留。',
       local_unsupported: '请选择可播放的 MP3 或 FLAC 文件',
       saved_file_missing: '文件已移动或删除，记录中的原位置已不存在',
       file_exists: '目标文件已存在，请选择其他名称或位置',
@@ -59,6 +66,6 @@ export const apiFetch: typeof fetch = async (input, init) => {
       upstream_failure: '下载来源暂时无法连接，请重试',
     };
     const message = (path.startsWith('/api/downloads') || path.startsWith('/api/local-library')) ? (downloadMessages[code] ?? code) : code;
-    return Response.json({ error: { code: 'DESKTOP_UNAVAILABLE', message } }, { status: 503 });
+    return Response.json({ error: { code: code.startsWith('local_recycle_') ? code : 'DESKTOP_UNAVAILABLE', message } }, { status: 503 });
   }
 };

@@ -26,12 +26,15 @@ struct Directory {
 struct Stored {
     manual: Vec<PathBuf>,
     directories: Vec<Directory>,
+    #[serde(default)]
+    identities: BTreeMap<String, crate::file_recycle::FileIdentity>,
 }
 
 pub struct Library {
     path: PathBuf,
     stored: Stored,
     media: BTreeMap<String, CachedMedia>,
+    pub revision: u64,
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -135,14 +138,22 @@ pub(crate) fn path_key(path: &Path) -> String {
     key(path.canonicalize().as_deref().unwrap_or(path))
 }
 
-fn playable_import(path: &Path) -> Option<PathBuf> {
+type ImportedFile = (PathBuf, Option<crate::file_recycle::FileIdentity>);
+
+fn playable_import(path: &Path) -> Option<ImportedFile> {
     let format = file_format(path)?;
     if format == "m4a" || !path.is_file() {
         return None;
     }
+    let original = crate::file_recycle::capture(path).ok();
     let canonical = path.canonicalize().ok()?;
     let media = crate::download_media::inspect_original(&canonical, "auto").ok()?;
-    (media["extension"] == format).then_some(canonical)
+    if media["extension"] != format {
+        return None;
+    }
+    let identity = original
+        .filter(|identity| crate::file_recycle::capture(&canonical).as_ref() == Ok(identity));
+    Some((canonical, identity))
 }
 
 fn link(metadata: &fs::Metadata) -> bool {
@@ -155,19 +166,7 @@ fn link(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
-pub(crate) fn delete_audio_file(path: &Path, expected_size: Option<u64>) -> Result<(), String> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Ok(metadata)
-            if metadata.is_file()
-                && !link(&metadata)
-                && expected_size.is_none_or(|size| metadata.len() == size) => {}
-        _ => return Err("local_file_delete_failed".into()),
-    }
-    fs::remove_file(path).map_err(|_| "local_file_delete_failed".into())
-}
-
-fn scan(directory: &Path) -> Result<Vec<PathBuf>, String> {
+fn scan(directory: &Path) -> Result<Vec<ImportedFile>, String> {
     let mut pending = vec![directory.to_owned()];
     let mut files = Vec::new();
     while let Some(path) = pending.pop() {
@@ -201,6 +200,7 @@ impl Library {
             path,
             stored,
             media: BTreeMap::new(),
+            revision: 0,
         })
     }
 
@@ -208,7 +208,18 @@ impl Library {
         crate::download_history::write_snapshot(&self.path, &next)
             .map_err(|_| "local_library_unavailable")?;
         self.stored = next;
+        self.revision += 1;
         Ok(())
+    }
+
+    pub fn registered_identity(&self, id: &str) -> Option<&crate::file_recycle::FileIdentity> {
+        self.stored
+            .manual
+            .iter()
+            .chain(self.stored.directories.iter().flat_map(|dir| &dir.files))
+            .any(|path| key(path) == id)
+            .then(|| self.stored.identities.get(id))
+            .flatten()
     }
 
     pub fn songs(&self, downloads: Vec<SavedDownload>) -> BTreeMap<String, Song> {
@@ -369,8 +380,17 @@ pub async fn change(
             }
             let mut library = library.lock().unwrap();
             let mut next = library.stored.clone();
-            let ids = paths.iter().map(|path| key(path)).collect();
-            for path in paths {
+            let ids = paths.iter().map(|(path, _)| key(path)).collect();
+            for (path, identity) in paths {
+                let id = key(&path);
+                match identity {
+                    Some(identity) => {
+                        next.identities.insert(id, identity);
+                    }
+                    None => {
+                        next.identities.remove(&id);
+                    }
+                }
                 if !next.manual.iter().any(|old| key(old) == key(&path)) {
                     next.manual.push(path);
                 }
@@ -408,17 +428,34 @@ pub async fn change(
                 .map_err(|_| "local_library_unavailable")??;
             let mut library = library.lock().unwrap();
             let mut next = library.stored.clone();
+            let mut paths = Vec::with_capacity(files.len());
+            for (file, identity) in files {
+                let id = key(&file);
+                match identity {
+                    Some(identity) => {
+                        next.identities.insert(id, identity);
+                    }
+                    None => {
+                        next.identities.remove(&id);
+                    }
+                }
+                paths.push(file);
+            }
             if let Some(dir) = next.directories.iter_mut().find(|dir| dir.id == id) {
                 // 保留已不可访问的旧条目，回来后刷新可再次播放。
                 let merged: BTreeMap<_, _> = dir
                     .files
                     .iter()
-                    .chain(&files)
+                    .chain(&paths)
                     .map(|path| (key(path), path.clone()))
                     .collect();
                 dir.files = merged.into_values().collect();
             } else if action == "choose" {
-                next.directories.push(Directory { id, path, files });
+                next.directories.push(Directory {
+                    id,
+                    path,
+                    files: paths,
+                });
             }
             library.commit(next)?;
         }
@@ -445,6 +482,14 @@ impl Song {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scan_paths(path: &Path) -> Vec<PathBuf> {
+        scan(path)
+            .unwrap()
+            .into_iter()
+            .map(|(file, _)| file)
+            .collect()
+    }
 
     fn mp3(path: &Path) {
         let mut audio = vec![0; 417 * 20];
@@ -484,7 +529,7 @@ mod tests {
         state.directories.push(Directory {
             id: "music".into(),
             path: music.clone(),
-            files: scan(&music).unwrap(),
+            files: scan_paths(&music),
         });
         library.commit(state).unwrap();
         let history_path = temp.path().join("downloads.json");
@@ -492,6 +537,7 @@ mod tests {
             crate::download_history::History::open(history_path.clone(), music.clone()).unwrap();
         history
             .add(SavedDownload {
+                file_identity: None,
                 id: "saved".into(),
                 identity: json!({}),
                 title: "Kept".into(),
@@ -508,14 +554,14 @@ mod tests {
         assert_eq!(before["songs"].as_array().unwrap().len(), 2);
         history.remove_song(&kept, &path_key(&kept), false).unwrap();
         history
-            .remove_song(&deleted, &path_key(&deleted), true)
+            .remove_song(&deleted, &path_key(&deleted), false)
             .unwrap();
         assert!(kept.is_file());
-        assert!(!deleted.exists());
+        assert!(deleted.is_file());
 
         let mut library = Library::open(config).unwrap();
         let mut rescanned = library.stored.clone();
-        rescanned.directories[0].files = scan(&music).unwrap();
+        rescanned.directories[0].files = scan_paths(&music);
         library.commit(rescanned).unwrap();
         let mut history = crate::download_history::History::open(history_path, music).unwrap();
         let after = library.view(history.list(), history.excluded_songs());
@@ -547,6 +593,7 @@ mod tests {
         let mut library = Library::open(config.clone()).unwrap();
         assert!(library.songs(vec![]).is_empty());
         let saved = SavedDownload {
+            file_identity: None,
             id: "download".into(),
             identity: json!({"providerId":"qq","platformId":"song"}),
             title: "song".into(),
@@ -558,11 +605,12 @@ mod tests {
             source_preserved: false,
         };
         assert_eq!(library.songs(vec![saved.clone()]).len(), 1);
-        let files = scan(&music).unwrap();
+        let files = scan_paths(&music);
         assert_eq!(files.len(), 3);
         library
             .commit(Stored {
                 manual: vec![manual.clone()],
+                identities: BTreeMap::new(),
                 directories: vec![
                     Directory {
                         id: "parent".into(),
@@ -593,6 +641,7 @@ mod tests {
             vec![
                 saved.clone(),
                 SavedDownload {
+                    file_identity: None,
                     id: "second-download".into(),
                     path: manual.clone(),
                     ..saved.clone()

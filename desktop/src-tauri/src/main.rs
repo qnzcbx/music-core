@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod covers;
+mod delete_plan;
 mod desktop_lyrics;
 #[cfg(windows)]
 mod desktop_tray;
@@ -8,6 +9,7 @@ mod download_media;
 mod download_resolver;
 mod downloads;
 mod fallback;
+mod file_recycle;
 mod local_library;
 mod lyrics;
 mod media_cache;
@@ -20,6 +22,8 @@ use tauri::{Emitter, Manager};
 
 struct Desktop {
     sessions: sessions::Sessions,
+    delete_plans: std::sync::Mutex<delete_plan::Plans>,
+    protected_paths: Vec<std::path::PathBuf>,
     client: reqwest::Client,
     port: u16,
     fallbacks: fallback::Config,
@@ -30,10 +34,14 @@ struct Desktop {
 
 #[tauri::command]
 async fn desktop_request(
+    window: tauri::WebviewWindow,
     path: String,
     body: Value,
     state: tauri::State<'_, Desktop>,
 ) -> Result<Value, String> {
+    if path.starts_with("/api/local-library/recycle/") && window.label() != "main" {
+        return Err("invalid_input".into());
+    }
     match path.as_str() {
         "/api/providers" => Ok(provider::catalog()),
         "/api/search" => {
@@ -151,6 +159,48 @@ async fn desktop_request(
             })
             .await
             .map_err(|_| "local_library_unavailable".into())
+        }
+        "/api/local-library/recycle/prepare" => {
+            let id = body["id"].as_str().ok_or("invalid_input")?;
+            let library = state.library.lock().unwrap();
+            let target = state.downloads.access_history(|history| {
+                delete_plan::Target::resolve(&library, history, id, &state.protected_paths)
+            })?;
+            let name = target
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned());
+            let token = state.delete_plans.lock().unwrap().prepare(target);
+            Ok(json!({"token": token, "name": name}))
+        }
+        "/api/local-library/recycle/cancel" => {
+            let token = body["token"].as_str().ok_or("invalid_input")?;
+            state.delete_plans.lock().unwrap().cancel(token);
+            Ok(Value::Null)
+        }
+        "/api/local-library/recycle/execute" => {
+            let token = body["token"].as_str().ok_or("invalid_input")?;
+            let target = state.delete_plans.lock().unwrap().take(token)?;
+            let library = state.library.clone();
+            let downloads = state.downloads.clone();
+            let protected = state.protected_paths.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let library = library.lock().unwrap();
+                downloads.access_history(|history| {
+                    let current =
+                        delete_plan::Target::resolve(&library, history, &target.id, &protected)?;
+                    if current != target {
+                        return Err("local_recycle_changed".into());
+                    }
+                    file_recycle::recycle(&target.path, &target.identity, &protected)?;
+                    let absent = std::fs::symlink_metadata(&target.path)
+                        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+                    let saved = history.complete_recycle(&target.id, &target.records, absent);
+                    Ok(json!({"historySaved": saved}))
+                })
+            })
+            .await
+            .map_err(|_| "local_recycle_uncertain")?
         }
         "/api/local-library/open" | "/api/local-library/reveal" | "/api/local-library/remove" => {
             let id = body["id"].as_str().ok_or("invalid_input")?;
@@ -297,8 +347,27 @@ fn main() {
                     cleanup.prune();
                 }
             });
+            let mut protected_paths = vec![
+                app.path().app_data_dir()?,
+                app.path().app_config_dir()?,
+                app.path().app_local_data_dir()?,
+                app.path().resource_dir()?,
+            ];
+            protected_paths.extend(
+                [
+                    "SystemRoot",
+                    "ProgramFiles",
+                    "ProgramFiles(x86)",
+                    "ProgramData",
+                ]
+                .into_iter()
+                .filter_map(std::env::var_os)
+                .map(std::path::PathBuf::from),
+            );
             app.manage(Desktop {
                 sessions,
+                delete_plans: Default::default(),
+                protected_paths,
                 client,
                 port,
                 fallbacks,

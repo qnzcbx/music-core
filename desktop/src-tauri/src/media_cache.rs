@@ -347,6 +347,7 @@ mod tests {
     }
     fn saved(id: &str, format: &str) -> crate::download_history::SavedDownload {
         crate::download_history::SavedDownload {
+            file_identity: None,
             id: id.into(),
             identity: track("sample"),
             title: "fixture".into(),
