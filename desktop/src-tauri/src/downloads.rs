@@ -95,6 +95,8 @@ fn suggested_name(recording: &Recording, naming: Naming) -> String {
 pub struct Downloads {
     recordings: Arc<Mutex<HashMap<String, Recording>>>,
     jobs: Arc<Mutex<HashMap<String, Job>>>,
+    closing: CancellationToken,
+    finished: Arc<tokio::sync::Notify>,
     naming: Arc<Mutex<Naming>>,
     settings_path: Option<PathBuf>,
     pub tools_dir: Option<PathBuf>,
@@ -229,6 +231,14 @@ async fn remove_temporary(path: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+async fn clean_owned_parts(part: &Path, owns_part: bool, owns_output: bool) -> (bool, bool) {
+    let output = part.with_extension("mp3.part");
+    tokio::join!(
+        async { owns_part && remove_temporary(part).await.is_err() },
+        async { owns_output && remove_temporary(&output).await.is_err() },
+    )
+}
+
 async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, String> {
     let id = r.identity["platformId"].as_str().ok_or("invalid_input")?;
     // 重试及新任务都重新核对原平台录音的当前下载限制，不复用播放地址或旧权限快照。
@@ -792,10 +802,14 @@ impl Downloads {
             .collect::<Vec<_>>())
     }
     pub async fn create(&self, client: &reqwest::Client, body: &Value) -> Result<Value, String> {
+        self.check_open()?;
         let mut recording = self.recording(body)?;
-        let rep = tokio::time::timeout(Duration::from_secs(50), prefix(client, &recording))
-            .await
-            .map_err(|_| "upstream_timeout")??;
+        let rep = tokio::select! {
+            biased;
+            _ = self.closing.cancelled() => return Err("download_shutting_down".into()),
+            result = tokio::time::timeout(Duration::from_secs(50), prefix(client, &recording)) =>
+                result.map_err(|_| "upstream_timeout")??,
+        };
         if let Some(duration) = rep["expectedDurationSeconds"].as_f64().filter(|n| *n > 0.0) {
             recording.duration = duration;
         }
@@ -818,6 +832,7 @@ impl Downloads {
             .map(|v| v.as_bool().ok_or("invalid_input"))
             .transpose()?
             .unwrap_or(false);
+        self.check_open()?;
         let target = if save_as {
             let mut picker = rfd::AsyncFileDialog::new()
                 .set_title("另存为音频")
@@ -826,7 +841,11 @@ impl Downloads {
             if let Some(history) = &self.history {
                 picker = picker.set_directory(history.lock().unwrap().directory());
             }
-            let Some(file) = picker.save_file().await else {
+            let Some(file) = (tokio::select! {
+                biased;
+                _ = self.closing.cancelled() => return Err("download_shutting_down".into()),
+                file = picker.save_file() => file,
+            }) else {
                 return Ok(Value::Null);
             };
             file.path().to_owned()
@@ -834,6 +853,13 @@ impl Downloads {
             self.automatic_target(&name)?
         };
         self.start_mode(recording, target, client.clone(), mode)
+    }
+
+    fn check_open(&self) -> Result<(), String> {
+        if self.closing.is_cancelled() {
+            return Err("download_shutting_down".into());
+        }
+        Ok(())
     }
 
     fn converter_available(&self) -> bool {
@@ -848,6 +874,7 @@ impl Downloads {
         client: reqwest::Client,
         mode: &str,
     ) -> Result<Value, String> {
+        self.check_open()?;
         if target
             .extension()
             .and_then(|s| s.to_str())
@@ -871,6 +898,7 @@ impl Downloads {
         let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":mode,"deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
         {
             let mut jobs = self.jobs.lock().unwrap();
+            self.check_open()?;
             if jobs.len() >= 128
                 || jobs
                     .values()
@@ -937,65 +965,38 @@ impl Downloads {
         self.finish(
             id,
             &target,
-            &part,
-            cancel,
-            self.transfer(id, client, &r, &target, &part),
+            self.transfer(id, client, &r, &target, &part, &cancel),
         )
         .await
     }
+
+    async fn cleanup_job(&self, id: &str) -> bool {
+        let parts = self
+            .jobs
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|job| (job.part.clone(), job.owns_part, job.owns_output));
+        let Some((part, owns_part, owns_output)) = parts else {
+            return false;
+        };
+        let (part_left, output_left) = clean_owned_parts(&part, owns_part, owns_output).await;
+        if let Some(job) = self.jobs.lock().unwrap().get_mut(id) {
+            job.owns_part = part_left;
+            job.owns_output = output_left;
+        }
+        part_left || output_left
+    }
+
     async fn finish(
         &self,
         id: &str,
         target: &Path,
-        part: &Path,
-        cancel: CancellationToken,
         transfer: impl std::future::Future<Output = Result<Value, String>>,
     ) -> Option<Recording> {
-        let result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err("cancelled".to_string()),
-            result = transfer => result,
-        };
-        let owned = self
-            .jobs
-            .lock()
-            .unwrap()
-            .get(id)
-            .is_some_and(|j| j.owns_part);
-        let output = part.with_extension("mp3.part");
-        let owns_output = self
-            .jobs
-            .lock()
-            .unwrap()
-            .get(id)
-            .is_some_and(|j| j.owns_output);
-        if owns_output {
-            if remove_temporary(&output).await.is_err() {
-                self.update(
-                    id,
-                    json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
-                );
-                return None;
-            }
-        }
-        if cancel.is_cancelled() {
-            self.update(id, json!({"sourcePreserved":false}));
-        }
-        let cleanup = if owned {
-            remove_temporary(part).await
-        } else {
-            Ok(())
-        };
-        if cleanup
-            .as_ref()
-            .is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound)
-        {
-            self.update(
-                id,
-                json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
-            );
-            return None;
-        }
+        // 传输只在没有子进程的阶段丢弃等待。转换先等待自己的子进程退出。
+        let result = transfer.await;
+        let cleanup_failed = self.cleanup_job(id).await;
         let saved = self
             .jobs
             .lock()
@@ -1003,24 +1004,29 @@ impl Downloads {
             .get(id)
             .filter(|job| job.public["savedId"].is_string())
             .map(|job| job.recording.clone());
-        match result {
-            Ok(rep) => self.update(
-                id,
-                json!({
-                    "status": "completed", "phase": "completed",
-                    "filename": target.file_name().and_then(|s| s.to_str()),
-                    "format": rep["extension"].as_str().unwrap_or("mp3"), "route":rep["route"], "actualMedia": rep,
-                    "finalSizeBytes": rep["sizeBytes"], "progress": 1,
-                }),
-            ),
-            Err(error) => self.update(
-                id,
-                json!({
-                    "status": if error == "cancelled" { "cancelled" } else { "failed" },
-                    "errorCode": if error == "cancelled" { Value::Null } else { json!(error) },
-                }),
-            ),
+        let mut terminal = match result {
+            Ok(rep) => json!({
+                "status": if cleanup_failed { "failed" } else { "completed" },
+                "phase": "completed",
+                "errorCode": if cleanup_failed { Some("saved_temporary_cleanup_failed") } else { None },
+                "filename": target.file_name().and_then(|s| s.to_str()),
+                "format": rep["extension"].as_str().unwrap_or("mp3"), "route":rep["route"], "actualMedia": rep,
+                "finalSizeBytes": rep["sizeBytes"], "progress": 1,
+            }),
+            Err(error) if error == "cancelled" && !cleanup_failed => {
+                json!({"status":"cancelled","errorCode":null})
+            }
+            Err(error) => json!({
+                "status":"failed",
+                "errorCode": if error == "cancelled" { "temporary_cleanup_failed".into() } else { error },
+            }),
         };
+        if cleanup_failed {
+            eprintln!("下载任务 {id} 的临时文件未全部清理");
+            terminal["cleanupError"] = json!("temporary_cleanup_failed");
+        }
+        self.update(id, terminal);
+        self.finished.notify_one();
         saved
     }
     async fn transfer(
@@ -1030,48 +1036,56 @@ impl Downloads {
         r: &Recording,
         target: &Path,
         part: &Path,
+        cancel: &CancellationToken,
     ) -> Result<Value, String> {
         let mut checked = r.clone();
-        let (media, route) = if r.identity["providerId"] == "kuwo" {
-            let url = tokio::time::timeout(Duration::from_secs(20), resolve(client, r))
-                .await
-                .map_err(|_| "upstream_timeout")??;
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert("user-agent", "okhttp/3.10.0".parse().unwrap());
-            (
-                crate::provider::Media { url, headers },
-                "native".to_string(),
-            )
-        } else {
-            let resolved = tokio::time::timeout(
-                Duration::from_secs(50),
-                crate::download_resolver::resolve(
-                    client,
-                    &crate::fallback::Config::from_env()?,
-                    &r.identity,
-                    &r.quality,
-                    &r.title,
-                    &r.artist,
-                ),
-            )
-            .await
-            .map_err(|_| "upstream_timeout")??;
-            if let Some(duration) = resolved.representation["expectedDurationSeconds"]
-                .as_f64()
-                .filter(|n| *n > 0.0)
-            {
-                checked.duration = duration;
-            }
-            (resolved.media, resolved.route)
+        let (route, response) = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err("cancelled".into()),
+            result = async {
+                let (media, route) = if r.identity["providerId"] == "kuwo" {
+                    let url = tokio::time::timeout(Duration::from_secs(20), resolve(client, r))
+                        .await
+                        .map_err(|_| "upstream_timeout")??;
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    headers.insert("user-agent", "okhttp/3.10.0".parse().unwrap());
+                    (
+                        crate::provider::Media { url, headers },
+                        "native".to_string(),
+                    )
+                } else {
+                    let resolved = tokio::time::timeout(
+                        Duration::from_secs(50),
+                        crate::download_resolver::resolve(
+                            client,
+                            &crate::fallback::Config::from_env()?,
+                            &r.identity,
+                            &r.quality,
+                            &r.title,
+                            &r.artist,
+                        ),
+                    )
+                    .await
+                    .map_err(|_| "upstream_timeout")??;
+                    if let Some(duration) = resolved.representation["expectedDurationSeconds"]
+                        .as_f64()
+                        .filter(|n| *n > 0.0)
+                    {
+                        checked.duration = duration;
+                    }
+                    (resolved.media, resolved.route)
+                };
+                self.update(id, json!({"route":route}));
+                let response = client
+                    .get(media.url)
+                    .headers(media.headers)
+                    .header("Accept-Encoding", "identity")
+                    .send()
+                    .await
+                    .map_err(|_| "upstream_failure")?;
+                Ok::<_, String>((route, response))
+            } => result?,
         };
-        self.update(id, json!({"route":route}));
-        let response = client
-            .get(media.url)
-            .headers(media.headers)
-            .header("Accept-Encoding", "identity")
-            .send()
-            .await
-            .map_err(|_| "upstream_failure")?;
         let mut rep = self
             .save_response(id, &checked, target, part, response)
             .await?;
@@ -1087,6 +1101,10 @@ impl Downloads {
         part: &Path,
         mut response: reqwest::Response,
     ) -> Result<Value, String> {
+        let cancel = self.jobs.lock().unwrap()[id].cancel.clone();
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
         if response
             .headers()
             .get("content-encoding")
@@ -1137,19 +1155,36 @@ impl Downloads {
             job.owns_part = true;
         }
         let mut received = 0u64;
-        while let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? {
-            received += chunk.len() as u64;
-            if received > MAX_DOWNLOAD_BYTES {
-                return Err("media_capacity".into());
+        let writing = async {
+            loop {
+                let chunk = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err("cancelled".into()),
+                    chunk = response.chunk() => chunk.map_err(|_| "upstream_failure")?,
+                };
+                let Some(chunk) = chunk else { break };
+                received += chunk.len() as u64;
+                if received > MAX_DOWNLOAD_BYTES {
+                    return Err("media_capacity".into());
+                }
+                file.write_all(&chunk).await.map_err(|_| "file_io_error")?;
+                self.update(
+                    id,
+                    json!({"receivedBytes":received,"progress":total.map(|n|received as f64/n as f64)}),
+                );
             }
-            file.write_all(&chunk).await.map_err(|_| "file_io_error")?;
-            self.update(
-                id,
-                json!({"receivedBytes":received,"progress":total.map(|n|received as f64/n as f64)}),
-            );
+            Ok::<_, String>(())
+        }.await;
+        if let Err(error) = writing {
+            // Tokio 文件写入可能还有后台工作，先释放句柄再清理任务文件。
+            let _ = file.flush().await;
+            return Err(error);
         }
         file.sync_all().await.map_err(|_| "file_io_error")?;
         drop(file);
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
         if received == 0 || total.is_some_and(|n| n != received) {
             return Err("source_verification_failed".into());
         }
@@ -1169,6 +1204,9 @@ impl Downloads {
             .as_str()
             .unwrap_or("original")
             .to_owned();
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
         if mode != "original" {
             if rep["codec"] != "flac" {
                 return Err("source_verification_failed".into());
@@ -1189,27 +1227,40 @@ impl Downloads {
                     part,
                     &output,
                     if mode == "mp3_320" { 320000 } else { 192000 },
+                    &cancel,
                 )
                 .await
             }
             .await;
             let converted = match converted {
                 Ok(value) => value,
+                Err(error)
+                    if matches!(error.as_str(), "cancelled" | "conversion_cleanup_failed") =>
+                {
+                    return Err(error)
+                }
                 Err(error) => {
-                    self.save_failed_original(id, part, target, &rep, &error);
-                    return Err("conversion_failed".into());
+                    self.save_failed_original(id, part, target, &rep, &error)?;
+                    return Err(if error == "conversion_timeout" {
+                        error
+                    } else {
+                        "conversion_failed".into()
+                    });
                 }
             };
             if !target
                 .extension()
                 .is_some_and(|s| s.eq_ignore_ascii_case("mp3"))
             {
-                self.save_failed_original(id, part, target, &rep, "invalid_output_extension");
+                self.save_failed_original(id, part, target, &rep, "invalid_output_extension")?;
                 return Err("conversion_failed".into());
             }
             self.update(id, json!({"phase":"publishing", "transcoded":true}));
-            if let Err(error) = publish(&output, target) {
-                self.save_failed_original(id, part, target, &rep, &error);
+            if let Err(error) = self.publish_if_active(id, &output, target) {
+                if error == "cancelled" {
+                    return Err(error);
+                }
+                self.save_failed_original(id, part, target, &rep, &error)?;
                 return Err("conversion_failed".into());
             }
             self.record_saved(id, target, &converted, false)?;
@@ -1224,18 +1275,42 @@ impl Downloads {
             return Err("source_verification_failed".into());
         }
         // 校验与无覆盖发布之间没有 await；取消不会留下未登记的正式文件。
-        publish(part, target)?;
+        self.publish_if_active(id, part, target)?;
         self.record_saved(id, target, &rep, false)?;
         Ok(rep)
     }
+    async fn discard_failed_job(&self, id: &str) -> Result<(), String> {
+        let job = {
+            let mut jobs = self.jobs.lock().unwrap();
+            self.check_open()?;
+            if jobs
+                .get(id)
+                .is_none_or(|job| job.public["status"] != "failed")
+            {
+                return Err("track_not_found".into());
+            }
+            jobs.remove(id).unwrap()
+        };
+        let (part_left, output_left) =
+            clean_owned_parts(&job.part, job.owns_part, job.owns_output).await;
+        if part_left || output_left {
+            eprintln!("放弃下载任务 {id} 时仍有临时文件未清理");
+        }
+        Ok(())
+    }
+
     pub async fn operate(
         &self,
         id: &str,
         operation: &str,
         client: &reqwest::Client,
     ) -> Result<Value, String> {
+        if operation == "remove" {
+            self.discard_failed_job(id).await?;
+            return Ok(Value::Null);
+        }
         let body = {
-            let mut jobs = self.jobs.lock().unwrap();
+            let jobs = self.jobs.lock().unwrap();
             let job = jobs.get(id).ok_or("track_not_found")?;
             let failed = job.public["status"] == "failed";
             match operation {
@@ -1248,10 +1323,6 @@ impl Downloads {
                     }
                     return Ok(job.public.clone());
                 }
-                "remove" if failed => {
-                    jobs.remove(id);
-                    return Ok(Value::Null);
-                }
                 "retry" if failed => {
                     json!({
                         "identity":job.recording.identity, "quality":job.recording.quality,
@@ -1263,10 +1334,27 @@ impl Downloads {
             }
         };
         let result = self.create(client, &body).await?;
-        self.jobs.lock().unwrap().remove(id);
+        // 退出已接管剩余任务清理时，保留原记录交给退出流程。
+        let _ = self.discard_failed_job(id).await;
         Ok(result)
     }
-    fn save_failed_original(&self, id: &str, part: &Path, target: &Path, rep: &Value, error: &str) {
+    fn publish_if_active(&self, id: &str, part: &Path, target: &Path) -> Result<(), String> {
+        // 取消、退出与硬链接发布共用任务锁。发布成功后登记和收尾不再响应取消。
+        let jobs = self.jobs.lock().unwrap();
+        if self.closing.is_cancelled() || jobs[id].cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
+        publish(part, target)
+    }
+
+    fn save_failed_original(
+        &self,
+        id: &str,
+        part: &Path,
+        target: &Path,
+        rep: &Value,
+        error: &str,
+    ) -> Result<(), String> {
         // 使用用户已选目录和文件名；后缀与原文件一致，同名时只添加序号，绝不覆盖。
         let stem = target.file_stem().unwrap_or_default().to_string_lossy();
         let extension = rep["extension"].as_str().unwrap_or("flac");
@@ -1278,7 +1366,7 @@ impl Downloads {
                     format!("{stem} ({index}).{extension}")
                 };
                 let path = target.with_file_name(name);
-                match publish(part, &path) {
+                match self.publish_if_active(id, part, &path) {
                     Ok(()) => Some(Ok(path)),
                     Err(reason) if reason == "file_exists" => None,
                     Err(reason) => Some(Err(reason)),
@@ -1290,8 +1378,10 @@ impl Downloads {
                 let history_error = self.record_saved(id,&path,rep,true).err();
                 self.update(id,json!({"sourcePreserved":true,"sourceFilename":path.file_name().and_then(|s|s.to_str()),"sourceSaveError":null,"conversionError":error,"historyError":history_error,"transcoded":false}));
             },
+            Err(reason) if reason == "cancelled" => return Err(reason),
             Err(reason) => self.update(id,json!({"sourcePreserved":false,"sourceSaveError":reason,"conversionError":error,"transcoded":false})),
         }
+        Ok(())
     }
     pub fn active(&self) -> bool {
         self.jobs.lock().unwrap().values().any(|j| {
@@ -1301,22 +1391,269 @@ impl Downloads {
             )
         })
     }
-    pub async fn shutdown(&self) {
-        for job in self.jobs.lock().unwrap().values() {
+    pub fn begin_shutdown(&self) -> bool {
+        let jobs = self.jobs.lock().unwrap();
+        if self.closing.is_cancelled() {
+            return false;
+        }
+        self.closing.cancel();
+        for job in jobs.values() {
             job.cancel.cancel();
         }
-        for _ in 0..200 {
-            if !self.active() {
-                return;
+        true
+    }
+
+    pub async fn wait_for_shutdown(&self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, async {
+            while self.active() {
+                self.finished.notified().await;
             }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+            let remaining: Vec<_> = self
+                .jobs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, job)| job.owns_part || job.owns_output)
+                .map(|(id, _)| id.clone())
+                .collect();
+            let results =
+                futures_util::future::join_all(remaining.iter().map(|id| self.cleanup_job(id)))
+                    .await;
+            let residual = results.into_iter().filter(|failed| *failed).count();
+            if residual != 0 {
+                eprintln!("退出时仍有 {residual} 个任务的临时文件未完全清理");
+            }
+        })
+        .await
+        .is_ok()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
+    #[tokio::test]
+    async fn cleanup_failure_does_not_skip_other_owned_file() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::default();
+        let part = root.path().join("owned.part");
+        let target = root.path().join("saved.mp3");
+        let output = part.with_extension("mp3.part");
+        std::fs::write(&part, b"owned").unwrap();
+        #[cfg(windows)]
+        let locked = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::write(&output, b"locked").unwrap();
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1)
+                .open(&output)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        std::fs::create_dir(&output).unwrap();
+        std::fs::write(&target, b"published").unwrap();
+        let cancel = CancellationToken::new();
+        manager.jobs.lock().unwrap().insert(
+            "fixture".into(),
+            Job {
+                public: json!({"status":"downloading", "savedId":"saved"}),
+                recording: Recording {
+                    quality: "auto".into(),
+                    cover: None,
+                    identity: json!({}),
+                    title: "fixture".into(),
+                    artist: String::new(),
+                    duration: 0.0,
+                },
+                target: target.clone(),
+                part: part.clone(),
+                cancel: cancel.clone(),
+                owns_part: true,
+                owns_output: true,
+            },
+        );
+        manager
+            .finish("fixture", &target, async { Ok(json!({})) })
+            .await;
+        assert!(!part.exists());
+        assert!(output.exists());
+        assert_eq!(
+            manager.jobs.lock().unwrap()["fixture"].public["errorCode"],
+            "saved_temporary_cleanup_failed"
+        );
+        assert_eq!(std::fs::read(target).unwrap(), b"published");
+        #[cfg(windows)]
+        {
+            drop(locked);
+            manager.discard_failed_job("fixture").await.unwrap();
+            assert!(!output.exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_one_shot_and_waits_for_both_jobs() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::default();
+        let recording = Recording {
+            quality: "auto".into(),
+            cover: None,
+            identity: json!({}),
+            title: "fixture".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        let client = reqwest::Client::new();
+        assert!(manager.wait_for_shutdown(Duration::from_secs(1)).await);
+        let finish_gate = CancellationToken::new();
+        let mut workers = Vec::new();
+        for id in ["first", "second"] {
+            let part = root.path().join(format!("{id}.part"));
+            let target = root.path().join(format!("{id}.mp3"));
+            let cancel = CancellationToken::new();
+            std::fs::write(&part, b"owned").unwrap();
+            manager.jobs.lock().unwrap().insert(
+                id.into(),
+                Job {
+                    public: json!({"id":id,"status":"downloading"}),
+                    recording: recording.clone(),
+                    target: target.clone(),
+                    part,
+                    cancel: cancel.clone(),
+                    owns_part: true,
+                    owns_output: false,
+                },
+            );
+            let manager = manager.clone();
+            let finish_gate = finish_gate.clone();
+            workers.push(tokio::spawn(async move {
+                manager
+                    .finish(id, &target, async {
+                        cancel.cancelled().await;
+                        finish_gate.cancelled().await;
+                        Err("cancelled".into())
+                    })
+                    .await;
+            }));
+        }
+        assert!(manager.begin_shutdown());
+        assert!(!manager.begin_shutdown());
+        assert_eq!(
+            manager.create(&client, &Value::Null).await.unwrap_err(),
+            "download_shutting_down"
+        );
+        assert_eq!(
+            manager
+                .start_mode(recording, root.path().join("late.mp3"), client, "original")
+                .unwrap_err(),
+            "download_shutting_down"
+        );
+        assert!(!manager.wait_for_shutdown(Duration::from_millis(30)).await);
+        assert!(root.path().join("first.part").exists());
+        finish_gate.cancel();
+        assert!(manager.wait_for_shutdown(Duration::from_secs(2)).await);
+        for worker in workers {
+            worker.await.unwrap();
+        }
+        assert!(!root.path().join("first.part").exists());
+        assert!(!root.path().join("second.part").exists());
+        assert!(manager
+            .list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|job| job["status"] == "cancelled"));
+    }
+
+    #[tokio::test]
+    async fn streaming_cancel_and_post_publish_cancel_have_distinct_results() {
+        let root = tempfile::tempdir().unwrap();
+        let manager =
+            Downloads::with_history(root.path().join("config/naming.json"), root.path().into())
+                .unwrap();
+        let recording = Recording {
+            quality: "auto".into(),
+            cover: None,
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        for after_publish in [false, true] {
+            let id = if after_publish { "saved" } else { "streaming" };
+            let part = root.path().join(format!("{id}.part"));
+            let target = root.path().join(format!("{id}.mp3"));
+            let cancel = CancellationToken::new();
+            manager.jobs.lock().unwrap().insert(
+                id.into(),
+                Job {
+                    public: json!({"id":id,"status":"downloading"}),
+                    recording: recording.clone(),
+                    target: target.clone(),
+                    part: part.clone(),
+                    cancel: cancel.clone(),
+                    owns_part: false,
+                    owns_output: false,
+                },
+            );
+            if after_publish {
+                manager
+                    .finish(id, &target, async {
+                        let result = manager
+                            .save_response(
+                                id,
+                                &recording,
+                                &target,
+                                &part,
+                                original_response(fixture(20), None, 200),
+                            )
+                            .await;
+                        assert!(target.is_file());
+                        cancel.cancel();
+                        tokio::task::yield_now().await;
+                        result
+                    })
+                    .await;
+                assert!(target.is_file());
+                assert_eq!(
+                    manager.jobs.lock().unwrap()[id].public["status"],
+                    "completed"
+                );
+            } else {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                let body =
+                    futures_util::stream::once(async { Ok::<_, std::io::Error>(fixture(20)) })
+                        .chain(futures_util::stream::once(async {
+                            sender.send(()).unwrap();
+                            futures_util::future::pending::<Result<Vec<u8>, std::io::Error>>().await
+                        }));
+                let response = reqwest::Response::from(axum::http::Response::new(
+                    reqwest::Body::wrap_stream(body),
+                ));
+                tokio::join!(
+                    manager.finish(
+                        id,
+                        &target,
+                        manager.save_response(id, &recording, &target, &part, response)
+                    ),
+                    async {
+                        receiver.await.unwrap();
+                        assert!(part.is_file());
+                        cancel.cancel();
+                    }
+                );
+                assert!(!target.exists());
+                assert_eq!(
+                    manager.jobs.lock().unwrap()[id].public["status"],
+                    "cancelled"
+                );
+            }
+            assert!(!part.exists());
+        }
+        assert_eq!(manager.saved().unwrap().as_array().unwrap().len(), 1);
+    }
+
     fn original_response(body: Vec<u8>, length: Option<u64>, status: u16) -> reqwest::Response {
         let chunks = futures_util::stream::once(async move { Ok::<_, std::io::Error>(body) });
         let mut response = axum::http::Response::builder().status(status);
@@ -1547,7 +1884,8 @@ mod tests {
         assert!(!target.exists());
         let saved = dir.join(task["sourceFilename"].as_str().unwrap());
         assert_eq!(std::fs::read(&saved).unwrap(), truncated);
-        manager.shutdown().await;
+        assert!(manager.begin_shutdown());
+        assert!(manager.wait_for_shutdown(Duration::from_secs(8)).await);
         assert!(saved.exists(), "退出只清理临时文件，不能删除已保存的原文件");
         // 原文件也无法发布时，不得报告已保存。
         let absent = dir.join("absent").join("chosen.mp3");
@@ -1595,8 +1933,6 @@ mod tests {
             .finish(
                 "original-fixture",
                 target,
-                part,
-                cancel,
                 manager.save_response("original-fixture", r, target, part, response),
             )
             .await;
@@ -1989,8 +2325,6 @@ mod tests {
             .finish(
                 "cancel",
                 &target,
-                &part,
-                cancel,
                 manager.save_response(
                     "cancel",
                     &r,
@@ -2107,15 +2441,13 @@ mod tests {
             },
         );
         let rep = crate::download_media::inspect_original(&part, "auto").unwrap();
-        manager.save_failed_original("fallback", &part, &target, &rep, "fixture_encoder_failure");
         manager
-            .finish(
-                "fallback",
-                &target,
-                &part,
-                CancellationToken::new(),
-                async { Err("conversion_failed".into()) },
-            )
+            .save_failed_original("fallback", &part, &target, &rep, "fixture_encoder_failure")
+            .unwrap();
+        manager
+            .finish("fallback", &target, async {
+                Err("conversion_failed".into())
+            })
             .await;
         assert_eq!(manager.list()[0]["status"], "failed");
         assert_eq!(manager.list()[0]["sourcePreserved"], true);
@@ -2538,8 +2870,6 @@ mod tests {
                 .finish(
                     "fixture",
                     &target,
-                    &part,
-                    cancel,
                     manager.save_response("fixture", &r, &target, &part, response),
                 )
                 .await;
@@ -2583,7 +2913,14 @@ mod tests {
         let part = dir.join("sample.part");
         let manager = Downloads::default();
         let result = manager
-            .transfer("fixture", &client, &r, &target, &part)
+            .transfer(
+                "fixture",
+                &client,
+                &r,
+                &target,
+                &part,
+                &CancellationToken::new(),
+            )
             .await;
         println!("kuwo/151826227 standard result={result:?}");
         let _ = std::fs::remove_file(&part);

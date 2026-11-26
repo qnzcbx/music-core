@@ -43,6 +43,7 @@ export const apiFetch: typeof fetch = async (input, init) => {
   } catch (error) {
     const code = String(error);
     const downloadMessages: Record<string, string> = {
+      download_shutting_down: '拾音正在退出，无法开始新下载',
       download_history_unavailable: '无法读取或保存下载设置与记录，请检查应用配置目录',
       download_history_invalid: '下载记录文件无法读取，原文件未改动',
       local_directory_unavailable: '目录暂不可用，已有记录已保留',

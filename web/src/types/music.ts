@@ -1,11 +1,36 @@
 export type QualityPolicy = 'auto' | 'space_saving' | 'balanced' | 'lossless_preferred';
-export type CandidateAvailability = 'unknown' | 'queued' | 'resolving' | 'ready' | 'failed' | 'stale' | 'timeout' | 'unsupported';
-export interface AccessDecision { state: 'allowed' | 'denied' | 'unknown'; reason: string; evidence: string }
+export type CandidateAvailability =
+  | 'unknown'
+  | 'queued'
+  | 'resolving'
+  | 'ready'
+  | 'failed'
+  | 'stale'
+  | 'timeout'
+  | 'unsupported';
+
+export interface AccessDecision {
+  state: 'allowed' | 'denied' | 'unknown';
+  reason: string;
+  evidence: string;
+}
 export interface TrackContract {
-  trackAccess?: { playback: AccessDecision; download: AccessDecision; facts?: { evidence: string; is_streamable: boolean | null; is_downloadable: boolean | null; is_stream_gated: boolean | null; is_download_gated: boolean | null; stream_conditions_present: boolean | null; download_conditions_present: boolean | null } | null };
+  trackAccess?: {
+    playback: AccessDecision;
+    download: AccessDecision;
+    facts?: {
+      evidence: string;
+      is_streamable: boolean | null;
+      is_downloadable: boolean | null;
+      is_stream_gated: boolean | null;
+      is_download_gated: boolean | null;
+      stream_conditions_present: boolean | null;
+      download_conditions_present: boolean | null;
+    } | null;
+  };
   license?: { id: string | null; url: string | null; conditions: string[]; evidence: string };
   credits?: { name: string; role: 'credited_artist' | 'uploader' | 'unknown'; evidence: string }[];
-  recordingIdentity?: import("./core").TrackIdentity;
+  recordingIdentity?: import('./core').TrackIdentity;
   metadataSource?: string;
 }
 export interface MediaVariant {
@@ -61,16 +86,27 @@ export interface DownloadJob extends TrackContract {
   filename?: string;
   size?: number;
   selection?: import('./download').DownloadQualityOption | null;
-  actualMedia?: { container: string; codec: string; lossless: boolean; bitrate: number | null; tier: string };
+  actualMedia?: {
+    container: string;
+    codec: string;
+    lossless: boolean;
+    bitrate: number | null;
+    tier: string;
+  };
   qualityPolicy?: QualityPolicy | null;
   variant?: MediaVariant;
-  id: string; state: string; message: string; path?: string;
-  downloaded_bytes?: number; total_bytes?: number; percent?: number | null;
+  id: string;
+  state: string;
+  message: string;
+  path?: string;
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  percent?: number | null;
 }
 
 // 候选与媒体记录是两个领域对象；候选没有已确认的格式或可播放标记。
 export interface CandidateRow extends TrackContract {
-  identity: import("./core").TrackIdentity;
+  identity: import('./core').TrackIdentity;
   resolvingBackground?: boolean;
   availability?: CandidateAvailability;
   availabilityValidUntil?: number;
@@ -92,25 +128,43 @@ export interface CandidateRow extends TrackContract {
 }
 export type SearchEntry = Song | CandidateRow;
 
-/** Stable recording identity; transient candidate/media handles never define a queue key. */
-export type TrackIdentity = import("./core").TrackIdentity;
+/** 稳定的录制标识；瞬态候选/媒体句柄从不用于定义队列键。 */
+export type TrackIdentity = import('./core').TrackIdentity;
 export interface TrackSnapshot {
-  title: string; artist: string; album: string; durationSeconds: number | null; cover: string | null;
+  title: string;
+  artist: string;
+  album: string;
+  durationSeconds: number | null;
+  cover: string | null;
 }
 export interface QueueEntry {
   key: string;
   track: TrackIdentity;
   metadata: TrackSnapshot;
-  /** Runtime compatibility only; selecting this entry must prepare media again. */
+  /** 仅用于运行时兼容；选择此条目时必须重新准备媒体。 */
   resolved?: Song;
 }
 
 /** 本地条目只携带稳定文件引用，绝不伪装为在线平台。 */
 export interface LocalSong {
- kind:'local'; fileId:string; id:string; source:'local'; name:string; title:string;
- artist:string; album:string; cover:string|null; duration:number|null;
+  kind: 'local';
+  fileId: string;
+  id: string;
+  source: 'local';
+  name: string;
+  title: string;
+  artist: string;
+  album: string;
+  cover: string | null;
+  duration: number | null;
 }
-export type PlayableSong=SearchEntry|LocalSong;
-export interface LocalQueueEntry {key:string;kind:'local';fileId:string;metadata:TrackSnapshot}
-export type PlayableQueueEntry=QueueEntry|LocalQueueEntry;
-export const isLocalSong=(song:PlayableSong):song is LocalSong=>'kind' in song&&song.kind==='local';
+export type PlayableSong = SearchEntry | LocalSong;
+export interface LocalQueueEntry {
+  key: string;
+  kind: 'local';
+  fileId: string;
+  metadata: TrackSnapshot;
+}
+export type PlayableQueueEntry = QueueEntry | LocalQueueEntry;
+export const isLocalSong = (song: PlayableSong): song is LocalSong =>
+  'kind' in song && song.kind === 'local';

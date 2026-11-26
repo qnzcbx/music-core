@@ -18,6 +18,7 @@ import {
 import CoverArt from '../CoverArt.vue';
 import { providerName } from '../../composables/useProviders';
 import { formatDownloadBytes, downloadStatus, downloadPercent } from '../../utils/download-display';
+
 const props = defineProps<{
   delivery?: { state: string; text: string };
   task?: DownloadTask;
@@ -89,6 +90,7 @@ async function copy() {
   }
 }
 </script>
+
 <template>
   <ContextMenuRoot
     :open="menuOpen"
@@ -234,6 +236,17 @@ async function copy() {
             "
             aria-label="正在处理音频"
           />
+          <small
+            v-if="
+              !file &&
+              task?.cleanupError &&
+              !['temporary_cleanup_failed', 'saved_temporary_cleanup_failed'].includes(
+                task.errorCode ?? '',
+              )
+            "
+          >
+            临时文件清理失败
+          </small>
           <small v-if="!file && task?.status === 'completed'">{{ task.filename }}</small>
         </div>
         <div class="download-actions">
@@ -330,6 +343,7 @@ async function copy() {
     </ContextMenuPortal>
   </ContextMenuRoot>
 </template>
+
 <style scoped>
 .preserved-source-note {
   display: none;

@@ -9,6 +9,6 @@ export function downloadBlockReason(song: SearchEntry): string {
 }
 export function playbackBlockReason(song: SearchEntry): string {
   const decision = song.trackAccess?.playback;
-  // Metadata unknown may still be explicitly resolved by the user; a known gate is final.
+  // 元数据未知时，仍可由用户显式解析；而一旦某个 gate（判定条件/门槛）已知，它就是最终结果。
   return decision?.state === 'denied' ? decision.reason : '';
 }

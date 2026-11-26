@@ -306,6 +306,7 @@ fn main() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         desktop_tray::restore(app);
     }));
+    let exit_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     builder
         .setup(|app| {
             let fallbacks = fallback::Config::from_env().map_err(std::io::Error::other)?;
@@ -419,16 +420,26 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("桌面应用初始化失败")
-        .run(|app, event| {
+        .run(move |app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
-                let downloads = app.state::<Desktop>().downloads.clone();
-                if downloads.active() {
+                use std::sync::atomic::Ordering;
+                if !exit_ready.load(Ordering::Acquire) {
                     api.prevent_exit();
-                    let app = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        downloads.shutdown().await;
-                        app.exit(0);
-                    });
+                    let downloads = app.state::<Desktop>().downloads.clone();
+                    if downloads.begin_shutdown() {
+                        let app = app.clone();
+                        let exit_ready = exit_ready.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if !downloads
+                                .wait_for_shutdown(std::time::Duration::from_secs(8))
+                                .await
+                            {
+                                eprintln!("退出等待超过 8 秒，部分下载资源可能尚未清理");
+                            }
+                            exit_ready.store(true, Ordering::Release);
+                            app.exit(0);
+                        });
+                    }
                 }
             }
             if matches!(event, tauri::RunEvent::Exit) {
