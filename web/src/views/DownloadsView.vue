@@ -167,7 +167,7 @@ onMounted(() => {
         @cancel="downloads.operate(task, 'cancel')"
         @retry="downloads.operate(task, 'retry')"
         @save="downloads.downloadAgain(task)"
-        @reveal="downloads.reveal(task.id)"
+        @dismiss="downloads.dismiss(task)"
       />
       <p
         v-if="!tasks.length && !downloads.loading.value && !downloads.error.value"

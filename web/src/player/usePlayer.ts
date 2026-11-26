@@ -266,21 +266,18 @@ export function usePlayer() {
   async function releaseLocalForRecycle(fileId: string) {
     const song = selected.value;
     if (!song || !isLocalSong(song) || song.fileId !== fileId) return;
-    const snapshot = { position: time.value, duration: duration.value, playing: playing.value };
+    const snapshot = { position: time.value, duration: duration.value };
     const stopped = stop();
     const revision = selectionRevision;
     await stopped;
-    return async (resume: boolean) => {
+    return () => {
       if (selectionRevision !== revision || disposed) return;
-      if (snapshot.playing && resume) {
-        await select(song, snapshot.position);
-        return;
-      }
       selected.value = song;
       time.value = snapshot.position;
       duration.value = snapshot.duration;
       restored = true;
       phase.value = 'ready';
+      queue.position.value = snapshot.position;
       message.value = '已暂停';
     };
   }

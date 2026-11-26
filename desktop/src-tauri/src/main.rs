@@ -132,14 +132,16 @@ async fn desktop_request(
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),
         "/api/downloads" => {
             if body.is_null() {
-                Ok(state.downloads.list())
+                let downloads = state.downloads.clone();
+                tauri::async_runtime::spawn_blocking(move || downloads.poll())
+                    .await
+                    .map_err(|_| "download_history_unavailable")?
             } else {
                 state.downloads.create(&state.client, &body).await
             }
         }
         "/api/downloads/settings" => state.downloads.settings(&body),
         "/api/downloads/settings/directory" => state.downloads.directory(&body).await,
-        "/api/downloads/saved" => state.downloads.saved(),
         "/api/local-library" => {
             if !body.is_null() {
                 let restored = local_library::change(&state.library, &body).await?;
@@ -161,11 +163,25 @@ async fn desktop_request(
             .map_err(|_| "local_library_unavailable".into())
         }
         "/api/local-library/recycle/prepare" => {
-            let id = body["id"].as_str().ok_or("invalid_input")?;
-            let library = state.library.lock().unwrap();
-            let target = state.downloads.access_history(|history| {
-                delete_plan::Target::resolve(&library, history, id, &state.protected_paths)
-            })?;
+            let id = body["id"].as_str().ok_or("invalid_input")?.to_owned();
+            let path_hint = body["pathHint"].as_str().map(std::path::PathBuf::from);
+            let library = state.library.clone();
+            let downloads = state.downloads.clone();
+            let protected = state.protected_paths.clone();
+            let target = tauri::async_runtime::spawn_blocking(move || {
+                let library = library.lock().unwrap();
+                downloads.access_history(|history| {
+                    delete_plan::Target::resolve(
+                        &library,
+                        history,
+                        &id,
+                        path_hint.as_deref(),
+                        &protected,
+                    )
+                })
+            })
+            .await
+            .map_err(|_| "local_library_unavailable")??;
             let name = target
                 .path
                 .file_name()
@@ -257,14 +273,6 @@ async fn desktop_request(
         }
         _ => {
             let parts: Vec<_> = path.split('/').collect();
-            if parts.len() == 6
-                && parts[1] == "api"
-                && parts[2] == "downloads"
-                && parts[3] == "saved"
-                && parts[5] == "reveal"
-            {
-                return state.downloads.reveal_saved(parts[4]);
-            }
             if parts.len() == 5 && parts[1] == "api" && parts[2] == "downloads" {
                 return state
                     .downloads

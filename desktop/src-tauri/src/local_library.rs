@@ -121,7 +121,7 @@ fn file_format(path: &Path) -> Option<&'static str> {
     }
 }
 
-fn key(path: &Path) -> String {
+pub(crate) fn key(path: &Path) -> String {
     let path = path.to_string_lossy().replace('/', "\\");
     let normalized = if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{unc}")
@@ -131,7 +131,14 @@ fn key(path: &Path) -> String {
     format!("{:x}", Sha256::digest(normalized.to_lowercase().as_bytes()))
 }
 
+#[cfg(test)]
+thread_local! {
+    static PATH_KEY_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) fn path_key(path: &Path) -> String {
+    #[cfg(test)]
+    PATH_KEY_CALLS.with(|count| count.set(count.get() + 1));
     key(path.canonicalize().as_deref().unwrap_or(path))
 }
 
@@ -197,6 +204,15 @@ impl Library {
             .map_err(|_| "local_library_unavailable")?;
         self.stored = next;
         Ok(())
+    }
+
+    pub fn stored_path(&self, id: &str) -> Option<&Path> {
+        self.stored
+            .manual
+            .iter()
+            .chain(self.stored.directories.iter().flat_map(|dir| &dir.files))
+            .find(|path| key(path) == id)
+            .map(PathBuf::as_path)
     }
 
     pub fn songs(&self, downloads: Vec<SavedDownload>) -> BTreeMap<String, Song> {
@@ -394,6 +410,7 @@ pub async fn change(
             let files = tokio::task::spawn_blocking(move || scan(&scan_path))
                 .await
                 .map_err(|_| "local_library_unavailable")??;
+            let restored = files.iter().map(|path| key(path)).collect();
             let mut library = library.lock().unwrap();
             let mut next = library.stored.clone();
             if let Some(dir) = next.directories.iter_mut().find(|dir| dir.id == id) {
@@ -409,6 +426,7 @@ pub async fn change(
                 next.directories.push(Directory { id, path, files });
             }
             library.commit(next)?;
+            return Ok(restored);
         }
         "remove" => {
             let mut library = library.lock().unwrap();
@@ -459,14 +477,42 @@ mod tests {
         next.manual.push(playable_import(&first).unwrap());
         library.commit(next).unwrap();
         let id = path_key(&first);
-        let planned = Target::resolve(&library, &history, &id, &[]).unwrap();
+        let planned = Target::resolve(&library, &history, &id, None, &[]).unwrap();
         let mut next = library.stored.clone();
         next.manual.push(playable_import(&second).unwrap());
         library.commit(next).unwrap();
         assert_eq!(
-            Target::resolve(&library, &history, &id, &[]).unwrap(),
+            Target::resolve(&library, &history, &id, None, &[]).unwrap(),
             planned
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preparing_one_song_avoids_canonicalizing_unrelated_library_paths() {
+        use crate::{delete_plan::Target, download_history::History};
+        let root = tempfile::tempdir().unwrap();
+        let selected = root.path().join("selected.mp3");
+        mp3(&selected);
+        let mut library = Library::open(root.path().join("library.json")).unwrap();
+        let history =
+            History::open(root.path().join("downloads.json"), root.path().into()).unwrap();
+        let mut next = library.stored.clone();
+        next.manual = (0..512)
+            .map(|i| root.path().join(format!("unrelated-{i}.mp3")))
+            .collect();
+        next.manual.push(selected.clone());
+        library.commit(next).unwrap();
+        let id = path_key(&selected);
+
+        PATH_KEY_CALLS.with(|count| count.set(0));
+        assert_eq!(library.songs(Vec::new()).len(), 513);
+        let old_calls = PATH_KEY_CALLS.with(|count| count.replace(0));
+        let target = Target::resolve(&library, &history, &id, None, &[]).unwrap();
+        let new_calls = PATH_KEY_CALLS.with(|count| count.get());
+        assert_eq!(target.path, selected);
+        assert_eq!((old_calls, new_calls), (513, 1));
+        println!("library path_key calls: {old_calls} -> {new_calls}");
     }
 
     #[test]
@@ -484,8 +530,8 @@ mod tests {
         assert!(facts.duration_seconds.is_some_and(|seconds| seconds > 0.4));
     }
 
-    #[test]
-    fn removing_a_scanned_song_survives_reopening_and_rescanning() {
+    #[tokio::test]
+    async fn exclusions_survive_reopening_and_explicit_scan_restores_present_files() {
         let temp = tempfile::tempdir().unwrap();
         let config = temp.path().join("library.json");
         let music = temp.path().join("Music");
@@ -528,22 +574,31 @@ mod tests {
         assert!(kept.is_file());
         assert!(deleted.is_file());
 
-        let mut library = Library::open(config).unwrap();
-        let mut rescanned = library.stored.clone();
-        rescanned.directories[0].files = scan(&music).unwrap();
-        library.commit(rescanned).unwrap();
+        let library = std::sync::Mutex::new(Library::open(config).unwrap());
         let mut history = crate::download_history::History::open(history_path, music).unwrap();
-        let after = library.view(history.list(), history.excluded_songs());
+        let after = library
+            .lock()
+            .unwrap()
+            .view(history.list(), history.excluded_songs());
         assert!(after["songs"].as_array().unwrap().is_empty());
         assert!(after["downloads"].as_array().unwrap().is_empty());
-        history.restore_songs(&[path_key(&kept)]).unwrap();
-        assert_eq!(
-            library.view(history.list(), history.excluded_songs())["songs"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
+
+        let outside = temp.path().join("outside.mp3");
+        fs::rename(&deleted, &outside).unwrap();
+        let request = json!({"action":"refresh","id":"music"});
+        let scanned = change(&library, &request).await.unwrap();
+        assert_eq!(scanned, vec![path_key(&kept)]);
+        history.restore_songs(&scanned).unwrap();
+        assert!(history.excluded_songs().contains(&path_key(&deleted)));
+        fs::rename(outside, &deleted).unwrap();
+        let scanned = change(&library, &request).await.unwrap();
+        history.restore_songs(&scanned).unwrap();
+        let restored = library
+            .lock()
+            .unwrap()
+            .view(history.list(), history.excluded_songs());
+        assert_eq!(restored["songs"].as_array().unwrap().len(), 2);
+        assert!(restored["downloads"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -29,7 +29,7 @@ const props = defineProps<{
   playing?: boolean;
   busy?: boolean;
 }>();
-const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; reveal: [] }>();
+const emit = defineEmits<{ cancel: []; retry: []; play: []; remove: []; save: []; dismiss: [] }>();
 const browserAction = computed(() =>
   props.task?.status !== 'completed' || props.delivery?.state === 'failed'
     ? '重试'
@@ -238,10 +238,11 @@ async function copy() {
         </div>
         <div class="download-actions">
           <button
-            v-if="!file && task?.deliveryMode === 'desktop' && task.status === 'completed'"
-            @click="emit('reveal')"
+            v-if="!file && task?.deliveryMode === 'desktop' && task.status === 'failed'"
+            :disabled="pending"
+            @click="emit('dismiss')"
           >
-            打开所在文件夹
+            移除
           </button>
           <button
             v-if="!file && task && ['queued', 'resolving', 'downloading'].includes(task.status)"

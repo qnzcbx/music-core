@@ -5,7 +5,7 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -24,22 +24,40 @@ impl Target {
         library: &Library,
         history: &History,
         id: &str,
+        path_hint: Option<&Path>,
         protected: &[PathBuf],
     ) -> Result<Self, String> {
         if history.excluded_songs().contains(id) {
             return Err("saved_file_missing".into());
         }
-        let downloads = history.list();
-        let songs = library.songs(downloads.clone());
-        let song = songs.get(id).ok_or("saved_file_missing")?;
-        let records: Vec<_> = downloads
-            .iter()
-            .filter(|row| local_library::path_key(&row.path) == id)
+        // 曲库可能展示已规范化的 ID，而历史保留原始路径拼写。
+        // 仅用已知记录的路径作提示，最终仍以规范化 ID 和文件实例为准。
+        let hint_key = path_hint.map(local_library::key).filter(|key| key != id);
+        let records: Vec<_> = history
+            .records()
+            .filter(|row| {
+                let key = local_library::key(&row.path);
+                key == id || hint_key.as_ref() == Some(&key)
+            })
             .collect();
-        let identity = file_recycle::snapshot(&song.path, protected)?;
+        let hinted_path = hint_key.as_deref().and_then(|key| {
+            records
+                .iter()
+                .find(|row| local_library::key(&row.path) == key)
+                .map(|row| row.path.as_path())
+                .or_else(|| library.stored_path(key))
+        });
+        let path = hinted_path
+            .or_else(|| records.first().map(|record| record.path.as_path()))
+            .or_else(|| library.stored_path(id))
+            .ok_or("saved_file_missing")?;
+        let identity = file_recycle::snapshot(path, protected)?;
+        if local_library::path_key(path) != id {
+            return Err("local_recycle_changed".into());
+        }
         Ok(Self {
             id: id.to_owned(),
-            path: song.path.clone(),
+            path: path.to_owned(),
             identity,
             records: records
                 .into_iter()
@@ -53,7 +71,7 @@ impl Target {
         history: &mut History,
         protected: &[PathBuf],
     ) -> Result<bool, String> {
-        let current = Self::resolve(library, history, &self.id, protected)?;
+        let current = Self::resolve(library, history, &self.id, Some(&self.path), protected)?;
         if current != self {
             return Err("local_recycle_changed".into());
         }
@@ -132,7 +150,7 @@ mod tests {
     #[test]
     fn plans_are_one_time_cancelable_and_expire() {
         let (_dir, library, history, id) = fixture();
-        let target = || Target::resolve(&library, &history, &id, &[]).unwrap();
+        let target = || Target::resolve(&library, &history, &id, None, &[]).unwrap();
         let mut plans = Plans::default();
         let first = plans.prepare(target());
         let second = plans.prepare(target());
@@ -151,8 +169,8 @@ mod tests {
     #[test]
     fn resolution_rejects_missing_ids_and_changed_records() {
         let (_dir, library, mut history, id) = fixture();
-        assert!(Target::resolve(&library, &history, "invalid", &[]).is_err());
-        let target = Target::resolve(&library, &history, &id, &[]).unwrap();
+        assert!(Target::resolve(&library, &history, "invalid", None, &[]).is_err());
+        let target = Target::resolve(&library, &history, &id, None, &[]).unwrap();
         let mut record = history.list().pop().unwrap();
         record.id = "another-download".into();
         history.add(record).unwrap();
@@ -179,7 +197,7 @@ mod tests {
         )
         .unwrap();
         let library = std::sync::Mutex::new(Library::open(config).unwrap());
-        let before = Target::resolve(&library.lock().unwrap(), &history, &id, &[]).unwrap();
+        let before = Target::resolve(&library.lock().unwrap(), &history, &id, None, &[]).unwrap();
         let other_song = other.join("different.mp3");
         let mut audio = vec![0; 417 * 20];
         for frame in audio.chunks_exact_mut(417) {
@@ -204,7 +222,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            Target::resolve(&library.lock().unwrap(), &history, &id, &[]).unwrap(),
+            Target::resolve(&library.lock().unwrap(), &history, &id, None, &[]).unwrap(),
             before
         );
     }
@@ -212,7 +230,7 @@ mod tests {
     #[test]
     fn failed_history_write_reconciles_without_touching_path_again() {
         let (dir, library, mut history, id) = fixture();
-        let target = Target::resolve(&library, &history, &id, &[]).unwrap();
+        let target = Target::resolve(&library, &history, &id, None, &[]).unwrap();
         let config = dir.path().join("downloads.json");
         std::fs::rename(&config, dir.path().join("backup.json")).unwrap();
         std::fs::create_dir(&config).unwrap();

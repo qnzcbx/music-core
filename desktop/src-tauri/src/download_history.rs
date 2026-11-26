@@ -127,10 +127,15 @@ impl History {
         self.commit(next)
     }
 
+    pub fn records(&self) -> impl Iterator<Item = &SavedDownload> {
+        self.stored.records.iter().rev()
+    }
+
     pub fn list(&self) -> Vec<SavedDownload> {
         self.stored.records.iter().rev().cloned().collect()
     }
 
+    #[cfg(test)]
     pub fn find(&self, id: &str) -> Result<&SavedDownload, String> {
         self.stored
             .records

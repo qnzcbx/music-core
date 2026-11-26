@@ -439,13 +439,22 @@ impl Downloads {
             .lock()
             .unwrap();
         cache
-            .clear(&history.list(), scope)
+            .clear(
+                &history
+                    .list()
+                    .into_iter()
+                    .filter(|row| row.path.is_file())
+                    .collect::<Vec<_>>(),
+                scope,
+            )
             .map_err(|_| "媒体缓存清理失败".into())
     }
+    #[cfg(test)]
     pub fn saved(&self) -> Result<Value, String> {
         Ok(json!(self.saved_records()?))
     }
 
+    #[cfg(test)]
     pub fn saved_records(&self) -> Result<Vec<crate::download_history::SavedDownload>, String> {
         let history = self
             .history
@@ -456,6 +465,7 @@ impl Downloads {
         Ok(history.list())
     }
 
+    #[cfg(test)]
     pub fn saved_path(&self, id: &str) -> Result<PathBuf, String> {
         let history = self
             .history
@@ -515,15 +525,6 @@ impl Downloads {
             .lock()
             .unwrap()
             .remove_song(path, id, delete_file)
-    }
-
-    pub fn reveal_saved(&self, id: &str) -> Result<Value, String> {
-        let path = self.saved_path(id)?;
-        if !path.is_file() {
-            return Err("saved_file_missing".into());
-        }
-        reveal_file(&path)?;
-        Ok(Value::Null)
     }
 
     pub async fn directory(&self, body: &Value) -> Result<Value, String> {
@@ -648,13 +649,13 @@ impl Downloads {
         let saved_id = record.id.clone();
         let identity = record.identity.clone();
         if let Err(error) = history.lock().unwrap().add(record) {
-            self.update(id, json!({"historyError":error,"savedPath":target}));
+            self.update(id, json!({"historyError":error}));
             return Err(error);
         }
         if let Some(cache) = &self.media_covers.1 {
             cache.pin(&saved_id, &identity);
         }
-        self.update(id, json!({"savedId":saved_id,"savedPath":target}));
+        self.update(id, json!({"savedId":saved_id}));
         Ok(())
     }
 
@@ -755,6 +756,32 @@ impl Downloads {
             }
         }
     }
+    pub fn poll(&self) -> Result<Value, String> {
+        self.access_history(|history| {
+            history.reconcile();
+            let mut jobs = self.jobs.lock().unwrap();
+            jobs.retain(|_, job| {
+                !matches!(
+                    job.public["status"].as_str(),
+                    Some("completed" | "cancelled")
+                )
+            });
+            let tasks = jobs
+                .values()
+                .map(|job| job.public.clone())
+                .collect::<Vec<_>>();
+            drop(jobs);
+            let saved = history
+                .list()
+                .into_iter()
+                .filter(|row| row.path.is_file())
+                .map(|row| json!({"id": row.id, "identity": row.identity}))
+                .collect::<Vec<_>>();
+            Ok(json!({"tasks":tasks,"saved":saved}))
+        })
+    }
+
+    #[cfg(test)]
     pub fn list(&self) -> Value {
         json!(self
             .jobs
@@ -873,14 +900,7 @@ impl Downloads {
         }
         let manager = self.clone();
         tokio::spawn(async move {
-            manager.run(&id, &client, cancel).await;
-            let recording = manager
-                .jobs
-                .lock()
-                .unwrap()
-                .get(&id)
-                .filter(|job| job.public["savedId"].is_string())
-                .map(|job| job.recording.clone());
+            let recording = manager.run(&id, &client, cancel).await;
             if let (Some(recording), Some(cache)) = (recording, manager.media_covers.1.as_ref()) {
                 let _ = tokio::join!(
                     cache.cover(
@@ -903,7 +923,12 @@ impl Downloads {
             j.public["updatedAt"] = json!(now());
         }
     }
-    async fn run(&self, id: &str, client: &reqwest::Client, cancel: CancellationToken) {
+    async fn run(
+        &self,
+        id: &str,
+        client: &reqwest::Client,
+        cancel: CancellationToken,
+    ) -> Option<Recording> {
         let (r, target, part) = {
             let jobs = self.jobs.lock().unwrap();
             let j = &jobs[id];
@@ -916,7 +941,7 @@ impl Downloads {
             cancel,
             self.transfer(id, client, &r, &target, &part),
         )
-        .await;
+        .await
     }
     async fn finish(
         &self,
@@ -925,7 +950,7 @@ impl Downloads {
         part: &Path,
         cancel: CancellationToken,
         transfer: impl std::future::Future<Output = Result<Value, String>>,
-    ) {
+    ) -> Option<Recording> {
         let result = tokio::select! {
             biased;
             _ = cancel.cancelled() => Err("cancelled".to_string()),
@@ -950,7 +975,7 @@ impl Downloads {
                     id,
                     json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
                 );
-                return;
+                return None;
             }
         }
         if cancel.is_cancelled() {
@@ -969,8 +994,15 @@ impl Downloads {
                 id,
                 json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
             );
-            return;
+            return None;
         }
+        let saved = self
+            .jobs
+            .lock()
+            .unwrap()
+            .get(id)
+            .filter(|job| job.public["savedId"].is_string())
+            .map(|job| job.recording.clone());
         match result {
             Ok(rep) => self.update(
                 id,
@@ -988,7 +1020,8 @@ impl Downloads {
                     "errorCode": if error == "cancelled" { Value::Null } else { json!(error) },
                 }),
             ),
-        }
+        };
+        saved
     }
     async fn transfer(
         &self,
@@ -1201,37 +1234,37 @@ impl Downloads {
         operation: &str,
         client: &reqwest::Client,
     ) -> Result<Value, String> {
-        let (r, target, status, cancel, mode) = {
-            let jobs = self.jobs.lock().unwrap();
-            let j = jobs.get(id).ok_or("track_not_found")?;
-            (
-                j.recording.clone(),
-                j.target.clone(),
-                j.public["status"].as_str().unwrap_or("").to_string(),
-                j.cancel.clone(),
-                j.public["outputMode"].clone(),
-            )
-        };
-        match operation {
-            "cancel" => {
-                if matches!(status.as_str(), "resolving" | "downloading") {
-                    cancel.cancel();
+        let body = {
+            let mut jobs = self.jobs.lock().unwrap();
+            let job = jobs.get(id).ok_or("track_not_found")?;
+            let failed = job.public["status"] == "failed";
+            match operation {
+                "cancel" => {
+                    if matches!(
+                        job.public["status"].as_str(),
+                        Some("resolving" | "downloading")
+                    ) {
+                        job.cancel.cancel();
+                    }
+                    return Ok(job.public.clone());
                 }
-                Ok(self.jobs.lock().unwrap()[id].public.clone())
+                "remove" if failed => {
+                    jobs.remove(id);
+                    return Ok(Value::Null);
+                }
+                "retry" if failed => {
+                    json!({
+                        "identity":job.recording.identity, "quality":job.recording.quality,
+                        "outputMode":job.public["outputMode"],
+                        "title":job.recording.title, "artist":job.recording.artist, "cover":job.recording.cover,
+                    })
+                }
+                _ => return Err("capability_unsupported".into()),
             }
-            "retry" if matches!(status.as_str(), "failed" | "cancelled") => {
-                self.create(
-                    client,
-                    &json!({"identity":r.identity,"quality":r.quality,"outputMode":mode}),
-                )
-                .await
-            }
-            "reveal" if status == "completed" => {
-                reveal_file(&target)?;
-                Ok(Value::Null)
-            }
-            _ => Err("capability_unsupported".into()),
-        }
+        };
+        let result = self.create(client, &body).await?;
+        self.jobs.lock().unwrap().remove(id);
+        Ok(result)
     }
     fn save_failed_original(&self, id: &str, part: &Path, target: &Path, rep: &Value, error: &str) {
         // 使用用户已选目录和文件名；后缀与原文件一致，同名时只添加序号，绝不覆盖。
@@ -1716,7 +1749,7 @@ mod tests {
             }
             let id = local_library::path_key(&published);
             let plan = manager
-                .access_history(|history| Target::resolve(&library, history, &id, &[]))
+                .access_history(|history| Target::resolve(&library, history, &id, None, &[]))
                 .unwrap();
             let token = plans.prepare(plan);
             assert!(manager
@@ -1729,6 +1762,87 @@ mod tests {
             let reopened = Downloads::with_history(settings.clone(), root.path().into()).unwrap();
             assert!(reopened.library_snapshot().unwrap().0.is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn desktop_poll_hands_off_products_and_retires_finalized_jobs() {
+        let root = tempfile::tempdir().unwrap();
+        let manager =
+            Downloads::with_history(root.path().join("config/naming.json"), root.path().into())
+                .unwrap();
+        let recording = Recording {
+            cover: None,
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: "test".into(),
+            duration: 0.0,
+        };
+        let part = root.path().join("job.part");
+        let first = root.path().join("first.mp3");
+        let second = root.path().join("second.mp3");
+        for target in [&first, &second] {
+            let task = original_save(
+                &manager,
+                &recording,
+                target,
+                &part,
+                original_response(fixture(20), None, 200),
+            )
+            .await;
+            assert_eq!(task["status"], "completed");
+            let snapshot = manager.poll().unwrap();
+            assert_eq!(snapshot["tasks"], json!([]));
+            assert!(manager.jobs.lock().unwrap().is_empty());
+        }
+
+        let initial = manager.poll().unwrap();
+        assert_eq!(initial["saved"].as_array().unwrap().len(), 2);
+        assert!(initial["saved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["identity"] == recording.identity));
+        manager
+            .remove_library_song(&first, &crate::local_library::path_key(&first), false)
+            .unwrap();
+        assert!(first.is_file());
+        assert_eq!(
+            manager.poll().unwrap()["saved"].as_array().unwrap().len(),
+            1
+        );
+        std::fs::rename(second, root.path().join("moved.mp3")).unwrap();
+        assert_eq!(manager.poll().unwrap()["saved"], json!([]));
+
+        for (id, status) in [
+            ("cancelled", "cancelled"),
+            ("failed", "failed"),
+            ("active", "downloading"),
+        ] {
+            manager.jobs.lock().unwrap().insert(
+                id.into(),
+                Job {
+                    public: json!({"id":id,"status":status}),
+                    recording: recording.clone(),
+                    target: first.clone(),
+                    part: part.clone(),
+                    cancel: CancellationToken::new(),
+                    owns_part: false,
+                    owns_output: false,
+                },
+            );
+        }
+        assert_eq!(
+            manager.poll().unwrap()["tasks"].as_array().unwrap().len(),
+            2
+        );
+        assert!(!manager.jobs.lock().unwrap().contains_key("cancelled"));
+        let client = reqwest::Client::new();
+        manager.operate("failed", "remove", &client).await.unwrap();
+        assert_eq!(
+            manager.poll().unwrap()["tasks"],
+            json!([{"id":"active","status":"downloading"}])
+        );
     }
 
     #[tokio::test]

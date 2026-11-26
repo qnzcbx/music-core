@@ -2,9 +2,7 @@ import { requestJson } from "./http";
 import { isDesktop } from './transport';
 export const desktopDownloads = isDesktop;
 export const supportedDownloadQualities = ['auto', 'standard', 'high', 'lossless'];
-export const revealDownload = (id: string) =>
-  requestJson<null>(`/api/downloads/${encodeURIComponent(id)}/reveal`, { method: 'POST' });
-import type { DownloadRequest, DownloadTask, SavedDownloadFile } from "../types/core";
+import type { DownloadRequest, DownloadTask, SavedDownloadFile, TrackIdentity } from "../types/core";
 export const createDownload = (body: DownloadRequest, signal?: AbortSignal) =>
   requestJson<DownloadTask | null>("/api/downloads", {
     method: "POST",
@@ -31,7 +29,8 @@ export const removeDownloadFile = (fileId: string, deleteFile: boolean) =>
 
 export const checkDownloadQuality=(body:DownloadRequest,signal?:AbortSignal)=>requestJson<import('../types/core').DownloadQualityOption>('/api/downloads/options',{timeoutMs:55000,method:'POST',body:JSON.stringify(body),signal});
 
-export const listDesktopSaved = (signal?: AbortSignal) =>
-  requestJson<import('../types/core').DesktopSavedDownload[]>('/api/downloads/saved', { signal });
-export const revealDesktopSaved = (id: string) =>
-  requestJson<null>(`/api/downloads/saved/${encodeURIComponent(id)}/reveal`, { method: 'POST' });
+export const pollDesktopDownloads = (signal?: AbortSignal) =>
+  requestJson<{ tasks: DownloadTask[]; saved: { id: string; identity: TrackIdentity }[] }>('/api/downloads', { signal });
+
+export const dismissDesktopDownload = (id: string) =>
+  requestJson<null>(`/api/downloads/${encodeURIComponent(id)}/remove`, { method: 'POST' });

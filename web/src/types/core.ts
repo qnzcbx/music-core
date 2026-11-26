@@ -23,16 +23,3 @@ export type DownloadQuality = 'auto'|'standard'|'high'|'lossless';
 export type DownloadQualityOption = {conversion?:{available:boolean;reason:string}|null;quality:DownloadQuality;availability:'available'|'unavailable';representation:MediaRepresentation|null;errorCode:string|null};
 
 export type OutputMode='original'|'mp3_320'|'mp3_192';
-
-// 桌面只登记本应用落盘的成品，与网页音乐库 fileId 分开。
-export type DesktopSavedDownload = {
-  id: string;
-  identity: TrackIdentity;
-  title: string;
-  artist: string;
-  path: string;
-  format: string;
-  sizeBytes: number;
-  savedAt: number;
-  sourcePreserved: boolean;
-};

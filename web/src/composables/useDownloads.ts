@@ -3,18 +3,18 @@ import {
   createDownload,
   listDownloads,
   listDownloadFiles,
-  listDesktopSaved,
-  revealDesktopSaved,
+  pollDesktopDownloads,
+  dismissDesktopDownload,
   updateDownload,
   removeDownloadFile,
 } from '../api/downloads';
 import { requestJson, ApiError } from '../api/http';
-import { desktopDownloads, revealDownload } from '../api/downloads';
+import { desktopDownloads } from '../api/downloads';
 import { downloadError } from '../utils/download-display';
 import { trackIdentity, queueKey } from '../utils/player-queue';
 import type { SearchEntry } from '../types/music';
 import type {
-  DownloadTask, SavedDownloadFile, DesktopSavedDownload, DownloadQuality, OutputMode,
+  DownloadTask, SavedDownloadFile, TrackIdentity, DownloadQuality, OutputMode,
 } from '../types/core';
 
 export const activeDownload = (task: DownloadTask) =>
@@ -95,7 +95,7 @@ export function useDownloads() {
   }
   const tasks = shallowRef<DownloadTask[]>([]),
     files = shallowRef<SavedDownloadFile[]>([]),
-    saved = shallowRef<DesktopSavedDownload[]>([]),
+    saved = shallowRef<{ id: string; identity: TrackIdentity }[]>([]),
     loading = ref(false),
     error = ref(''),
     fileError = ref('');
@@ -121,6 +121,7 @@ export function useDownloads() {
   function closeChoice() {
     downloadSong.value = null;
   }
+  const savedKeys = computed(() => new Set(saved.value.map((row) => queueKey(row.identity))));
   const active = computed(() => tasks.value.some(activeDownload));
   const message = (reason: unknown) =>
     reason instanceof TypeError
@@ -132,7 +133,7 @@ export function useDownloads() {
         : '下载操作失败';
   function arm() {
     clearTimeout(timer);
-    if (!disposed && !document.hidden && active.value)
+    if (!disposed && !document.hidden && (active.value || error.value))
       timer = setTimeout(() => void refresh(false), error.value ? 5000 : 1500);
   }
   function upsert(task: DownloadTask) {
@@ -142,7 +143,7 @@ export function useDownloads() {
   }
   function refresh(withFiles = true): Promise<void> {
     if (disposed) return Promise.resolve();
-    if (withFiles) wantFiles = true;
+    if (withFiles && !desktopDownloads) wantFiles = true;
     if (inflight) return inflight;
     clearTimeout(timer);
     loading.value = true;
@@ -151,6 +152,17 @@ export function useDownloads() {
     queries.add(request);
     inflight = (async () => {
       try {
+        if (desktopDownloads) {
+          const snapshot = await pollDesktopDownloads(request.signal);
+          if (disposed || token !== revision) return;
+          tasks.value = snapshot.tasks;
+          if (snapshot.saved.length !== saved.value.length ||
+              snapshot.saved.some((row, index) => row.id !== saved.value[index]?.id)) {
+            saved.value = snapshot.saved;
+          }
+          error.value = '';
+          return;
+        }
         const data = await listDownloads(request.signal);
         if (disposed || token !== revision) return;
         const completed = data.some(
@@ -160,19 +172,7 @@ export function useDownloads() {
         );
         tasks.value = data;
         error.value = '';
-        if (desktopDownloads && (wantFiles || completed)) {
-          wantFiles = false;
-          try {
-            const records = await listDesktopSaved(request.signal);
-            if (!disposed && token === revision) {
-              saved.value = records;
-              fileError.value = '';
-            }
-          } catch (reason) {
-            if (!disposed && token === revision) fileError.value = message(reason);
-          }
-        }
-        if (!localMode.value && !desktopDownloads) wantFiles = false;
+        if (!localMode.value) wantFiles = false;
         if (localMode.value && (wantFiles || completed)) {
           wantFiles = false;
           try {
@@ -199,6 +199,26 @@ export function useDownloads() {
     })();
     return inflight;
   }
+  function refreshAfterMutation() {
+    revision++;
+    if (inflight) again = true;
+    else void refresh();
+  }
+
+  async function dismiss(task: DownloadTask) {
+    if (pending.value.has(task.id)) return;
+    pending.value = new Set([...pending.value, task.id]);
+    try {
+      await dismissDesktopDownload(task.id);
+      tasks.value = tasks.value.filter((row) => row.id !== task.id);
+      refreshAfterMutation();
+    } catch (reason) {
+      feedback.value = { key: task.id, text: message(reason), error: true };
+    } finally {
+      pending.value = new Set([...pending.value].filter((id) => id !== task.id));
+    }
+  }
+
   async function perform(key: string, action: () => Promise<DownloadTask | null>, notice: string) {
     const running = operations.get(key);
     if (running) return running;
@@ -262,7 +282,9 @@ export function useDownloads() {
           queueKey(task.identity) === key &&
           (task.quality ?? 'auto') === quality &&
           (task.outputMode ?? 'original') === outputMode &&
-          (task.status !== 'completed' || files.value.some((f) => f.fileId === task.fileId)),
+          (desktopDownloads
+            ? activeDownload(task)
+            : task.status !== 'completed' || files.value.some((f) => f.fileId === task.fileId)),
       );
     if (existing) {
       feedback.value = {
@@ -300,7 +322,10 @@ export function useDownloads() {
       () => updateDownload(task.id, operation),
       operation === 'retry' ? '已发起重试' : '已更新任务状态',
     );
-    if (result && operation === 'retry') retried.value = { ...retried.value, [task.id]: result.id };
+    if (result && operation === 'retry') {
+      if (desktopDownloads) tasks.value = tasks.value.filter((row) => row.id !== task.id);
+      else retried.value = { ...retried.value, [task.id]: result.id };
+    }
     return result;
   }
   function prepareAgain(task: DownloadTask) {
@@ -380,16 +405,17 @@ export function useDownloads() {
       .catch(() => {})
       .finally(() => void refresh());
     document.addEventListener('visibilitychange', visible);
+    if (desktopDownloads) window.addEventListener('focus', visible);
   });
   onScopeDispose(() => {
     disposed = true;
     clearTimeout(timer);
     for (const request of queries) request.abort();
     document.removeEventListener('visibilitychange', visible);
+    if (desktopDownloads) window.removeEventListener('focus', visible);
   });
   return {
     desktopMode: desktopDownloads,
-    reveal: revealDownload,
     localMode,
     deliveries,
     deliver,
@@ -402,7 +428,7 @@ export function useDownloads() {
     tasks,
     files,
     saved,
-    revealSaved: revealDesktopSaved,
+    savedKeys,
     loading,
     error,
     fileError,
@@ -414,6 +440,8 @@ export function useDownloads() {
     create,
     operate,
     refresh,
+    refreshAfterMutation,
+    dismiss,
     removeFile,
   };
 }

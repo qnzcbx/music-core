@@ -24,6 +24,7 @@ function icon(rows, files = [], delivering = []) {
     tasks: vue.ref(rows), files: vue.ref(files), saved: vue.ref([]), desktopMode: false,
     delivering: vue.ref(new Set(delivering)), localMode: vue.ref(false),
   };
+  downloads.savedKeys = vue.computed(() => new Set(downloads.saved.value.map((row) => queueKey(row.identity))));
   const exports = {};
   runInNewContext(code, {
     exports,
@@ -44,25 +45,29 @@ function icon(rows, files = [], delivering = []) {
   };
 }
 
-test('desktop 成品完成不依赖音乐库、目录或浏览器交付状态', () => {
-  for (const fields of [{}, { fileId: 'not-in-library' }]) {
-    const view = icon([task('desktop', 'completed', fields)], [], ['download-fixture']);
-    assert.equal(view.downloads.localMode.value, false);
-    assert.equal(view.state(), 'completed');
-    assert.equal(view.label(), '已下载');
-  }
+test('桌面完成任务不能独自标记歌曲已下载', () => {
+  const view = icon([task('desktop')]);
+  view.downloads.desktopMode = true;
+  assert.equal(view.state(), 'none');
+  assert.equal(view.label(), '下载');
 });
 
-test('desktop 只有收到 completed 才从等待或处理中切到已下载', () => {
+test('桌面按成品更新图标，删除最后一份才恢复下载', () => {
   const view = icon([task('desktop', 'resolving')]);
+  view.downloads.desktopMode = true;
   assert.equal(view.state(), 'resolving');
   for (const phase of ['downloading', 'transcoding', 'verifying', 'output_verifying', 'publishing']) {
     view.downloads.tasks.value = [task('desktop', 'downloading', { phase })];
     assert.notEqual(view.state(), 'completed');
   }
-  view.downloads.tasks.value = [task('desktop')];
+  view.downloads.tasks.value = [];
+  view.downloads.saved.value = [{ id: 'mp3', identity }, { id: 'flac', identity }];
   assert.equal(view.state(), 'completed');
   assert.equal(view.label(), '已下载');
+  view.downloads.saved.value = [{ id: 'flac', identity }];
+  assert.equal(view.state(), 'completed');
+  view.downloads.saved.value = [];
+  assert.equal(view.state(), 'none');
 });
 
 test('browser 交付中保持等待，交付结束恢复下载按钮，不标已下载', () => {
@@ -90,19 +95,18 @@ test('library 与旧任务仍以 fileId/files 确认完成', () => {
   }
 });
 
-test('不同曲目和同 ID 不同来源不会继承已下载；失败取消不冒充成功', () => {
-  const view = icon([task('desktop')]);
+test('同 ID 不同来源不会继承已下载，失败任务不阻止下载', () => {
+  const view = icon([task('desktop', 'failed')]);
+  view.downloads.desktopMode = true;
+  view.downloads.saved.value = [{ id: 'saved-record', identity }];
   view.props.identity = { providerId: 'qq', platformId: 'another-song' };
   assert.equal(view.state(), 'none');
   view.props.identity = { providerId: 'netease', platformId: identity.platformId };
   assert.equal(view.state(), 'none');
   view.props.identity = identity;
-  for (const status of ['failed', 'cancelled']) {
-    view.downloads.tasks.value = [task('desktop', status)];
-    assert.equal(view.state(), status);
-  }
+  view.downloads.saved.value = [];
+  assert.equal(view.state(), 'none');
 });
-
 
 test('桌面重启后按成品记录显示已下载，不需要恢复旧任务或音乐库', () => {
   const view = icon([]);

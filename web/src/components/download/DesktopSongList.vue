@@ -19,7 +19,7 @@ import PauseIcon from '~icons/lucide/pause';
 import MoreIcon from '~icons/lucide/ellipsis';
 import TrashIcon from '~icons/lucide/trash-2';
 import CoverArt from '../CoverArt.vue';
-import { ApiError, requestJson } from '../../api/http';
+import { requestJson } from '../../api/http';
 import { useCoreClient } from '../../composables/useCoreClient';
 import { formatDownloadBytes } from '../../utils/download-display';
 
@@ -40,7 +40,7 @@ export type DesktopSong = {
 };
 
 defineProps<{ songs: DesktopSong[] }>();
-const emit = defineEmits<{ removed: [] }>();
+const emit = defineEmits<{ removed: [id: string] }>();
 const { player, downloads } = useCoreClient();
 const error = ref('');
 const details = ref<HTMLDialogElement>();
@@ -119,7 +119,7 @@ async function confirmRemoval(song: DesktopSong) {
   removeError.value = '';
   preparing.value = true;
   try {
-    const plan = await recycleRequest<{ token: string; name: string }>('prepare', { id: song.id });
+    const plan = await recycleRequest<{ token: string; name: string }>('prepare', { id: song.id, pathHint: song.path });
     if (revision === confirmation) recyclePlan.value = plan;
     else void recycleRequest('cancel', { token: plan.token }).catch(() => {});
   } catch (reason) {
@@ -137,7 +137,7 @@ async function remove() {
   removing.value = true;
   removeError.value = '';
   error.value = '';
-  let restorePlayback: ((resume: boolean) => Promise<void>) | undefined;
+  let restorePlayback: (() => void) | undefined;
   try {
     if (deleteFile.value && plan) {
       recyclePlan.value = undefined;
@@ -155,13 +155,10 @@ async function remove() {
     }
     removal.value = undefined;
     void player.removeLocal(song.id);
-    void downloads.refresh();
-    emit('removed');
+    downloads.refreshAfterMutation();
+    emit('removed', song.id);
   } catch (reason) {
-    const code = reason instanceof ApiError ? reason.code : undefined;
-    const unchanged = code === 'local_recycle_cancelled' || code === 'local_recycle_failed' ||
-      code === 'local_recycle_unavailable';
-    void restorePlayback?.(unchanged).catch(() => {});
+    restorePlayback?.();
     removeError.value = reason instanceof Error ? reason.message : '删除记录失败，请重试';
   } finally {
     removing.value = false;
