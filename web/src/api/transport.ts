@@ -48,7 +48,7 @@ export const apiFetch: typeof fetch = async (input, init) => {
       local_directory_unavailable: '目录暂不可用，已有记录已保留',
       local_library_unavailable: '无法读取或保存本地歌曲记录',
       local_recycle_unavailable: '此位置无法使用系统回收站。可取消勾选，仅从曲库移除。',
-      local_recycle_identity_unavailable: '无法确认文件身份，请重新导入或刷新来源文件夹。',
+      local_recycle_identity_unavailable: 'Windows 无法读取此文件的身份，无法安全回收。',
       local_recycle_unsafe_path: '此文件位置无法安全回收。',
       local_recycle_changed: '文件或曲库记录已变化，请刷新列表后重新确认。',
       local_recycle_plan_invalid: '删除确认已过期或失效，请重新打开删除窗口。',

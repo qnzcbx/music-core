@@ -11,8 +11,6 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub struct SavedDownload {
     pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_identity: Option<crate::file_recycle::FileIdentity>,
     pub identity: Value,
     pub title: String,
     pub artist: String,
@@ -112,7 +110,7 @@ impl History {
         self.commit(next)
     }
 
-    pub fn add(&mut self, mut record: SavedDownload) -> Result<(), String> {
+    pub fn add(&mut self, record: SavedDownload) -> Result<(), String> {
         // 成品已经正式发布才能入历史；不收临时文件或仅探查的资源。
         let metadata = std::fs::metadata(&record.path).map_err(|_| "file_io_error")?;
         if !record.path.is_absolute()
@@ -122,7 +120,6 @@ impl History {
         {
             return Err("source_verification_failed".into());
         }
-        record.file_identity = crate::file_recycle::capture(&record.path).ok();
         let mut next = self.stored.clone();
         next.excluded_songs
             .remove(&crate::local_library::path_key(&record.path));
@@ -195,7 +192,6 @@ mod tests {
     use super::*;
     fn record(path: PathBuf, fallback: bool) -> SavedDownload {
         SavedDownload {
-            file_identity: None,
             id: uuid::Uuid::new_v4().simple().to_string(),
             identity: serde_json::json!({"providerId":"qq","platformId":"fixture"}),
             title: "歌曲".into(),

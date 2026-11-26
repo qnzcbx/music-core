@@ -630,7 +630,6 @@ impl Downloads {
             .recording
             .clone();
         let record = crate::download_history::SavedDownload {
-            file_identity: None,
             id: uuid::Uuid::new_v4().simple().to_string(),
             identity: r.identity,
             title: r.title,
@@ -1574,6 +1573,164 @@ mod tests {
         );
         manager.list()[0].clone()
     }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "Windows 回收站专项，需要随包 FFmpeg，使用合成音频和临时目录"]
+    async fn published_downloads_recycle_after_part_cleanup() {
+        use crate::{
+            delete_plan::{Plans, Target},
+            file_recycle,
+            local_library::{self, Library},
+        };
+
+        let root = tempfile::tempdir().unwrap();
+        let settings = root.path().join("config/download-naming.json");
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools");
+        assert!(
+            crate::transcode::available(&tools),
+            "请先准备 FFmpeg 和 FFprobe"
+        );
+        let pcm = root.path().join("synthetic.pcm");
+        let samples: Vec<u8> = (0..3 * 44_100)
+            .flat_map(|sample| {
+                let phase = f64::from(sample) * std::f64::consts::TAU * 480.0 / 44_100.0;
+                ((phase.sin() * 4_000.0) as i16).to_le_bytes()
+            })
+            .collect();
+        std::fs::write(&pcm, samples).unwrap();
+        let source = root.path().join("synthetic.flac");
+        let output = std::process::Command::new(tools.join("ffmpeg.exe"))
+            .args([
+                "-nostdin", "-v", "error", "-f", "s16le", "-ar", "44100", "-ac", "1", "-i",
+            ])
+            .arg(&pcm)
+            .args(["-c:a", "flac"])
+            .arg(&source)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let bytes = std::fs::read(&source).unwrap();
+        let recording = Recording {
+            cover: None,
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "临时测试音频".into(),
+            artist: "测试".into(),
+            duration: 0.0,
+        };
+        let library_path = root.path().join("library.json");
+        let library = Library::open(library_path.clone()).unwrap();
+        let mut plans = Plans::default();
+
+        for (label, extension, mode, has_tools) in [
+            ("original", "flac", "original", true),
+            ("converted", "mp3", "mp3_320", true),
+            ("retained", "mp3", "mp3_320", false),
+            ("existing", "flac", "original", true),
+        ] {
+            let mut manager =
+                Downloads::with_history(settings.clone(), root.path().into()).unwrap();
+            manager.tools_dir = has_tools.then(|| tools.clone());
+            let target = root.path().join(format!(
+                "music-core-{label}-{}.{}",
+                uuid::Uuid::new_v4().simple(),
+                extension
+            ));
+            let part = target.with_extension("part");
+            let job = fixture_save(
+                &manager,
+                &recording,
+                &target,
+                &part,
+                original_response(bytes.clone(), None, 200),
+                mode,
+            )
+            .await;
+            let published = if has_tools {
+                assert_eq!(job["status"], "completed", "{job}");
+                target
+            } else {
+                assert_eq!(job["errorCode"], "conversion_failed");
+                assert_eq!(job["sourcePreserved"], true);
+                target.with_extension("flac")
+            };
+            assert!(!part.with_extension("mp3.part").exists());
+            let mut expected = std::fs::read(&published).unwrap();
+            if extension == "flac" || !has_tools {
+                assert_eq!(expected, bytes);
+            }
+
+            if label == "existing" {
+                // 经本地播放代理读完音频并释放会话，再模拟外部标签编辑与应用重启。
+                let sessions = crate::sessions::Sessions::new();
+                let session = sessions.insert_local(published.clone(), "audio/flac");
+                let client = reqwest::Client::new();
+                let port = crate::transport::start(crate::transport::Transport {
+                    sessions: sessions.clone(),
+                    client: client.clone(),
+                })
+                .await
+                .unwrap();
+                let url = format!("http://127.0.0.1:{port}/api/playback/{session}/stream");
+                let response = client
+                    .get(&url)
+                    .send()
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+                assert_eq!(response.bytes().await.unwrap().as_ref(), expected);
+                sessions.close(&session);
+                assert_eq!(client.get(&url).send().await.unwrap().status(), 410);
+
+                let tagged = root.path().join("tagged.flac");
+                let output = std::process::Command::new(tools.join("ffmpeg.exe"))
+                    .args(["-nostdin", "-v", "error", "-i"])
+                    .arg(&published)
+                    .args(["-c", "copy", "-metadata", "title=Updated title"])
+                    .arg(&tagged)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                std::fs::rename(tagged, &published).unwrap();
+                let updated = std::fs::read(&published).unwrap();
+                assert_ne!(updated, expected);
+                expected = updated;
+
+                drop(manager);
+                let history_path = settings.with_file_name("desktop-downloads.json");
+                let mut saved: Value =
+                    serde_json::from_slice(&std::fs::read(&history_path).unwrap()).unwrap();
+                saved["records"][0]["fileIdentity"] = json!({"volume":0,"file":[0],"changed":0});
+                std::fs::write(history_path, serde_json::to_vec(&saved).unwrap()).unwrap();
+                manager = Downloads::with_history(settings.clone(), root.path().into()).unwrap();
+            }
+            let id = local_library::path_key(&published);
+            let plan = manager
+                .access_history(|history| Target::resolve(&library, history, &id, &[]))
+                .unwrap();
+            let token = plans.prepare(plan);
+            assert!(manager
+                .access_history(|history| plans.take(&token)?.execute(&library, history, &[]))
+                .unwrap());
+            assert!(plans.take(&token).is_err());
+            assert!(!published.exists());
+            file_recycle::restore_test_file(&published);
+            assert_eq!(std::fs::read(&published).unwrap(), expected);
+            let reopened = Downloads::with_history(settings.clone(), root.path().into()).unwrap();
+            assert!(reopened.library_snapshot().unwrap().0.is_empty());
+        }
+    }
+
     #[tokio::test]
     async fn saved_products_survive_restart_in_default_and_save_as_locations() {
         let root = tempfile::tempdir().unwrap();

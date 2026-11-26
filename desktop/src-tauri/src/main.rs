@@ -187,15 +187,7 @@ async fn desktop_request(
             tauri::async_runtime::spawn_blocking(move || {
                 let library = library.lock().unwrap();
                 downloads.access_history(|history| {
-                    let current =
-                        delete_plan::Target::resolve(&library, history, &target.id, &protected)?;
-                    if current != target {
-                        return Err("local_recycle_changed".into());
-                    }
-                    file_recycle::recycle(&target.path, &target.identity, &protected)?;
-                    let absent = std::fs::symlink_metadata(&target.path)
-                        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
-                    let saved = history.complete_recycle(&target.id, &target.records, absent);
+                    let saved = target.execute(&library, history, &protected)?;
                     Ok(json!({"historySaved": saved}))
                 })
             })

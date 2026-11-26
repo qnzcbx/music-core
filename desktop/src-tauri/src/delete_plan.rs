@@ -17,7 +17,6 @@ pub struct Target {
     pub path: PathBuf,
     pub identity: FileIdentity,
     pub records: Vec<String>,
-    revision: u64,
 }
 
 impl Target {
@@ -37,27 +36,31 @@ impl Target {
             .iter()
             .filter(|row| local_library::path_key(&row.path) == id)
             .collect();
-        let mut registered = records
-            .iter()
-            .filter_map(|row| row.file_identity.as_ref())
-            .chain(library.registered_identity(id));
-        let expected = registered
-            .next()
-            .ok_or("local_recycle_identity_unavailable")?;
-        if !registered.all(|identity| identity == expected) {
-            return Err("local_recycle_changed".into());
-        }
-        file_recycle::verify(&song.path, expected, protected)?;
+        let identity = file_recycle::snapshot(&song.path, protected)?;
         Ok(Self {
             id: id.to_owned(),
             path: song.path.clone(),
-            identity: expected.clone(),
+            identity,
             records: records
                 .into_iter()
                 .map(|record| record.id.clone())
                 .collect(),
-            revision: library.revision,
         })
+    }
+    pub fn execute(
+        self,
+        library: &Library,
+        history: &mut History,
+        protected: &[PathBuf],
+    ) -> Result<bool, String> {
+        let current = Self::resolve(library, history, &self.id, protected)?;
+        if current != self {
+            return Err("local_recycle_changed".into());
+        }
+        file_recycle::recycle(&self.path, &self.identity, protected)?;
+        let absent = std::fs::symlink_metadata(&self.path)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+        Ok(history.complete_recycle(&self.id, &self.records, absent))
     }
 }
 
@@ -113,7 +116,6 @@ mod tests {
         history
             .add(SavedDownload {
                 id: "download".into(),
-                file_identity: None,
                 identity: serde_json::Value::Null,
                 title: "sample".into(),
                 artist: String::new(),
@@ -154,12 +156,56 @@ mod tests {
         let mut record = history.list().pop().unwrap();
         record.id = "another-download".into();
         history.add(record).unwrap();
-        let updated = Target::resolve(&library, &history, &id, &[]).unwrap();
-        assert_ne!(updated, target);
-        std::fs::write(&target.path, b"change").unwrap();
         assert_eq!(
-            Target::resolve(&library, &history, &id, &[]).unwrap_err(),
-            "local_recycle_changed"
+            target.execute(&library, &mut history, &[]),
+            Err("local_recycle_changed".into())
+        );
+        assert_eq!(history.list().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn unrelated_downloads_refresh_and_directory_removal_do_not_change_target() {
+        let (dir, _library, mut history, id) = fixture();
+        let other = dir.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        let config = dir.path().join("library.json");
+        std::fs::write(
+            &config,
+            serde_json::to_vec(&serde_json::json!({
+                "manual": [],
+                "directories": [{"id":"other", "path":other, "files":[]}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let library = std::sync::Mutex::new(Library::open(config).unwrap());
+        let before = Target::resolve(&library.lock().unwrap(), &history, &id, &[]).unwrap();
+        let other_song = other.join("different.mp3");
+        let mut audio = vec![0; 417 * 20];
+        for frame in audio.chunks_exact_mut(417) {
+            frame[..4].copy_from_slice(&[255, 251, 144, 0]);
+        }
+        std::fs::write(&other_song, &audio).unwrap();
+        let mut record = history.list().pop().unwrap();
+        record.id = "unrelated-download".into();
+        record.path = other_song;
+        record.size_bytes = audio.len() as u64;
+        history.add(record).unwrap();
+        local_library::change(
+            &library,
+            &serde_json::json!({"action":"refresh","id":"other"}),
+        )
+        .await
+        .unwrap();
+        local_library::change(
+            &library,
+            &serde_json::json!({"action":"remove","id":"other"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            Target::resolve(&library.lock().unwrap(), &history, &id, &[]).unwrap(),
+            before
         );
     }
 

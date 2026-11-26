@@ -1,18 +1,13 @@
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileIdentity {
     volume: u64,
     file: [u8; 16],
-    size: u64,
-    modified: i64,
-    changed: i64,
-    created: i64,
 }
 
 #[cfg(not(windows))]
-pub fn capture(_: &Path) -> Result<FileIdentity, &'static str> {
+pub fn snapshot(_: &Path, _: &[PathBuf]) -> Result<FileIdentity, &'static str> {
     Err("local_recycle_unavailable")
 }
 #[cfg(not(windows))]
@@ -20,13 +15,8 @@ pub fn recycle(_: &Path, _: &FileIdentity, _: &[PathBuf]) -> Result<(), &'static
     Err("local_recycle_unavailable")
 }
 
-#[cfg(not(windows))]
-pub fn verify(_: &Path, _: &FileIdentity, _: &[PathBuf]) -> Result<(), &'static str> {
-    Err("local_recycle_unavailable")
-}
-
 #[cfg(windows)]
-pub use native::{capture, recycle, verify};
+pub use native::{recycle, snapshot};
 
 #[cfg(windows)]
 mod native {
@@ -86,7 +76,7 @@ mod native {
         Ok(())
     }
 
-    pub fn capture(path: &Path) -> Result<FileIdentity, &'static str> {
+    fn capture(path: &Path) -> Result<FileIdentity, &'static str> {
         checked_path(path)?;
         let file = fs::OpenOptions::new()
             .access_mode(FILE_READ_ATTRIBUTES.0)
@@ -98,8 +88,7 @@ mod native {
             return Err("local_recycle_unsafe_path");
         }
         let mut id = FILE_ID_INFO::default();
-        let mut basic = FILE_BASIC_INFO::default();
-        // SAFETY: 句柄和两个对应信息类的输出缓冲区在同步调用期间有效。
+        // SAFETY: 句柄和文件标识输出缓冲区在同步调用期间有效。
         unsafe {
             let handle = HANDLE(file.as_raw_handle());
             GetFileInformationByHandleEx(
@@ -108,31 +97,15 @@ mod native {
                 (&mut id as *mut FILE_ID_INFO).cast(),
                 size_of::<FILE_ID_INFO>() as u32,
             )
-            .and_then(|_| {
-                GetFileInformationByHandleEx(
-                    handle,
-                    FileBasicInfo,
-                    (&mut basic as *mut FILE_BASIC_INFO).cast(),
-                    size_of::<FILE_BASIC_INFO>() as u32,
-                )
-            })
             .map_err(|_| "local_recycle_identity_unavailable")?;
         }
         Ok(FileIdentity {
             volume: id.VolumeSerialNumber,
             file: id.FileId.Identifier,
-            size: metadata.len(),
-            modified: basic.LastWriteTime,
-            changed: basic.ChangeTime,
-            created: basic.CreationTime,
         })
     }
 
-    pub fn verify(
-        path: &Path,
-        expected: &FileIdentity,
-        protected: &[PathBuf],
-    ) -> Result<(), &'static str> {
+    pub fn snapshot(path: &Path, protected: &[PathBuf]) -> Result<FileIdentity, &'static str> {
         if !path
             .extension()
             .and_then(|s| s.to_str())
@@ -144,9 +117,7 @@ mod native {
         {
             return Err("local_recycle_unsafe_path");
         }
-        if &capture(path)? != expected {
-            return Err("local_recycle_changed");
-        }
+        let identity = capture(path)?;
         let canonical = path.canonicalize().map_err(|_| "local_recycle_changed")?;
         if canonical.components().skip(2).next().is_some_and(|part| {
             ["$Recycle.Bin", "System Volume Information"]
@@ -162,6 +133,17 @@ mod native {
             .any(|root| Path::new(&key).starts_with(root.to_string_lossy().to_lowercase()))
         {
             return Err("local_recycle_unsafe_path");
+        }
+        Ok(identity)
+    }
+
+    fn verify(
+        path: &Path,
+        expected: &FileIdentity,
+        protected: &[PathBuf],
+    ) -> Result<(), &'static str> {
+        if &snapshot(path, protected)? != expected {
+            return Err("local_recycle_changed");
         }
         Ok(())
     }
@@ -471,7 +453,7 @@ mod native {
         use super::*;
 
         #[test]
-        fn identity_rejects_replaced_modified_and_protected_files() {
+        fn identity_rejects_replaced_and_protected_files() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("sample.mp3");
             let replacement = dir.path().join("other.mp3");
@@ -494,13 +476,13 @@ mod native {
             assert_eq!(verify(&path, &identity, &[]), Err("local_recycle_changed"));
             fs::rename(&replacement, &path).unwrap();
             let swapped = capture(&path).unwrap();
-            assert_eq!(swapped.modified, identity.modified);
-            assert_eq!(swapped.size, identity.size);
+            assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), timestamp);
+            assert_eq!(fs::metadata(&path).unwrap().len(), 6);
             assert_eq!(swapped.volume, identity.volume);
             assert_ne!(swapped.file, identity.file);
             assert_eq!(verify(&path, &identity, &[]), Err("local_recycle_changed"));
             fs::write(&path, b"edited").unwrap();
-            assert_eq!(verify(&path, &swapped, &[]), Err("local_recycle_changed"));
+            assert_eq!(verify(&path, &swapped, &[]), Ok(()));
         }
 
         #[test]
@@ -551,7 +533,6 @@ mod native {
             history
                 .add(crate::download_history::SavedDownload {
                     id: "native-recycle-fixture".into(),
-                    file_identity: None,
                     identity: serde_json::Value::Null,
                     title: "fixture".into(),
                     artist: String::new(),
@@ -562,7 +543,6 @@ mod native {
                     source_preserved: false,
                 })
                 .unwrap();
-            assert_eq!(history.list()[0].file_identity.as_ref(), Some(&identity));
             let id = crate::local_library::path_key(&path);
             fs::rename(&config, dir.path().join("history-before.json")).unwrap();
             fs::create_dir(&config).unwrap();
@@ -576,10 +556,18 @@ mod native {
                 crate::download_history::History::open(config, dir.path().into()).unwrap();
             assert!(reopened.list().is_empty());
 
-            let script = r#"
+            super::super::restore_test_file(&path);
+            assert_eq!(fs::read(path).unwrap(), b"isolated recycle test");
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+pub(crate) fn restore_test_file(path: &Path) {
+    let script = r#"
 $ErrorActionPreference = 'Stop'
 $shell = New-Object -ComObject Shell.Application
-$items = @($shell.Namespace(10).Items() | Where-Object { $_.Name -eq $env:MUSIC_CORE_RECYCLE_TEST_NAME -or ($_.Name + '.mp3') -eq $env:MUSIC_CORE_RECYCLE_TEST_NAME })
+$items = @($shell.Namespace(10).Items() | Where-Object { $_.Name -eq $env:MUSIC_CORE_RECYCLE_TEST_NAME -or ($_.Name + $env:MUSIC_CORE_RECYCLE_TEST_EXTENSION) -eq $env:MUSIC_CORE_RECYCLE_TEST_NAME })
 if ($items.Count -ne 1) { throw 'Expected exactly one test item in Recycle Bin' }
 $items[0].InvokeVerb('undelete')
 for ($i = 0; $i -lt 50; $i++) {
@@ -588,18 +576,19 @@ for ($i = 0; $i -lt 50; $i++) {
 }
 throw 'Test item was not restored'
 "#;
-            let output = std::process::Command::new("powershell.exe")
-                .args(["-NoProfile", "-NonInteractive", "-Command", script])
-                .env("MUSIC_CORE_RECYCLE_TEST_NAME", &name)
-                .env("MUSIC_CORE_RECYCLE_TEST_PATH", &path)
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert_eq!(fs::read(path).unwrap(), b"isolated recycle test");
-        }
-    }
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("MUSIC_CORE_RECYCLE_TEST_NAME", path.file_name().unwrap())
+        .env(
+            "MUSIC_CORE_RECYCLE_TEST_EXTENSION",
+            format!(".{}", path.extension().unwrap().to_string_lossy()),
+        )
+        .env("MUSIC_CORE_RECYCLE_TEST_PATH", path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
