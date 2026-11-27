@@ -166,7 +166,7 @@ pub fn desktop_close_action(
     let settings = window.try_state::<Settings>().ok_or("窗口设置不可用")?;
     let mut current = settings.action.lock().unwrap();
     if let Some(action) = action {
-        crate::download_history::write_snapshot(&settings.path, &action)
+        write_snapshot(&settings.path, &action)
             .map_err(|_| "无法保存关闭窗口设置")?;
         *current = action;
     }
@@ -203,6 +203,29 @@ pub fn desktop_tray_playback(window: WebviewWindow, playback: Playback) -> Resul
         })
         .map_err(|error| error.to_string())
 }
+fn write_snapshot(path: &std::path::Path, value: &impl Serialize) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("file_io_error")?;
+    std::fs::create_dir_all(parent).map_err(|_| "file_io_error")?;
+    // 同目录临时文件同步后原子替换；失败不修改内存快照，也不覆盖成品。
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "file_io_error")?;
+    serde_json::to_writer_pretty(&mut temporary, value)
+        .map_err(|_| "file_io_error")?;
+    temporary
+        .flush()
+        .map_err(|_| "file_io_error")?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|_| "file_io_error")?;
+    temporary
+        .persist(path)
+        .map_err(|_| "file_io_error")?;
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,7 +235,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("window.json");
         assert_eq!(read_close_action(&path), CloseAction::Tray);
-        crate::download_history::write_snapshot(&path, &CloseAction::Exit).unwrap();
+        write_snapshot(&path, &CloseAction::Exit).unwrap();
         assert_eq!(read_close_action(&path), CloseAction::Exit);
         std::fs::write(&path, b"invalid").unwrap();
         assert_eq!(read_close_action(&path), CloseAction::Tray);

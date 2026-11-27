@@ -1,4 +1,4 @@
-use crate::provider::common;
+use crate::{provider::common, storage::Database};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 #[cfg(test)]
@@ -39,7 +39,7 @@ struct Job {
     owns_part: bool,
     owns_output: bool,
 }
-// 沿用网页版设置的枚举及默认值，兼容已有命名偏好文件。
+// 沿用当前界面使用的命名枚举与默认值。
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Naming {
@@ -97,8 +97,6 @@ pub struct Downloads {
     jobs: Arc<Mutex<HashMap<String, Job>>>,
     closing: CancellationToken,
     finished: Arc<tokio::sync::Notify>,
-    naming: Arc<Mutex<Naming>>,
-    settings_path: Option<PathBuf>,
     pub tools_dir: Option<PathBuf>,
     history: Option<Arc<Mutex<crate::download_history::History>>>,
     pub media_covers: crate::covers::Covers,
@@ -418,46 +416,41 @@ fn full_response_size(
     }
 }
 impl Downloads {
-    pub fn new(settings_path: PathBuf) -> Self {
-        let naming = std::fs::read(&settings_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Naming>(&bytes).ok())
-            .unwrap_or_default();
+    pub(crate) fn with_database(db: Database, default_directory: PathBuf) -> Self {
         Self {
-            naming: Arc::new(Mutex::new(naming)),
-            settings_path: Some(settings_path),
+            history: Some(Arc::new(Mutex::new(crate::download_history::History::new(
+                db,
+                default_directory,
+            )))),
             ..Self::default()
         }
     }
-    pub fn with_history(
-        settings_path: PathBuf,
-        default_directory: PathBuf,
-    ) -> Result<Self, String> {
-        let history_path = settings_path.with_file_name("desktop-downloads.json");
-        let history = crate::download_history::History::open(history_path, default_directory)?;
-        let mut downloads = Self::new(settings_path);
-        downloads.history = Some(Arc::new(Mutex::new(history)));
-        Ok(downloads)
+
+    #[cfg(test)]
+    fn with_history(path: PathBuf, default_directory: PathBuf) -> Result<Self, String> {
+        let db = Database::open(&path).map_err(|error| error.to_string())?;
+        Ok(Self::with_database(db, default_directory))
     }
 
     pub fn clear_media_cache(&self, scope: crate::media_cache::ClearScope) -> Result<(), String> {
         let cache = self.media_covers.1.as_ref().ok_or("媒体缓存不可用")?;
-        let history = self
-            .history
-            .as_ref()
-            .ok_or("下载记录不可用")?
-            .lock()
-            .unwrap();
-        cache
-            .clear(
-                &history
-                    .list()
-                    .into_iter()
-                    .filter(|row| row.path.is_file())
-                    .collect::<Vec<_>>(),
-                scope,
-            )
-            .map_err(|_| "媒体缓存清理失败".into())
+        self.access_history(|history| {
+            let mut existence = HashMap::new();
+            let live = history
+                .list()?
+                .into_iter()
+                .filter_map(|row| {
+                    let available = *existence
+                        .entry(row.path.clone())
+                        .or_insert_with(|| row.path.is_file());
+                    available.then_some(row.id)
+                })
+                .collect::<Vec<_>>();
+            // 持业务锁排序下载登记与清理，文件探测期间不占用 SQLite 连接。
+            cache
+                .clear(&live, scope)
+                .map_err(|_| "媒体缓存清理失败".into())
+        })
     }
     #[cfg(test)]
     pub fn saved(&self) -> Result<Value, String> {
@@ -472,7 +465,7 @@ impl Downloads {
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap();
-        Ok(history.list())
+        history.list()
     }
 
     #[cfg(test)]
@@ -483,7 +476,12 @@ impl Downloads {
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap();
-        Ok(history.find(id)?.path.clone())
+        history
+            .list()?
+            .into_iter()
+            .find(|row| row.id == id)
+            .map(|row| row.path)
+            .ok_or_else(|| "track_not_found".into())
     }
 
     pub fn access_history<T>(
@@ -510,43 +508,18 @@ impl Downloads {
     > {
         self.access_history(|history| {
             history.reconcile();
-            Ok((history.list(), history.excluded_songs().clone()))
+            history.snapshot(&history.db.lock())
         })
     }
 
-    pub fn restore_library_songs(&self, ids: &[String]) -> Result<(), String> {
-        self.history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap()
-            .restore_songs(ids)
-    }
-
-    pub fn remove_library_song(
-        &self,
-        path: &Path,
-        id: &str,
-        delete_file: bool,
-    ) -> Result<(), String> {
-        self.history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap()
-            .remove_song(path, id, delete_file)
-    }
-
     pub async fn directory(&self, body: &Value) -> Result<Value, String> {
-        let current = self
-            .history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap()
-            .directory()
-            .to_owned();
-        match body["action"].as_str() {
+        let manager = self.clone();
+        let current = tokio::task::spawn_blocking(move || {
+            manager.access_history(|history| history.directory())
+        })
+        .await
+        .map_err(|_| "download_history_unavailable")??;
+        let directory = match body["action"].as_str() {
             Some("choose") => {
                 let Some(folder) = rfd::AsyncFileDialog::new()
                     .set_title("更改下载目录")
@@ -556,30 +529,27 @@ impl Downloads {
                 else {
                     return Ok(Value::Null);
                 };
-                self.history
-                    .as_ref()
-                    .unwrap()
-                    .lock()
-                    .unwrap()
-                    .set_directory(Some(folder.path().to_owned()))?;
+                Some(Some(folder.path().to_owned()))
             }
-            Some("reset") => self
-                .history
-                .as_ref()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .set_directory(None)?,
-            Some("open") => {
+            Some("reset") => Some(None),
+            Some("open") => None,
+            _ => return Err("invalid_input".into()),
+        };
+        let manager = self.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(directory) = directory {
+                manager.access_history(|history| history.set_directory(directory))?;
+            } else {
                 std::fs::create_dir_all(&current).map_err(|_| "file_io_error")?;
                 std::process::Command::new("explorer.exe")
                     .arg(&current)
                     .spawn()
                     .map_err(|_| "file_io_error")?;
             }
-            _ => return Err("invalid_input".into()),
-        }
-        self.settings(&Value::Null)
+            manager.settings(&Value::Null)
+        })
+        .await
+        .map_err(|_| "download_history_unavailable")?
     }
 
     fn automatic_target(&self, name: &str) -> Result<PathBuf, String> {
@@ -589,8 +559,7 @@ impl Downloads {
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap()
-            .directory()
-            .to_owned();
+            .directory()?;
         std::fs::create_dir_all(&directory).map_err(|_| "file_io_error")?;
         let jobs = self.jobs.lock().unwrap();
         let original = directory.join(name);
@@ -622,7 +591,7 @@ impl Downloads {
         Err("file_exists".into())
     }
 
-    fn record_saved(
+    async fn record_saved(
         &self,
         id: &str,
         target: &Path,
@@ -657,39 +626,46 @@ impl Downloads {
             source_preserved,
         };
         let saved_id = record.id.clone();
-        let identity = record.identity.clone();
-        if let Err(error) = history.lock().unwrap().add(record) {
+        let history = history.clone();
+        let saved = tokio::task::spawn_blocking(move || history.lock().unwrap().add(record))
+            .await
+            .unwrap_or_else(|_| Err("download_history_unavailable".into()));
+        if let Err(error) = saved {
             self.update(id, json!({"historyError":error}));
             return Err(error);
-        }
-        if let Some(cache) = &self.media_covers.1 {
-            cache.pin(&saved_id, &identity);
         }
         self.update(id, json!({"savedId":saved_id}));
         Ok(())
     }
 
     pub fn settings(&self, body: &Value) -> Result<Value, String> {
-        let mut naming = self.naming.lock().unwrap();
-        if !body.is_null() {
-            let next: Naming =
-                serde_json::from_value(body["naming"].clone()).map_err(|_| "invalid_input")?;
-            if let Some(path) = &self.settings_path {
-                std::fs::create_dir_all(path.parent().ok_or("file_io_error")?)
-                    .map_err(|_| "file_io_error")?;
-                std::fs::write(path, serde_json::to_vec(&next).unwrap())
-                    .map_err(|_| "file_io_error")?;
+        self.access_history(|history| {
+            if !body.is_null() {
+                let naming: Naming = serde_json::from_value(body["naming"].clone()).map_err(|_| "invalid_input")?;
+                let value = serde_json::to_value(naming).map_err(|_| "invalid_input")?;
+                history.transact(|tx| {
+                    tx.execute("UPDATE download_settings SET naming=?1 WHERE singleton=1", [value.as_str()])?;
+                    Ok(())
+                }).map_err(|_| "file_io_error")?;
             }
-            *naming = next;
+            let (custom, naming) = history.settings()?;
+            let default = history.default_directory();
+            Ok(json!({
+                "mode":"desktop", "naming":naming, "canManage":false, "deploymentLocked":false, "error":null,
+                "directory":custom.as_deref().unwrap_or(default), "defaultDirectory":default,
+                "usingDefaultDirectory":custom.is_none()
+            }))
+        })
+    }
+
+    fn naming(&self) -> Result<Naming, String> {
+        if self.history.is_none() {
+            return Ok(Naming::default());
         }
-        let mut result = json!({"mode":"desktop", "naming":*naming, "canManage":false, "deploymentLocked":false, "error":null});
-        if let Some(history) = &self.history {
-            let history = history.lock().unwrap();
-            result["directory"] = json!(history.directory());
-            result["defaultDirectory"] = json!(history.default_directory());
-            result["usingDefaultDirectory"] = json!(history.using_default());
-        }
-        Ok(result)
+        self.access_history(|history| {
+            serde_json::from_value(json!(history.settings()?.1))
+                .map_err(|_| "download_history_unavailable".into())
+        })
     }
 
     pub fn register(&self, page: &mut Value) {
@@ -782,7 +758,7 @@ impl Downloads {
                 .collect::<Vec<_>>();
             drop(jobs);
             let saved = history
-                .list()
+                .list()?
                 .into_iter()
                 .filter(|row| row.path.is_file())
                 .map(|row| json!({"id": row.id, "identity": row.identity}))
@@ -822,7 +798,11 @@ impl Downloads {
         } else {
             "mp3"
         };
-        let name = suggested_name(&recording, *self.naming.lock().unwrap())
+        let manager = self.clone();
+        let naming = tokio::task::spawn_blocking(move || manager.naming())
+            .await
+            .map_err(|_| "download_history_unavailable")??;
+        let name = suggested_name(&recording, naming)
             .trim_end_matches(".mp3")
             .to_owned()
             + "."
@@ -838,8 +818,14 @@ impl Downloads {
                 .set_title("另存为音频")
                 .add_filter("音频", &[extension])
                 .set_file_name(name);
-            if let Some(history) = &self.history {
-                picker = picker.set_directory(history.lock().unwrap().directory());
+            if self.history.is_some() {
+                let manager = self.clone();
+                let directory = tokio::task::spawn_blocking(move || {
+                    manager.access_history(|history| history.directory())
+                })
+                .await
+                .map_err(|_| "download_history_unavailable")??;
+                picker = picker.set_directory(directory);
             }
             let Some(file) = (tokio::select! {
                 biased;
@@ -850,7 +836,10 @@ impl Downloads {
             };
             file.path().to_owned()
         } else {
-            self.automatic_target(&name)?
+            let manager = self.clone();
+            tokio::task::spawn_blocking(move || manager.automatic_target(&name))
+                .await
+                .map_err(|_| "download_history_unavailable")??
         };
         self.start_mode(recording, target, client.clone(), mode)
     }
@@ -1240,7 +1229,8 @@ impl Downloads {
                     return Err(error)
                 }
                 Err(error) => {
-                    self.save_failed_original(id, part, target, &rep, &error)?;
+                    self.save_failed_original(id, part, target, &rep, &error)
+                        .await?;
                     return Err(if error == "conversion_timeout" {
                         error
                     } else {
@@ -1252,7 +1242,8 @@ impl Downloads {
                 .extension()
                 .is_some_and(|s| s.eq_ignore_ascii_case("mp3"))
             {
-                self.save_failed_original(id, part, target, &rep, "invalid_output_extension")?;
+                self.save_failed_original(id, part, target, &rep, "invalid_output_extension")
+                    .await?;
                 return Err("conversion_failed".into());
             }
             self.update(id, json!({"phase":"publishing", "transcoded":true}));
@@ -1260,10 +1251,11 @@ impl Downloads {
                 if error == "cancelled" {
                     return Err(error);
                 }
-                self.save_failed_original(id, part, target, &rep, &error)?;
+                self.save_failed_original(id, part, target, &rep, &error)
+                    .await?;
                 return Err("conversion_failed".into());
             }
-            self.record_saved(id, target, &converted, false)?;
+            self.record_saved(id, target, &converted, false).await?;
             return Ok(converted);
         }
         let extension = rep["extension"].as_str().unwrap_or("mp3");
@@ -1276,7 +1268,7 @@ impl Downloads {
         }
         // 校验与无覆盖发布之间没有 await；取消不会留下未登记的正式文件。
         self.publish_if_active(id, part, target)?;
-        self.record_saved(id, target, &rep, false)?;
+        self.record_saved(id, target, &rep, false).await?;
         Ok(rep)
     }
     async fn discard_failed_job(&self, id: &str) -> Result<(), String> {
@@ -1347,7 +1339,7 @@ impl Downloads {
         publish(part, target)
     }
 
-    fn save_failed_original(
+    async fn save_failed_original(
         &self,
         id: &str,
         part: &Path,
@@ -1375,7 +1367,7 @@ impl Downloads {
             .unwrap_or_else(|| Err("file_exists".into()));
         match saved {
             Ok(path) => {
-                let history_error = self.record_saved(id,&path,rep,true).err();
+                let history_error = self.record_saved(id,&path,rep,true).await.err();
                 self.update(id,json!({"sourcePreserved":true,"sourceFilename":path.file_name().and_then(|s|s.to_str()),"sourceSaveError":null,"conversionError":error,"historyError":history_error,"transcoded":false}));
             },
             Err(reason) if reason == "cancelled" => return Err(reason),
@@ -1569,9 +1561,11 @@ mod tests {
     #[tokio::test]
     async fn streaming_cancel_and_post_publish_cancel_have_distinct_results() {
         let root = tempfile::tempdir().unwrap();
-        let manager =
-            Downloads::with_history(root.path().join("config/naming.json"), root.path().into())
-                .unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/music-core.sqlite3"),
+            root.path().into(),
+        )
+        .unwrap();
         let recording = Recording {
             quality: "auto".into(),
             cover: None,
@@ -1949,12 +1943,11 @@ mod tests {
     async fn published_downloads_recycle_after_part_cleanup() {
         use crate::{
             delete_plan::{Plans, Target},
-            file_recycle,
-            local_library::{self, Library},
+            file_recycle, local_library,
         };
 
         let root = tempfile::tempdir().unwrap();
-        let settings = root.path().join("config/download-naming.json");
+        let settings = root.path().join("config/music-core.sqlite3");
         let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools");
         assert!(
             crate::transcode::available(&tools),
@@ -1992,8 +1985,6 @@ mod tests {
             artist: "测试".into(),
             duration: 0.0,
         };
-        let library_path = root.path().join("library.json");
-        let library = Library::open(library_path.clone()).unwrap();
         let mut plans = Plans::default();
 
         for (label, extension, mode, has_tools) in [
@@ -2076,20 +2067,15 @@ mod tests {
                 expected = updated;
 
                 drop(manager);
-                let history_path = settings.with_file_name("desktop-downloads.json");
-                let mut saved: Value =
-                    serde_json::from_slice(&std::fs::read(&history_path).unwrap()).unwrap();
-                saved["records"][0]["fileIdentity"] = json!({"volume":0,"file":[0],"changed":0});
-                std::fs::write(history_path, serde_json::to_vec(&saved).unwrap()).unwrap();
                 manager = Downloads::with_history(settings.clone(), root.path().into()).unwrap();
             }
             let id = local_library::path_key(&published);
             let plan = manager
-                .access_history(|history| Target::resolve(&library, history, &id, None, &[]))
+                .access_history(|history| Target::resolve(history, &id, None, &[]))
                 .unwrap();
             let token = plans.prepare(plan);
             assert!(manager
-                .access_history(|history| plans.take(&token)?.execute(&library, history, &[]))
+                .access_history(|history| plans.take(&token)?.execute(history, &[]))
                 .unwrap());
             assert!(plans.take(&token).is_err());
             assert!(!published.exists());
@@ -2101,11 +2087,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn published_audio_survives_sql_failure_and_shutdown_waits_for_slow_history() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_database(Database::memory(), root.path().into());
+        let recording = Recording {
+            cover: None,
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        let raw = fixture(20);
+        let failed = root.path().join("failed.mp3");
+        manager
+            .access_history(|history| {
+                history.reject_writes(true);
+                Ok(())
+            })
+            .unwrap();
+        let task = original_save(
+            &manager,
+            &recording,
+            &failed,
+            &root.path().join("failed.part"),
+            original_response(raw.clone(), None, 200),
+        )
+        .await;
+        assert_eq!(task["historyError"], "download_history_unavailable");
+        assert_eq!(task["status"], "failed");
+        assert!(task["savedId"].is_null());
+        assert_eq!(std::fs::read(&failed).unwrap(), raw);
+        assert!(manager.saved_records().unwrap().is_empty());
+        manager
+            .access_history(|history| {
+                history.reject_writes(false);
+                Ok(())
+            })
+            .unwrap();
+
+        let (release, wait) = std::sync::mpsc::channel();
+        let (held, ready) = tokio::sync::oneshot::channel();
+        let locking = manager.clone();
+        let history_task = tokio::task::spawn_blocking(move || {
+            locking.access_history(|_| {
+                held.send(()).unwrap();
+                let _ = wait.recv();
+                Ok(())
+            })
+        });
+        ready.await.unwrap();
+        let target = root.path().join("slow.mp3");
+        let part = root.path().join("slow.part");
+        let saving = manager.clone();
+        let saved_path = target.clone();
+        let job = tokio::spawn(async move {
+            original_save(
+                &saving,
+                &recording,
+                &saved_path,
+                &part,
+                original_response(raw, None, 200),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !target.is_file() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(manager.begin_shutdown());
+        assert!(!manager.wait_for_shutdown(Duration::from_millis(30)).await);
+        release.send(()).unwrap();
+        history_task.await.unwrap().unwrap();
+        assert_eq!(job.await.unwrap()["status"], "completed");
+        assert!(manager.wait_for_shutdown(Duration::from_secs(1)).await);
+        assert_eq!(manager.saved_records().unwrap()[0].path, target);
+    }
+
+    #[tokio::test]
     async fn desktop_poll_hands_off_products_and_retires_finalized_jobs() {
         let root = tempfile::tempdir().unwrap();
-        let manager =
-            Downloads::with_history(root.path().join("config/naming.json"), root.path().into())
-                .unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/music-core.sqlite3"),
+            root.path().into(),
+        )
+        .unwrap();
         let recording = Recording {
             cover: None,
             quality: "auto".into(),
@@ -2140,7 +2209,9 @@ mod tests {
             .iter()
             .all(|row| row["identity"] == recording.identity));
         manager
-            .remove_library_song(&first, &crate::local_library::path_key(&first), false)
+            .access_history(|history| {
+                history.remove_song(&first, &crate::local_library::path_key(&first), false)
+            })
             .unwrap();
         assert!(first.is_file());
         assert_eq!(
@@ -2184,7 +2255,7 @@ mod tests {
     #[tokio::test]
     async fn saved_products_survive_restart_in_default_and_save_as_locations() {
         let root = tempfile::tempdir().unwrap();
-        let settings = root.path().join("config/download-naming.json");
+        let settings = root.path().join("config/music-core.sqlite3");
         let default = root.path().join("redirected-system-music/拾音");
         let outside = root.path().join("outside-library");
         std::fs::create_dir_all(&outside).unwrap();
@@ -2293,7 +2364,7 @@ mod tests {
     async fn cancelled_transfer_never_registers_a_product() {
         let root = tempfile::tempdir().unwrap();
         let manager = Downloads::with_history(
-            root.path().join("config/download-naming.json"),
+            root.path().join("config/music-core.sqlite3"),
             root.path().join("music/拾音"),
         )
         .unwrap();
@@ -2347,7 +2418,7 @@ mod tests {
             "download-history-{}",
             uuid::Uuid::new_v4().simple()
         ));
-        let settings = dir.join("config/download-naming.json");
+        let settings = dir.join("config/music-core.sqlite3");
         let default = dir.join("music/拾音");
         let bytes =
             std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
@@ -2413,7 +2484,7 @@ mod tests {
     #[tokio::test]
     async fn preserved_original_is_a_saved_product_not_a_successful_conversion() {
         let root = tempfile::tempdir().unwrap();
-        let settings = root.path().join("config/download-naming.json");
+        let settings = root.path().join("config/music-core.sqlite3");
         let default = root.path().join("music/拾音");
         let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         let target = manager.automatic_target("chosen.mp3").unwrap();
@@ -2443,6 +2514,7 @@ mod tests {
         let rep = crate::download_media::inspect_original(&part, "auto").unwrap();
         manager
             .save_failed_original("fallback", &part, &target, &rep, "fixture_encoder_failure")
+            .await
             .unwrap();
         manager
             .finish("fallback", &target, async {
@@ -2672,9 +2744,10 @@ mod tests {
     }
     #[test]
     fn naming_rules_settings_and_windows_cleanup() {
-        let dir = folder();
-        let path = dir.join("naming.json");
-        let manager = Downloads::new(path.clone());
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().to_owned();
+        let path = dir.join("music-core.sqlite3");
+        let manager = Downloads::with_history(path.clone(), dir.clone()).unwrap();
         assert_eq!(
             manager.settings(&Value::Null).unwrap()["naming"],
             "artist_title"
@@ -2694,11 +2767,14 @@ mod tests {
         ] {
             manager.settings(&json!({"naming":rule})).unwrap();
             assert_eq!(
-                suggested_name(&recording, *manager.naming.lock().unwrap()),
+                suggested_name(&recording, manager.naming().unwrap()),
                 expected
             );
             assert_eq!(
-                Downloads::new(path.clone()).settings(&Value::Null).unwrap()["naming"],
+                Downloads::with_history(path.clone(), dir.clone())
+                    .unwrap()
+                    .settings(&Value::Null)
+                    .unwrap()["naming"],
                 rule
             );
         }
@@ -2714,8 +2790,6 @@ mod tests {
                 .count(),
             124
         );
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_dir(dir).unwrap();
     }
     fn folder() -> PathBuf {
         let path = std::env::current_dir()

@@ -15,6 +15,7 @@ mod lyrics;
 mod media_cache;
 mod provider;
 mod sessions;
+mod storage;
 mod transcode;
 mod transport;
 use serde_json::{json, Value};
@@ -81,29 +82,40 @@ async fn desktop_request(
         "/api/media-cache/queue-covers" => {
             let entries = body["entries"]
                 .as_array()
-                .filter(|entries| entries.len() <= 200)
-                .ok_or("invalid_input")?;
-            let mut urls = Vec::with_capacity(entries.len());
-            let mut local = std::collections::HashMap::new();
-            if entries.iter().any(|entry| entry["fileId"].is_string()) {
-                let (records, excluded) = state.downloads.library_snapshot()?;
-                for record in records {
-                    let id = local_library::path_key(&record.path);
-                    if !excluded.contains(&id) {
-                        local.entry(id).or_insert(record.identity);
+                .filter(|items| items.len() <= 200)
+                .ok_or("invalid_input")?
+                .clone();
+            let (downloads, cache, port) =
+                (state.downloads.clone(), state.covers.1.clone(), state.port);
+            tauri::async_runtime::spawn_blocking(move || {
+                let mut local = std::collections::HashMap::new();
+                if entries.iter().any(|entry| entry["fileId"].is_string()) {
+                    let (records, excluded) = downloads.library_snapshot()?;
+                    let mut keys = std::collections::HashMap::new();
+                    for record in records {
+                        let id = keys
+                            .entry(record.path.clone())
+                            .or_insert_with(|| local_library::path_key(&record.path));
+                        if !excluded.contains(id) {
+                            local.entry(id.clone()).or_insert(record.identity);
+                        }
                     }
                 }
-            }
-            for entry in entries {
-                let identity = match entry["fileId"].as_str() {
-                    Some(id) => local.get(id),
-                    None => entry.get("track"),
-                };
-                urls.push(identity.and_then(|identity| {
-                    state.covers.1.as_ref()?.indexed_cover(identity, state.port)
-                }));
-            }
-            Ok(json!(urls))
+                let tracks = entries
+                    .iter()
+                    .map(|entry| match entry["fileId"].as_str() {
+                        Some(id) => local.get(id),
+                        None => entry.get("track"),
+                    })
+                    .collect::<Vec<_>>();
+                let urls = cache.map_or_else(
+                    || vec![None; entries.len()],
+                    |cache| cache.indexed_covers(&tracks, port),
+                );
+                Ok(json!(urls))
+            })
+            .await
+            .map_err(|_| "local_library_unavailable")?
         }
         "/api/media-cache/settings" => {
             let cache = state.covers.1.as_ref().ok_or("媒体缓存不可用")?;
@@ -126,7 +138,10 @@ async fn desktop_request(
                 None if body.is_null() => ClearScope::All,
                 _ => return Err("invalid_input".into()),
             };
-            state.downloads.clear_media_cache(scope)?;
+            let downloads = state.downloads.clone();
+            tauri::async_runtime::spawn_blocking(move || downloads.clear_media_cache(scope))
+                .await
+                .map_err(|_| "媒体缓存清理失败")??;
             Ok(Value::Null)
         }
         "/api/downloads/options" => Ok(state.downloads.options(&state.client, &body).await),
@@ -140,44 +155,47 @@ async fn desktop_request(
                 state.downloads.create(&state.client, &body).await
             }
         }
-        "/api/downloads/settings" => state.downloads.settings(&body),
+        "/api/downloads/settings" => {
+            let downloads = state.downloads.clone();
+            tauri::async_runtime::spawn_blocking(move || downloads.settings(&body))
+                .await
+                .map_err(|_| "download_history_unavailable")?
+        }
         "/api/downloads/settings/directory" => state.downloads.directory(&body).await,
         "/api/local-library" => {
             if !body.is_null() {
-                let restored = local_library::change(&state.library, &body).await?;
-                if !restored.is_empty() {
-                    state.downloads.restore_library_songs(&restored)?;
-                }
+                local_library::change(&state.downloads, &body).await?;
             }
-            let (downloads, excluded) = state.downloads.library_snapshot()?;
+            let downloads = state.downloads.clone();
             let library = state.library.clone();
             let (cache, port) = (state.covers.1.clone(), state.port);
             tauri::async_runtime::spawn_blocking(move || {
-                let mut view = library.lock().unwrap().view(downloads.clone(), &excluded);
+                let (records, excluded, sources) = downloads.access_history(|history| {
+                    history.reconcile();
+                    let db = history.db.lock();
+                    let (records, excluded) = history.snapshot(&db)?;
+                    Ok((records, excluded, local_library::sources(&db)?))
+                })?;
+                let mut view = library
+                    .lock()
+                    .unwrap()
+                    .view(&sources, records.clone(), &excluded);
                 if let Some(cache) = cache {
-                    cache.decorate_library(&mut view, &downloads, port);
+                    cache.decorate_library(&mut view, &records, port);
                 }
-                view
+                Ok(view)
             })
             .await
-            .map_err(|_| "local_library_unavailable".into())
+            .map_err(|_| "local_library_unavailable")?
         }
         "/api/local-library/recycle/prepare" => {
             let id = body["id"].as_str().ok_or("invalid_input")?.to_owned();
             let path_hint = body["pathHint"].as_str().map(std::path::PathBuf::from);
-            let library = state.library.clone();
             let downloads = state.downloads.clone();
             let protected = state.protected_paths.clone();
             let target = tauri::async_runtime::spawn_blocking(move || {
-                let library = library.lock().unwrap();
                 downloads.access_history(|history| {
-                    delete_plan::Target::resolve(
-                        &library,
-                        history,
-                        &id,
-                        path_hint.as_deref(),
-                        &protected,
-                    )
+                    delete_plan::Target::resolve(history, &id, path_hint.as_deref(), &protected)
                 })
             })
             .await
@@ -197,13 +215,11 @@ async fn desktop_request(
         "/api/local-library/recycle/execute" => {
             let token = body["token"].as_str().ok_or("invalid_input")?;
             let target = state.delete_plans.lock().unwrap().take(token)?;
-            let library = state.library.clone();
             let downloads = state.downloads.clone();
             let protected = state.protected_paths.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                let library = library.lock().unwrap();
                 downloads.access_history(|history| {
-                    let saved = target.execute(&library, history, &protected)?;
+                    let saved = target.execute(history, &protected)?;
                     Ok(json!({"historySaved": saved}))
                 })
             })
@@ -211,50 +227,68 @@ async fn desktop_request(
             .map_err(|_| "local_recycle_uncertain")?
         }
         "/api/local-library/open" | "/api/local-library/reveal" | "/api/local-library/remove" => {
-            let id = body["id"].as_str().ok_or("invalid_input")?;
-            let (downloads, excluded) = state.downloads.library_snapshot()?;
-            if excluded.contains(id) {
-                return Err("saved_file_missing".into());
-            }
-            let songs = state.library.lock().unwrap().songs(downloads);
-            let song = songs.get(id).ok_or("saved_file_missing")?;
-            if path == "/api/local-library/remove" {
-                let delete_file = body["deleteFile"].as_bool().ok_or("invalid_input")?;
-                state
-                    .downloads
-                    .remove_library_song(&song.path, id, delete_file)?;
-                return Ok(Value::Null);
-            }
-            let file = song.playback_path()?;
-            let track = song.download_identity.as_ref();
-            let cache = state.covers.1.as_ref();
-            let cover = track.and_then(|track| cache?.cached_for_track(track, state.port));
-            let lyrics = track.and_then(|track| cache?.cached_lyrics(track));
-            if path == "/api/local-library/open" && (cover.is_none() || lyrics.is_none()) {
-                if let (Some(track), Some(cache)) = (track.cloned(), cache.cloned()) {
-                    let (client, covers, port) =
-                        (state.client.clone(), state.covers.clone(), state.port);
-                    tauri::async_runtime::spawn(async move {
-                        let _ = tokio::join!(
-                            cache.cover(&covers, &track, None, port),
-                            cache.lyrics(&client, &track)
-                        );
-                    });
+            let id = body["id"].as_str().ok_or("invalid_input")?.to_owned();
+            let downloads = state.downloads.clone();
+            let (covers, port) = (state.covers.clone(), state.port);
+            let (client, sessions) = (state.client.clone(), state.sessions.clone());
+            tauri::async_runtime::spawn_blocking(move || {
+                let song = downloads.access_history(|history| {
+                    history.reconcile();
+                    let (records, excluded, sources) = {
+                        let db = history.db.lock();
+                        let (records, excluded) = history.snapshot(&db)?;
+                        if excluded.contains(&id) {
+                            return Err("saved_file_missing".into());
+                        }
+                        (records, excluded, local_library::sources(&db)?)
+                    };
+                    let mut songs =
+                        local_library::Library::songs(&sources, records, &mut Default::default());
+                    let song = songs
+                        .remove(&id)
+                        .filter(|song| !excluded.contains(&song.id))
+                        .ok_or("saved_file_missing")?;
+                    if path == "/api/local-library/remove" {
+                        let delete_file = body["deleteFile"].as_bool().ok_or("invalid_input")?;
+                        history.remove_song(&song.path, &id, delete_file)?;
+                        return Ok(None);
+                    }
+                    Ok(Some(song))
+                })?;
+                let Some(song) = song else {
+                    return Ok(Value::Null);
+                };
+                let file = song.playback_path()?;
+                if path == "/api/local-library/reveal" {
+                    downloads::reveal_file(&file)?;
+                    return Ok(Value::Null);
                 }
-            }
-            if path == "/api/local-library/reveal" {
-                downloads::reveal_file(&file)?;
-                return Ok(Value::Null);
-            }
-            let mime = match song.format {
-                "mp3" => "audio/mpeg",
-                "flac" => "audio/flac",
-                _ => "audio/mp4",
-            };
-            let id = state.sessions.insert_local(file, mime);
-            Ok(
-                json!({"playbackId":id,"streamUrl":format!("http://127.0.0.1:{}/api/playback/{id}/stream",state.port),"cover":cover,"lyrics":lyrics}),
-            )
+                let track = song.download_identity.as_ref();
+                let cache = covers.1.as_ref();
+                let cover = track.and_then(|track| cache?.cached_for_track(track, port));
+                let lyrics = track.and_then(|track| cache?.cached_lyrics(track));
+                if cover.is_none() || lyrics.is_none() {
+                    if let (Some(track), Some(cache)) = (track.cloned(), cache.cloned()) {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = tokio::join!(
+                                cache.cover(&covers, &track, None, port),
+                                cache.lyrics(&client, &track)
+                            );
+                        });
+                    }
+                }
+                let mime = match song.format {
+                    "mp3" => "audio/mpeg",
+                    "flac" => "audio/flac",
+                    _ => "audio/mp4",
+                };
+                let playback_id = sessions.insert_local(file, mime);
+                Ok(json!({"playbackId":playback_id,"streamUrl":format!(
+                    "http://127.0.0.1:{port}/api/playback/{playback_id}/stream"
+                ),"cover":cover,"lyrics":lyrics}))
+            })
+            .await
+            .map_err(|_| "local_library_unavailable")?
         }
         "/api/playback/open" => {
             let identity = &body["identity"];
@@ -318,13 +352,14 @@ fn main() {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .read_timeout(std::time::Duration::from_secs(30))
                 .build()?;
+            let data_dir = app.path().app_data_dir()?;
+            let db = storage::Database::open(&data_dir.join("music-core.sqlite3"))?;
             let mut covers = covers::Covers::default();
-            covers.1 =
-                media_cache::MediaCache::open(&app.path().app_data_dir()?.join("media-cache"))
-                    .map_err(|error| {
-                        eprintln!("桌面媒体缓存不可用: {error}");
-                    })
-                    .ok();
+            covers.1 = media_cache::MediaCache::open(&data_dir.join("media-cache"), db.clone())
+                .map_err(|error| {
+                    eprintln!("桌面媒体缓存不可用: {error}");
+                })
+                .ok();
             let port = tauri::async_runtime::block_on(transport::start_with_covers(
                 transport::Transport {
                     sessions: sessions.clone(),
@@ -373,18 +408,12 @@ fn main() {
                 port,
                 fallbacks,
                 covers: covers.clone(),
-                library: std::sync::Arc::new(std::sync::Mutex::new(
-                    local_library::Library::open(
-                        app.path().app_config_dir()?.join("desktop-library.json"),
-                    )
-                    .map_err(std::io::Error::other)?,
-                )),
+                library: std::sync::Arc::new(std::sync::Mutex::new(local_library::Library::new())),
                 downloads: {
-                    let mut downloads = downloads::Downloads::with_history(
-                        app.path().app_config_dir()?.join("download-naming.json"),
+                    let mut downloads = downloads::Downloads::with_database(
+                        db,
                         app.path().audio_dir()?.join("拾音"),
-                    )
-                    .map_err(std::io::Error::other)?;
+                    );
                     downloads.media_covers = covers.clone();
                     downloads.tools_dir = Some(app.path().resource_dir()?.join("tools"));
                     downloads

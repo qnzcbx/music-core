@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -21,174 +20,267 @@ pub struct SavedDownload {
     pub source_preserved: bool,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Stored {
-    directory: Option<PathBuf>,
-    #[serde(default)]
-    records: Vec<SavedDownload>,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    excluded_songs: BTreeSet<String>,
-}
+use crate::{
+    local_library,
+    storage::{self, Database},
+};
+use rusqlite::{params, Connection, Transaction};
+
+const UNAVAILABLE: &str = "download_history_unavailable";
+const RECORDS: &str = "SELECT d.download_id,d.provider_id,d.platform_id,d.title,d.artist,
+    f.path,d.format,d.size_bytes,d.saved_at,d.source_preserved
+    FROM downloads d JOIN local_files f ON f.file_id=d.file_id";
 
 pub struct History {
-    path: PathBuf,
+    pub(crate) db: Database,
     default_directory: PathBuf,
-    stored: Stored,
-    pending_reconciliation: bool,
+    pending_records: BTreeSet<String>,
+    pending_exclusions: BTreeSet<String>,
 }
 
-pub(crate) fn write_snapshot(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    let parent = path.parent().ok_or("download_history_unavailable")?;
-    std::fs::create_dir_all(parent).map_err(|_| "download_history_unavailable")?;
-    // 同目录临时文件同步后原子替换；失败不修改内存快照，也不覆盖成品。
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "download_history_unavailable")?;
-    serde_json::to_writer_pretty(&mut temporary, value)
-        .map_err(|_| "download_history_unavailable")?;
-    temporary
-        .flush()
-        .map_err(|_| "download_history_unavailable")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "download_history_unavailable")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "download_history_unavailable")?;
-    Ok(())
+fn read_download(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedDownload> {
+    Ok(SavedDownload {
+        id: row.get(0)?,
+        identity: serde_json::json!({"providerId":row.get::<_, String>(1)?, "platformId":row.get::<_, String>(2)?}),
+        title: row.get(3)?,
+        artist: row.get(4)?,
+        path: PathBuf::from(row.get::<_, String>(5)?),
+        format: row.get(6)?,
+        size_bytes: row.get(7)?,
+        saved_at: row.get(8)?,
+        source_preserved: row.get(9)?,
+    })
+}
+
+fn apply_reconciliation(
+    tx: &Transaction<'_>,
+    records: &BTreeSet<String>,
+    exclusions: &BTreeSet<String>,
+) -> rusqlite::Result<()> {
+    let mut delete = tx.prepare_cached("DELETE FROM downloads WHERE download_id=?1")?;
+    for id in records {
+        delete.execute([id])?;
+    }
+    let mut exclude = tx.prepare_cached("INSERT OR IGNORE INTO excluded_files VALUES (?1)")?;
+    for id in exclusions {
+        exclude.execute([id])?;
+    }
+    storage::prune_files(tx)
 }
 
 impl History {
-    pub fn open(path: PathBuf, default_directory: PathBuf) -> Result<Self, String> {
-        let stored = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| "download_history_invalid")?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Stored::default(),
-            Err(_) => return Err("download_history_unavailable".into()),
-        };
-        Ok(Self {
-            path,
+    pub(crate) fn new(db: Database, default_directory: PathBuf) -> Self {
+        Self {
+            db,
             default_directory,
-            stored,
-            pending_reconciliation: false,
-        })
+            pending_records: BTreeSet::new(),
+            pending_exclusions: BTreeSet::new(),
+        }
     }
 
-    pub fn directory(&self) -> &Path {
-        self.stored
-            .directory
-            .as_deref()
-            .unwrap_or(&self.default_directory)
+    #[cfg(test)]
+    pub(crate) fn open(path: PathBuf, default_directory: PathBuf) -> Result<Self, String> {
+        let db = Database::open(&path).map_err(|error| error.to_string())?;
+        Ok(Self::new(db, default_directory))
+    }
+
+    pub(crate) fn transact<T>(
+        &mut self,
+        action: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+    ) -> Result<T, String> {
+        let result = (|| {
+            let mut db = self.db.lock();
+            let tx = db.transaction()?;
+            if !self.pending_records.is_empty() || !self.pending_exclusions.is_empty() {
+                apply_reconciliation(&tx, &self.pending_records, &self.pending_exclusions)?;
+            }
+            let value = action(&tx)?;
+            tx.commit()?;
+            Ok::<_, rusqlite::Error>(value)
+        })()
+        .map_err(|error| {
+            eprintln!("桌面记录事务失败: {error}");
+            UNAVAILABLE.to_owned()
+        })?;
+        self.pending_records.clear();
+        self.pending_exclusions.clear();
+        Ok(result)
+    }
+
+    pub(crate) fn settings(&self) -> Result<(Option<PathBuf>, String), String> {
+        self.db
+            .lock()
+            .query_row(
+                "SELECT directory,naming FROM download_settings WHERE singleton=1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?.map(PathBuf::from),
+                        row.get(1)?,
+                    ))
+                },
+            )
+            .map_err(|_| UNAVAILABLE.into())
+    }
+
+    pub fn directory(&self) -> Result<PathBuf, String> {
+        Ok(self
+            .settings()?
+            .0
+            .unwrap_or_else(|| self.default_directory.clone()))
     }
 
     pub fn default_directory(&self) -> &Path {
         &self.default_directory
     }
 
-    pub fn using_default(&self) -> bool {
-        self.stored.directory.is_none()
-    }
-
-    fn commit(&mut self, next: Stored) -> Result<(), String> {
-        write_snapshot(&self.path, &next)?;
-        self.stored = next;
-        self.pending_reconciliation = false;
-        Ok(())
-    }
-
     pub fn set_directory(&mut self, directory: Option<PathBuf>) -> Result<(), String> {
         let target = directory.as_deref().unwrap_or(&self.default_directory);
-        if !target.is_absolute() {
+        if storage::path_text(target).is_none() {
             return Err("invalid_input".into());
         }
         std::fs::create_dir_all(target).map_err(|_| "file_io_error")?;
-        // 仅检测所选目录可写；不枚举、不迁移任何文件。
-        let probe = tempfile::NamedTempFile::new_in(target).map_err(|_| "file_io_error")?;
-        drop(probe);
-        let mut next = self.stored.clone();
-        next.directory = directory;
-        self.commit(next)
+        drop(tempfile::NamedTempFile::new_in(target).map_err(|_| "file_io_error")?);
+        self.transact(|tx| {
+            tx.execute(
+                "UPDATE download_settings SET directory=?1 WHERE singleton=1",
+                [directory.as_deref().and_then(storage::path_text)],
+            )?;
+            Ok(())
+        })
     }
 
     pub fn add(&mut self, record: SavedDownload) -> Result<(), String> {
-        // 成品已经正式发布才能入历史；不收临时文件或仅探查的资源。
+        // 保留发布后校验，实例身份仅归删除计划所有。
         let metadata = std::fs::metadata(&record.path).map_err(|_| "file_io_error")?;
-        if !record.path.is_absolute()
-            || !metadata.is_file()
-            || metadata.len() == 0
-            || metadata.len() != record.size_bytes
-        {
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() != record.size_bytes {
             return Err("source_verification_failed".into());
         }
-        let mut next = self.stored.clone();
-        next.excluded_songs
-            .remove(&crate::local_library::path_key(&record.path));
-        next.records.push(record);
-        self.commit(next)
+        let path = storage::path_text(&record.path).ok_or("source_verification_failed")?;
+        let key = local_library::key(&record.path);
+        let song_id = local_library::path_key(&record.path);
+        let (provider, platform) =
+            crate::media_cache::identity(&record.identity).ok_or("invalid_input")?;
+        self.transact(|tx| {
+            let file_id = storage::file_id(tx, path, &key)?;
+            tx.execute(
+                "INSERT INTO downloads(download_id,file_id,provider_id,platform_id,title,artist,format,size_bytes,saved_at,source_preserved)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                params![record.id,file_id,provider,platform,record.title,record.artist,
+                        record.format,record.size_bytes,record.saved_at,record.source_preserved],
+            )?;
+            tx.execute("DELETE FROM excluded_files WHERE song_id=?1", [song_id])?;
+            Ok(())
+        })
     }
 
-    pub fn records(&self) -> impl Iterator<Item = &SavedDownload> {
-        self.stored.records.iter().rev()
+    fn records(
+        &self,
+        db: &Connection,
+        predicate: &str,
+        parameters: impl rusqlite::Params,
+    ) -> Result<Vec<SavedDownload>, String> {
+        let mut query = db
+            .prepare_cached(&format!("{RECORDS} {predicate} ORDER BY d.seq DESC"))
+            .map_err(|_| UNAVAILABLE)?;
+        let rows = query
+            .query_map(parameters, read_download)
+            .map_err(|_| UNAVAILABLE)?;
+        rows.filter(|row| {
+            row.as_ref()
+                .map_or(true, |row| !self.pending_records.contains(&row.id))
+        })
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|_| UNAVAILABLE.into())
     }
 
-    pub fn list(&self) -> Vec<SavedDownload> {
-        self.stored.records.iter().rev().cloned().collect()
+    pub fn list(&self) -> Result<Vec<SavedDownload>, String> {
+        self.records(&self.db.lock(), "", [])
     }
 
-    #[cfg(test)]
-    pub fn find(&self, id: &str) -> Result<&SavedDownload, String> {
-        self.stored
-            .records
-            .iter()
-            .find(|r| r.id == id)
-            .ok_or_else(|| "track_not_found".into())
+    pub(crate) fn target_records(
+        &self,
+        id: &str,
+        hint: Option<&str>,
+    ) -> Result<Vec<SavedDownload>, String> {
+        self.records(
+            &self.db.lock(),
+            "WHERE f.stored_path_key IN (?1, ?2)",
+            params![id, hint],
+        )
+    }
+
+    pub(crate) fn snapshot(
+        &self,
+        db: &Connection,
+    ) -> Result<(Vec<SavedDownload>, BTreeSet<String>), String> {
+        let mut query = db
+            .prepare_cached("SELECT song_id FROM excluded_files")
+            .map_err(|_| UNAVAILABLE)?;
+        let mut excluded = query
+            .query_map([], |row| row.get(0))
+            .map_err(|_| UNAVAILABLE)?
+            .collect::<rusqlite::Result<BTreeSet<String>>>()
+            .map_err(|_| UNAVAILABLE)?;
+        excluded.extend(self.pending_exclusions.iter().cloned());
+        Ok((self.records(db, "", [])?, excluded))
+    }
+
+    pub(crate) fn is_excluded(&self, id: &str) -> Result<bool, String> {
+        if self.pending_exclusions.contains(id) {
+            return Ok(true);
+        }
+        self.db
+            .lock()
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM excluded_files WHERE song_id=?1)",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(|_| UNAVAILABLE.into())
     }
 
     pub fn complete_recycle(&mut self, id: &str, records: &[String], hide_path: bool) -> bool {
-        // 回收成功后只对账已确认的记录；写入失败也不会重做文件操作。
-        self.stored.records.retain(|row| !records.contains(&row.id));
+        // 只对账已确认的 UUID；后续读写不会再次执行 Shell 操作。
+        self.pending_records.extend(records.iter().cloned());
         if hide_path {
-            self.stored.excluded_songs.insert(id.to_owned());
+            self.pending_exclusions.insert(id.to_owned());
         }
-        self.pending_reconciliation = true;
         self.reconcile()
     }
 
     pub fn reconcile(&mut self) -> bool {
-        if self.pending_reconciliation && write_snapshot(&self.path, &self.stored).is_ok() {
-            self.pending_reconciliation = false;
-        }
-        !self.pending_reconciliation
-    }
-
-    pub fn excluded_songs(&self) -> &BTreeSet<String> {
-        &self.stored.excluded_songs
-    }
-
-    pub fn restore_songs(&mut self, ids: &[String]) -> Result<(), String> {
-        if !ids.iter().any(|id| self.stored.excluded_songs.contains(id)) {
-            return Ok(());
-        }
-        let mut next = self.stored.clone();
-        for id in ids {
-            next.excluded_songs.remove(id);
-        }
-        self.commit(next)
+        (self.pending_records.is_empty() && self.pending_exclusions.is_empty())
+            || self.transact(|_| Ok(())).is_ok()
     }
 
     pub fn remove_song(&mut self, path: &Path, id: &str, delete_file: bool) -> Result<(), String> {
-        // 路径 ID 仅用于曲库聚合，不能授权物理处置。
         if delete_file {
             return Err("local_recycle_unavailable".into());
         }
-        if crate::local_library::path_key(path) != id || self.stored.excluded_songs.contains(id) {
+        if local_library::path_key(path) != id || self.is_excluded(id)? {
             return Err("track_not_found".into());
         }
-        let mut next = self.stored.clone();
-        next.records
-            .retain(|record| crate::local_library::path_key(&record.path) != id);
-        next.excluded_songs.insert(id.to_owned());
-        self.commit(next)
+        let mut paths = std::collections::HashMap::new();
+        let records = self
+            .list()?
+            .into_iter()
+            .filter_map(|row| {
+                let key = paths
+                    .entry(row.path.clone())
+                    .or_insert_with(|| local_library::path_key(&row.path));
+                (key == id).then_some(row.id)
+            })
+            .collect();
+        self.transact(|tx| apply_reconciliation(tx, &records, &BTreeSet::from([id.to_owned()])))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reject_writes(&self, reject: bool) {
+        self.db
+            .lock()
+            .pragma_update(None, "query_only", reject)
+            .unwrap();
     }
 }
 
@@ -212,7 +304,7 @@ mod tests {
     #[test]
     fn record_removal_preserves_audio_and_excludes_all_records_for_path() {
         let root = tempfile::tempdir().unwrap();
-        let config = root.path().join("history.json");
+        let config = root.path().join("music-core.sqlite3");
         let path = root.path().join("song.mp3");
         std::fs::write(&path, b"audio").unwrap();
         let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
@@ -223,14 +315,15 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"audio");
 
         let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
-        assert!(history.list().is_empty());
-        assert!(history.excluded_songs().contains(&id));
+        assert!(history.list().unwrap().is_empty());
+        assert!(history.is_excluded(&id).unwrap());
         history.add(record(path.clone(), false)).unwrap();
-        assert!(!history.excluded_songs().contains(&id));
+        assert!(!history.is_excluded(&id).unwrap());
         assert_eq!(
             History::open(config, root.path().to_owned())
                 .unwrap()
                 .list()
+                .unwrap()
                 .len(),
             1
         );
@@ -238,7 +331,7 @@ mod tests {
     #[test]
     fn physical_removal_is_refused_without_touching_file_or_records() {
         let root = tempfile::tempdir().unwrap();
-        let config = root.path().join("history.json");
+        let config = root.path().join("music-core.sqlite3");
         let path = root.path().join("song.mp3");
         std::fs::write(&path, b"audio").unwrap();
         let id = crate::local_library::path_key(&path);
@@ -249,12 +342,13 @@ mod tests {
             Err("local_recycle_unavailable".into())
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"audio");
-        assert_eq!(history.list().len(), 1);
-        assert!(!history.excluded_songs().contains(&id));
+        assert_eq!(history.list().unwrap().len(), 1);
+        assert!(!history.is_excluded(&id).unwrap());
         assert_eq!(
             History::open(config, root.path().to_owned())
                 .unwrap()
                 .list()
+                .unwrap()
                 .len(),
             1
         );
@@ -263,7 +357,7 @@ mod tests {
     #[test]
     fn settings_and_actual_paths_survive_reopening_without_moving_files() {
         let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("config/history.json");
+        let file = root.path().join("config/music-core.sqlite3");
         let default = root.path().join("redirected-music/拾音");
         let other = root.path().join("outside-library");
         std::fs::create_dir_all(&default).unwrap();
@@ -278,47 +372,82 @@ mod tests {
         let changed = root.path().join("new-default");
         history.set_directory(Some(changed.clone())).unwrap();
         let mut reopened = History::open(file.clone(), default.clone()).unwrap();
-        assert_eq!(reopened.directory(), changed);
-        assert_eq!(reopened.list().len(), 2);
-        assert_eq!(reopened.list()[0].path, second);
-        assert!(reopened.list()[0].source_preserved);
-        assert_eq!(reopened.list()[1].path, first);
+        assert_eq!(reopened.directory().unwrap(), changed);
+        assert_eq!(reopened.list().unwrap().len(), 2);
+        assert_eq!(reopened.list().unwrap()[0].path, second);
+        assert!(reopened.list().unwrap()[0].source_preserved);
+        assert_eq!(reopened.list().unwrap()[1].path, first);
         assert!(first.exists() && second.exists());
         reopened.set_directory(None).unwrap();
         let reopened = History::open(file, default.clone()).unwrap();
-        assert_eq!(reopened.directory(), default);
-        assert!(reopened.using_default());
-        assert_eq!(reopened.list().len(), 2);
+        assert_eq!(reopened.directory().unwrap(), default);
+        assert!(reopened.settings().unwrap().0.is_none());
+        assert_eq!(reopened.list().unwrap().len(), 2);
     }
     #[test]
     fn failed_record_write_preserves_existing_history_and_the_actual_product() {
         let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("history.json");
+        let file = root.path().join("music-core.sqlite3");
         let product = root.path().join("saved.mp3");
         std::fs::write(&product, b"audio").unwrap();
         let mut history = History::open(file.clone(), root.path().join("music")).unwrap();
         history.add(record(product.clone(), false)).unwrap();
-        let before = std::fs::read(&file).unwrap();
-        std::fs::rename(&file, root.path().join("history-backup.json")).unwrap();
-        std::fs::create_dir(&file).unwrap();
+        history.reject_writes(true);
         assert!(history.add(record(product.clone(), false)).is_err());
-        assert_eq!(history.list().len(), 1);
-        assert_eq!(
-            std::fs::read(root.path().join("history-backup.json")).unwrap(),
-            before
-        );
+        assert_eq!(history.list().unwrap().len(), 1);
+        history.reject_writes(false);
         assert_eq!(std::fs::read(product).unwrap(), b"audio");
+    }
+
+    #[test]
+    fn remove_rolls_back_and_later_download_supersedes_pending_exclusion() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("song.mp3");
+        std::fs::write(&path, b"audio").unwrap();
+        let public_id = local_library::path_key(&path);
+        let mut history = History::new(Database::memory(), root.path().into());
+        let previous = record(path.clone(), false);
+        let previous_id = previous.id.clone();
+        history.add(previous).unwrap();
+        history
+            .db
+            .lock()
+            .execute_batch(
+                "CREATE TEMP TRIGGER refuse_exclusion BEFORE INSERT ON excluded_files
+             BEGIN SELECT RAISE(ABORT, 'exclude failed'); END;",
+            )
+            .unwrap();
+        assert!(history.remove_song(&path, &public_id, false).is_err());
+        assert_eq!(history.list().unwrap()[0].id, previous_id);
+        assert!(!history.is_excluded(&public_id).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"audio");
+
+        assert!(!history.complete_recycle(&public_id, &[previous_id], true));
+        assert!(history.list().unwrap().is_empty());
+        assert!(history.is_excluded(&public_id).unwrap());
+        history
+            .db
+            .lock()
+            .execute_batch("DROP TRIGGER refuse_exclusion")
+            .unwrap();
+        let replacement = record(path, false);
+        let replacement_id = replacement.id.clone();
+        history.add(replacement).unwrap();
+        assert!(history.reconcile());
+        assert!(!history.is_excluded(&public_id).unwrap());
+        assert_eq!(history.list().unwrap()[0].id, replacement_id);
     }
 
     #[test]
     fn incomplete_records_and_broken_storage_are_not_silently_accepted() {
         let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("history.json");
+        let file = root.path().join("music-core.sqlite3");
         let mut history = History::open(file.clone(), root.path().join("music")).unwrap();
         assert!(history
             .add(record(root.path().join("missing.mp3"), false))
             .is_err());
-        assert!(history.list().is_empty());
+        assert!(history.list().unwrap().is_empty());
+        drop(history);
         std::fs::write(&file, b"invalid history").unwrap();
         assert!(History::open(file, root.path().join("music")).is_err());
     }

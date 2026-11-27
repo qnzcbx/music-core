@@ -527,13 +527,13 @@ mod native {
             let path = dir.path().join(&name);
             fs::write(&path, b"isolated recycle test").unwrap();
             let identity = capture(&path).unwrap();
-            let config = dir.path().join("history.json");
+            let config = dir.path().join("music-core.sqlite3");
             let mut history =
                 crate::download_history::History::open(config.clone(), dir.path().into()).unwrap();
             history
                 .add(crate::download_history::SavedDownload {
                     id: "native-recycle-fixture".into(),
-                    identity: serde_json::Value::Null,
+                    identity: serde_json::json!({"providerId":"qq","platformId":"fixture"}),
                     title: "fixture".into(),
                     artist: String::new(),
                     path: path.clone(),
@@ -544,17 +544,16 @@ mod native {
                 })
                 .unwrap();
             let id = crate::local_library::path_key(&path);
-            fs::rename(&config, dir.path().join("history-before.json")).unwrap();
-            fs::create_dir(&config).unwrap();
+            history.reject_writes(true);
             assert_eq!(recycle(&path, &identity, &[]), Ok(()));
             assert!(!path.exists());
             assert!(!history.complete_recycle(&id, &["native-recycle-fixture".into()], true));
-            assert!(history.list().is_empty());
-            fs::remove_dir(&config).unwrap();
+            assert!(history.list().unwrap().is_empty());
+            history.reject_writes(false);
             assert!(history.reconcile());
             let reopened =
                 crate::download_history::History::open(config, dir.path().into()).unwrap();
-            assert!(reopened.list().is_empty());
+            assert!(reopened.list().unwrap().is_empty());
 
             super::super::restore_test_file(&path);
             assert_eq!(fs::read(path).unwrap(), b"isolated recycle test");
