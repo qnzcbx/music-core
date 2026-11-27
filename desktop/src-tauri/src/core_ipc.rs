@@ -715,7 +715,7 @@ async fn dispatch(state: &Desktop, request: Operation) -> Result<Value, String> 
         }
         PlaybackOpen(input) => {
             let identity = input.identity.checked()?;
-            let (media, _) = fallback::resolve(&state.client, &state.fallbacks, &identity).await?;
+            let (media, _, _) = fallback::resolve(&state.client, &state.fallbacks, &identity).await?;
             let id = state.sessions.insert_media(media);
             Ok(json!({
                 "playbackId": id,

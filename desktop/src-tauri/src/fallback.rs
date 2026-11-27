@@ -23,6 +23,8 @@ pub struct Grant {
     pub route: String,
     #[serde(default)]
     pub tracks: Option<Vec<String>>,
+    #[serde(default)]
+    allow_request_bound: bool,
 }
 
 impl Default for Config {
@@ -35,6 +37,7 @@ impl Default for Config {
                         provider: (*source).into(),
                         route: (*route).into(),
                         tracks: None,
+                        allow_request_bound: false,
                     })
                 })
                 .collect(),
@@ -63,6 +66,8 @@ impl Config {
                 .map(|(_, routes)| *routes)
                 .unwrap_or(&[]);
             if !allowed.contains(&grant.route.as_str())
+                || (grant.allow_request_bound
+                    && (grant.provider != "qq" || grant.route != "xunhuisi"))
                 || !seen.insert((&grant.provider, &grant.route))
                 || grant.tracks.as_ref().is_some_and(|tracks| {
                     tracks
@@ -134,14 +139,18 @@ pub async fn resolve(
     client: &reqwest::Client,
     config: &Config,
     identity: &Value,
-) -> Result<(Media, String), String> {
+) -> Result<(Media, String, IdentityEvidence), String> {
     let source = identity["providerId"].as_str().ok_or("invalid_input")?;
     let id = identity["platformId"].as_str().ok_or("invalid_input")?;
     let routes = config.routes(source, id);
-    tokio::time::timeout(
+    let ((media, evidence), route) = tokio::time::timeout(
         Duration::from_secs(28),
         choose(
-            || crate::provider::resolve(client, identity),
+            || async {
+                crate::provider::resolve(client, identity)
+                    .await
+                    .map(|media| (media, IdentityEvidence::Native))
+            },
             &routes,
             |route| async move {
                 // 只有实际进入备用路线才创建无凭据客户端。
@@ -151,12 +160,16 @@ pub async fn resolve(
                     .connect_timeout(Duration::from_secs(4))
                     .build()
                     .map_err(|_| "upstream_failure")?;
-                backup(&external, source, id, &route).await
+                let allow_request_bound = config.routes.iter().any(|grant| {
+                    grant.provider == source && grant.route == route && grant.allow_request_bound
+                });
+                backup(&external, source, id, &route, allow_request_bound).await
             },
         ),
     )
     .await
-    .map_err(|_| "upstream_timeout")?
+    .map_err(|_| "upstream_timeout")??;
+    Ok((media, route, evidence))
 }
 
 pub(crate) fn permitted(data: &Value) -> Result<(), String> {
@@ -215,7 +228,65 @@ pub(crate) fn response_identity_matches(
     Ok(present)
 }
 
-pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String, String> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IdentityEvidence {
+    Native,
+    Confirmed,
+    RequestBound,
+}
+
+fn xunhuisi_evidence(
+    payload: &Value,
+    id: &str,
+    allow_request_bound: bool,
+) -> Result<IdentityEvidence, String> {
+    let mut confirmed = false;
+    for value in ["songMID", "song_mid", "mid"]
+        .iter()
+        .filter_map(|field| payload.get(*field))
+    {
+        if value.as_str() != Some(id) {
+            return Err("source_verification_failed".into());
+        }
+        confirmed = true;
+    }
+    let invalid = "source_verification_failed";
+    if let Some(link) = payload.get("link").filter(|v| !v.is_null()) {
+        let url = reqwest::Url::parse(link.as_str().ok_or(invalid)?).map_err(|_| invalid)?;
+        if url.scheme() != "https"
+            || url.host_str() != Some("y.qq.com")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port().is_some()
+            || url.path() != format!("/n/ryqq/songDetail/{id}")
+        {
+            return Err(invalid.into());
+        }
+    } else if !confirmed {
+        return Err(invalid.into());
+    }
+    if confirmed {
+        return Ok(IdentityEvidence::Confirmed);
+    }
+    if !allow_request_bound
+        || ["title", "singer"].iter().any(|field| {
+            !payload[*field]
+                .as_str()
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+    {
+        return Err(invalid.into());
+    }
+    Ok(IdentityEvidence::RequestBound)
+}
+
+fn parse(
+    source: &str,
+    route: &str,
+    id: &str,
+    data: &Value,
+    allow_request_bound: bool,
+) -> Result<(String, IdentityEvidence), String> {
     permitted(data)?;
     let payload = match route {
         "vkeys" | "jfjt" => &data["data"],
@@ -225,16 +296,23 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
     if route == "jfjt" && data["success"] != true {
         return Err("upstream_failure".into());
     }
-    // 请求里的 ID 或详情链接回显不算响应身份；URL-only 不准进入桌面播放器。
-    if !response_identity_matches(source, route, payload, id)? {
+    let is_xunhuisi = source == "qq" && route == "xunhuisi";
+    let evidence = if is_xunhuisi {
+        xunhuisi_evidence(payload, id, allow_request_bound)?
+    } else if response_identity_matches(source, route, payload, id)? {
+        IdentityEvidence::Confirmed
+    } else {
         return Err("source_verification_failed".into());
-    }
-    if let Some(title) = payload
-        .get("song_name")
-        .or(payload.get("title"))
-        .or(payload.get("name"))
-        .and_then(Value::as_str)
-    {
+    };
+    let title = if is_xunhuisi {
+        payload.get("title")
+    } else {
+        payload
+            .get("song_name")
+            .or(payload.get("title"))
+            .or(payload.get("name"))
+    };
+    if let Some(title) = title.and_then(Value::as_str) {
         if ["伴奏", "伴唱", "翻唱", "live", "现场"]
             .iter()
             .any(|word| title.to_lowercase().contains(word))
@@ -259,7 +337,7 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
     .filter(|s| !s.is_empty())
     .ok_or("media_unavailable")?;
     common::validate_media(source, url)?;
-    Ok(url.into())
+    Ok((url.into(), evidence))
 }
 
 async fn backup(
@@ -267,7 +345,8 @@ async fn backup(
     source: &str,
     id: &str,
     route: &str,
-) -> Result<Media, String> {
+    allow_request_bound: bool,
+) -> Result<(Media, IdentityEvidence), String> {
     let request = match route {
         "vkeys" => client
             .get("https://api.vkeys.cn/music/tencent/song/link")
@@ -293,12 +372,15 @@ async fn backup(
         _ => return Err("invalid_input".into()),
     };
     let data = common::json(request).await?;
-    let url = parse(source, route, id, &data)?;
+    let (url, evidence) = parse(source, route, id, &data, allow_request_bound)?;
     probe(client, &url).await?;
-    Ok(Media {
-        url,
-        headers: reqwest::header::HeaderMap::new(),
-    })
+    Ok((
+        Media {
+            url,
+            headers: reqwest::header::HeaderMap::new(),
+        },
+        evidence,
+    ))
 }
 
 async fn probe(client: &reqwest::Client, url: &str) -> Result<(), String> {
@@ -359,6 +441,139 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String, String> {
+        super::parse(source, route, id, data, false).map(|(url, _)| url)
+    }
+    #[test]
+    fn xunhuisi_requires_scoped_permission_and_valid_metadata() {
+        let id = "0039MnYb0qxYhV";
+        let data = json!({"title":"晴天", "singer":"周杰伦",
+            "link":format!("https://y.qq.com/n/ryqq/songDetail/{id}"),
+            "music_url":"https://aqqmusic.tc.qq.com/fixture.m4a"});
+        assert!(super::parse("qq", "xunhuisi", id, &data, false).is_err());
+        assert_eq!(
+            super::parse("qq", "xunhuisi", id, &data, true).unwrap().1,
+            IdentityEvidence::RequestBound
+        );
+        let mut confirmed = data.clone();
+        confirmed["song_mid"] = json!(id);
+        assert_eq!(
+            super::parse("qq", "xunhuisi", id, &confirmed, false)
+                .unwrap()
+                .1,
+            IdentityEvidence::Confirmed
+        );
+        confirmed["songMID"] = json!("conflict");
+        assert!(super::parse("qq", "xunhuisi", id, &confirmed, true).is_err());
+        for (field, value) in [
+            ("mid", json!("other")),
+            ("mid", json!(null)),
+            ("mid", json!(123)),
+            ("title", json!("晴天 Live")),
+            ("title", json!(false)),
+            ("singer", json!("  ")),
+            ("link", json!(null)),
+            ("link", json!("https://y.qq.com/n/ryqq/songDetail/other")),
+            ("music_url", json!("https://example.invalid/fixture.m4a")),
+        ] {
+            let mut invalid = data.clone();
+            invalid[field] = value;
+            assert!(
+                super::parse("qq", "xunhuisi", id, &invalid, true).is_err(),
+                "{field}"
+            );
+        }
+        for field in ["freeTrialInfo", "requiresLogin", "requiresPayment"] {
+            let mut restricted = data.clone();
+            restricted[field] = json!(true);
+            assert_eq!(
+                super::parse("qq", "xunhuisi", id, &restricted, true)
+                    .err()
+                    .as_deref(),
+                Some("access_denied")
+            );
+        }
+        assert!(super::parse(
+            "qq",
+            "tang",
+            id,
+            &json!({"song_play_url":data["music_url"]}),
+            true
+        )
+        .is_err());
+        assert!(super::parse(
+            "qq",
+            "vkeys",
+            id,
+            &json!({"data":{"url":data["music_url"]}}),
+            true
+        )
+        .is_err());
+        assert!(Config::parse(
+            r#"{"routes":[{"provider":"qq","route":"vkeys","allow_request_bound":true}]}"#
+        )
+        .is_err());
+        assert!(Config::parse(
+            r#"{"routes":[{"provider":"qq","route":"xunhuisi","allow_request_bound":true}]}"#
+        )
+        .is_ok());
+    }
+    #[tokio::test]
+    #[ignore = "真实 xunhuisi 诊断与回环播放验收"]
+    async fn xunhuisi_real_playback() {
+        let id = "0039MnYb0qxYhV";
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0")
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
+        let data = common::json(
+            client
+                .get("https://api.xunhuisi.store/API/QQMusic/Song.php")
+                .query(&[("mid", id), ("type", "json")]),
+        )
+        .await
+        .unwrap();
+        println!("code={:?} fields={:?} title_matches={} singer_matches={} link_matches={} media_present={}",
+            data["code"].as_i64(), data.as_object().unwrap().keys().collect::<Vec<_>>(),
+            data["title"] == "晴天", data["singer"] == "周杰伦",
+            data["link"] == format!("https://y.qq.com/n/ryqq/songDetail/{id}"), data["music_url"].is_string());
+        assert_eq!(
+            parse("qq", "xunhuisi", id, &data).err().as_deref(),
+            Some("source_verification_failed")
+        );
+        println!("strict route rejected before media probe");
+        let (media, evidence) = backup(&client, "qq", id, "xunhuisi", true)
+            .await
+            .unwrap_or_else(|error| panic!("xunhuisi playback probe: {error}"));
+        assert_eq!(evidence, IdentityEvidence::RequestBound);
+        println!("evidence={evidence:?}, trusted target and audio prefix verified");
+        let sessions = crate::sessions::Sessions::new();
+        let sid = sessions.insert_media(media);
+        let port = crate::transport::start(crate::transport::Transport {
+            sessions: sessions.clone(),
+            client: client.clone(),
+        })
+        .await
+        .unwrap();
+        for (start, end) in [(0, 1023), (300000, 301023)] {
+            let response = client
+                .get(format!("http://127.0.0.1:{port}/api/playback/{sid}/stream"))
+                .header("Range", format!("bytes={start}-{end}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 206);
+            assert!(response.headers()["content-range"]
+                .to_str()
+                .unwrap()
+                .starts_with(&format!("bytes {start}-{end}/")));
+            assert_eq!(response.bytes().await.unwrap().len(), 1024);
+            println!("start={start} end={end} status=206 length=1024");
+        }
+        sessions.close(&sid);
+    }
     #[test]
     fn vkeys_uses_returned_song_mid_and_rejects_conflicting_evidence() {
         let id = "0039MnYb0qxYhV";
@@ -696,7 +911,7 @@ mod tests {
             async {
                 for (title, id) in [("多远都要在一起", "30612793"), ("唯一", "2083785152")]
                 {
-                    let (media, route) = resolve(
+                    let (media, route, _) = resolve(
                         &client,
                         &config,
                         &json!({"providerId":"netease","platformId":id}),
@@ -750,7 +965,7 @@ mod tests {
                 }
             );
             match resolve(&client, &config, &identity).await {
-                Ok((media, route)) => {
+                Ok((media, route, _)) => {
                     let sessions = crate::sessions::Sessions::new();
                     let sid = sessions.insert_media(media);
                     let port = crate::transport::start(crate::transport::Transport {
