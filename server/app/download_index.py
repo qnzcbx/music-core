@@ -22,6 +22,22 @@ def safe_cover(value):
         return None
 
 
+def alias_origins(rows):
+    successors = dict(rows)
+    predecessors = {new: old for old, new in rows}
+    if len(predecessors) != len(successors):
+        raise OSError('音乐库身份索引损坏')
+    origins = {}
+    for origin in successors.keys() - predecessors.keys():
+        current = origin
+        while current in successors:
+            current = successors[current]
+            origins[current] = origin
+    if len(origins) != len(successors):
+        raise OSError('音乐库身份索引损坏')
+    return successors, origins
+
+
 class DownloadIndex:
     def __init__(self, directory):
         Path(directory).mkdir(parents=True, exist_ok=True)
@@ -89,25 +105,38 @@ class DownloadIndex:
         return row[0] if row else None
 
     def resolve(self, identifier):
-        with self.connect() as db:
-            seen = set()
-            while identifier not in seen:
-                seen.add(identifier)
-                row = db.execute('SELECT new_id FROM aliases WHERE old_id=?', (identifier,)).fetchone()
-                if not row:
-                    return identifier
-                identifier = row[0]
-        raise OSError('音乐库身份索引损坏')
+        successors, _ = self.aliases()
+        while identifier in successors:
+            identifier = successors[identifier]
+        return identifier
 
-    def public_id(self, identifier):
+    def aliases(self):
         with self.connect() as db:
-            rows = list(db.execute('SELECT old_id,new_id FROM aliases'))
-        # 展示最初的 ID，使既有本地队列、隐藏记录和续播继续匹配。
-        while True:
-            previous = next((old for old, new in rows if new == identifier), None)
-            if previous is None:
-                return identifier
-            identifier = previous
+            return alias_origins(list(db.execute('SELECT old_id,new_id FROM aliases')))
+
+    def scanned(self, paths):
+        if not paths:
+            return {}
+        with self.connect() as db:
+            entries = list(paths.items())
+            # 每个条目绑定两个参数，在 SQLite 的传统参数上限内分批执行。
+            for offset in range(0, len(entries), 250):
+                batch = entries[offset:offset + 250]
+                values = ','.join("(?,?,'{}')" for _ in batch)
+                parameters = [value for identifier, path in batch for value in (identifier, str(path))]
+                db.execute(f'INSERT OR IGNORE INTO files(id,path,metadata) VALUES {values}', parameters)
+            successors, origins = alias_origins(list(db.execute('SELECT old_id,new_id FROM aliases')))
+            identifiers = [identifier for identifier in paths if identifier not in successors]
+            visible = {}
+            for offset in range(0, len(identifiers), 500):
+                batch = identifiers[offset:offset + 500]
+                parameters = ','.join('?' for _ in batch)
+                rows = db.execute(
+                    f'SELECT id,metadata FROM files WHERE hidden=0 AND id IN ({parameters})', batch
+                )
+                for identifier, metadata in rows:
+                    visible[identifier] = (origins.get(identifier, identifier), json.loads(metadata))
+            return visible
 
     def relocated(self, old, new, path, metadata, hidden):
         with self.connect() as db:

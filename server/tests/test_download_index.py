@@ -116,3 +116,50 @@ def test_old_schema_rejected_without_modification(tmp_path):
     with pytest.raises(OSError, match='不受支持的旧结构'):
         DownloadIndex(tmp_path)
     assert path.read_bytes() == before
+
+
+
+@pytest.mark.parametrize('aliases', [
+    [('a', 'b'), ('b', 'a')],
+    [('a', 'c'), ('b', 'c')],
+])
+def test_batch_rejects_corrupt_aliases(tmp_path, aliases):
+    from app.download_index import DownloadIndex
+    index = DownloadIndex(tmp_path)
+    with index.connect() as db:
+        db.executemany('INSERT INTO aliases VALUES (?,?)', aliases)
+    with pytest.raises(OSError, match='身份索引损坏'):
+        index.scanned({'candidate': tmp_path / 'candidate.mp3'})
+    with pytest.raises(OSError, match='身份索引损坏'):
+        index.aliases()
+    with pytest.raises(OSError, match='身份索引损坏'):
+        index.resolve('a')
+    with index.connect() as db:
+        assert db.execute('SELECT COUNT(*) FROM files').fetchone() == (0,)
+
+
+def test_batch_write_error_rolls_back_previous_chunk_and_closes_connection(tmp_path, monkeypatch):
+    import sqlite3
+    from app.download_index import DownloadIndex
+    index = DownloadIndex(tmp_path)
+    with index.connect() as db:
+        db.execute('''
+            CREATE TRIGGER reject_scan BEFORE INSERT ON files WHEN NEW.id = '250'
+            BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END
+        ''')
+    connect = sqlite3.connect
+    connections = []
+
+    def capture(*args, **kwargs):
+        db = connect(*args, **kwargs)
+        connections.append(db)
+        return db
+
+    monkeypatch.setattr(sqlite3, 'connect', capture)
+    with pytest.raises(OSError, match='下载索引不可读写'):
+        index.scanned({str(i): tmp_path / f'{i}.mp3' for i in range(251)})
+    assert len(connections) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        connections[0].execute('SELECT 1')
+    with index.connect() as db:
+        assert db.execute('SELECT COUNT(*) FROM files').fetchone() == (0,)

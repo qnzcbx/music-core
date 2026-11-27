@@ -263,7 +263,6 @@ class DownloadManager:
                         if self.fingerprint(path, os.fstat(stream.fileno())) != self.fingerprint(path, info):
                             continue
                         kind = audio_format(stream.read(16))
-                    self.index.record(self.fingerprint(path, info), path)
                     yield path, info, kind
                 except (CoreError, FileNotFoundError):
                     continue
@@ -279,7 +278,9 @@ class DownloadManager:
         if not re.fullmatch('[0-9a-f]{64}', identifier): raise FileNotFoundError()
         identifier = self.index.resolve(identifier)
         for path, info, kind in self.snapshots():
-            if self.fingerprint(path, info) == identifier: return path, info, kind
+            if self.fingerprint(path, info) == identifier:
+                self.index.record(identifier, path)
+                return path, info, kind
         raise FileNotFoundError()
 
     def files(self):
@@ -290,20 +291,24 @@ class DownloadManager:
         output = []
         try:
             with self.file_lock:
-                for path, info, kind in self.snapshots():
-                    identifier = self.fingerprint(path, info)
-                    if self.index.resolve(identifier) != identifier:
+                snapshots = {self.fingerprint(path, info): (path, info, kind)
+                             for path, info, kind in self.snapshots()}
+                visible = self.index.scanned({key: row[0] for key, row in snapshots.items()})
+                for identifier, (path, info, kind) in snapshots.items():
+                    if identifier not in visible:
                         continue
-                    metadata, indexed_hidden = self.index.metadata(identifier)
-                    if not indexed_hidden:
-                        output.append(SavedDownloadFile(fileId=self.index.public_id(identifier),filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000), **metadata))
+                    public_id, metadata = visible[identifier]
+                    output.append(SavedDownloadFile(
+                        fileId=public_id, filename=path.name, sizeBytes=info.st_size,
+                        format=kind, modifiedAt=int(info.st_mtime * 1000), **metadata
+                    ))
             return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
         except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
 
     def remove_file(self, identifier, delete_file):
-        identifier = self.index.resolve(identifier)
         with self.file_lock:
             path, info, _ = self.find_file(identifier)
+            identifier = self.fingerprint(path, info)
             if delete_file:
                 if self.readers.get(identifier): raise BlockingIOError()
                 # 删除前再次验证实例；无 await，其他 Core 请求不能在检查与删除之间插入。
@@ -341,11 +346,11 @@ class DownloadManager:
                 raise ctypes.WinError(ctypes.get_last_error())
 
     def stream_file(self, request, identifier):
-        identifier = self.index.resolve(identifier)
         stream = None
         try:
             with self.file_lock:
                 path, info, kind = self.find_file(identifier)
+                identifier = self.fingerprint(path, info)
                 stream = path.open('rb')
                 if self.fingerprint(path, os.fstat(stream.fileno())) != identifier:
                     raise FileNotFoundError()

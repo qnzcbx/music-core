@@ -124,17 +124,18 @@ class LibraryManager:
 
     def candidates(self):
         m = self.manager
-        output = []
-        for identifier, path, raw, hidden in m.index.published():
-            metadata = json.loads(raw)
-            if m.index.resolve(identifier) != identifier:
-                continue
-            try:
-                source, _, _ = m.find_file(identifier)
-            except FileNotFoundError:
-                continue
-            output.append((identifier, source, metadata, hidden))
-        return output
+        published = m.index.published()
+        if not published:
+            return []
+        successors, _ = m.index.aliases()
+        eligible = {identifier: (raw, hidden) for identifier, _, raw, hidden in published
+                    if identifier not in successors}
+        if not eligible:
+            return []
+        paths = {identifier: path for path, info, _ in m.snapshots()
+                 if (identifier := m.fingerprint(path, info)) in eligible}
+        return [(identifier, paths[identifier], json.loads(raw), hidden)
+                for identifier, (raw, hidden) in eligible.items() if identifier in paths]
 
     def change(self, target, migrate):
         m = self.manager

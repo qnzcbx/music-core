@@ -186,3 +186,22 @@ def test_bounded_stream_cancel_releases_handle(tmp_path):
         m.remove_file(identifier, True)
     asyncio.run(check())
     assert not target.exists()
+
+
+
+def test_disappearing_file_is_skipped_in_scan_and_lookup(tmp_path, monkeypatch):
+    target = tmp_path / 'disappearing.mp3'
+    target.write_bytes(b'ID3fixture')
+    m = manager(tmp_path)
+    identifier = m.files()[0].fileId
+    original_open = Path.open
+
+    def open_path(path, *args, **kwargs):
+        if path == target:
+            raise FileNotFoundError(path)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', open_path)
+    assert m.files() == []
+    with pytest.raises(FileNotFoundError):
+        m.find_file(identifier)
