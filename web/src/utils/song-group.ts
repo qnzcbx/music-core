@@ -1,3 +1,5 @@
+import { queueKey } from './player-queue.ts';
+import type { TrackIdentity } from '../types/core';
 import type { SearchEntry } from '../types/music.ts';
 
 export interface SongGroup {
@@ -17,7 +19,12 @@ function normalize(value: string): string {
 export function createSongGroupState() {
   const states = new Map<string, { expanded: boolean; locked: boolean; representative?: string }>();
 
-  function update(songs: readonly SearchEntry[], sources: readonly string[]): SongGroup[] {
+  function update(
+    songs: readonly SearchEntry[],
+    sources: readonly string[],
+    selected?: TrackIdentity | null,
+  ): SongGroup[] {
+    const selectedKey = selected ? queueKey(selected) : undefined;
     const groups = new Map<string, SearchEntry[]>();
     const rank = (song: SearchEntry) => {
       const index = sources.indexOf(song.identity.providerId);
@@ -36,9 +43,13 @@ export function createSongGroupState() {
       const state = states.get(key) ?? { expanded: false, locked: false };
       states.set(key, state);
       versions.sort((a, b) => rank(a) - rank(b));
-      const current = state.locked ? versions.find((song) => song.id === state.representative) : undefined;
-      const representative = current ?? versions[0]!;
-      state.representative = representative.id;
+      const playingVersion = versions.find((song) => queueKey(song.identity) === selectedKey);
+      const lockedVersion = state.locked
+        ? versions.find((song) => queueKey(song.identity) === state.representative)
+        : undefined;
+      const representative = playingVersion ?? lockedVersion ?? versions[0]!;
+      if (playingVersion) state.locked = true;
+      state.representative = queueKey(representative.identity);
       return { key, versions, representative, title: representative.title, artist: representative.artist, expanded: state.expanded };
     });
   }
