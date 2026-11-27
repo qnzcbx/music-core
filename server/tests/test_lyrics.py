@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.lyrics import document,parse_lrc,LyricsCache,provider_lyrics
 from app.models import TrackIdentity
+from app.providers.migu import MiguProvider
 from app.core.errors import CoreError
 
 TRACK=TrackIdentity(providerId='netease',platformId='1')
@@ -40,10 +41,11 @@ def test_provider_mapping(provider,monkeypatch):
             if provider=='qq':return httpx.Response(200,json={'code':0,'lyric':base64.b64encode('[00:01.500]人工'.encode()).decode()})
             if provider=='netease':return httpx.Response(200,json={'code':200,'lrc':{'lyric':'[00:01.500]人工'},'tlyric':{'lyric':'[00:01.500]翻译'}})
             if request.url.host=='d.musicapp.migu.cn':return httpx.Response(200,text='[00:01.500]人工')
-            return httpx.Response(200,json={'data':{'lrcUrl':'https://d.musicapp.migu.cn/test.lrc'}})
-        async def detail(*args):return {'resource':[{'contentId':'1','copyrightId':'test','lrcUrl':'https://d.musicapp.migu.cn/test.lrc'}]}
+            assert request.url.params['resourceId'] == '1'
+            return httpx.Response(200,json={'resource':[{'contentId':'1','copyrightId':'test','lrcUrl':'https://d.musicapp.migu.cn/test.lrc'}]})
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle),cookies={'secret':'private'},auth=('a','b')) as client:
-            value=await provider_lyrics(SimpleNamespace(id=provider,client=client,request_json=detail),identity)
+            source = MiguProvider(client) if provider == 'migu' else SimpleNamespace(id=provider, client=client)
+            value = await provider_lyrics(source, identity)
             assert value.lines[0].startMs==1500 and value.status=='synced'
     asyncio.run(scenario())
 

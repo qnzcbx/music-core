@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import create_app
 from app.models import ResolveOptions, TrackIdentity, ResolvedMedia, MediaRepresentation
-from app.download_quality import inspect_audio, satisfies
+from app.core.media_probe import inspect_audio
+from app.download_quality import satisfies
 from app.downloads import DownloadRequest
 from app.core.errors import CoreError, ErrorCode
 from test_downloads import setup, Stream, finish, TRACK

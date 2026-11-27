@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { isDesktop } from '../api/transport';
+import { desktopCapabilities } from '../platform/window';
 import { desktopLyrics } from '../composables/useDesktopLyrics';
 import { useCoreClient } from '../composables/useCoreClient';
 import { usePlayerVisuals } from '../composables/usePlayerTransition';
@@ -114,7 +114,7 @@ function seek(event: Event) {
       </button>
       <div class="player-meta">
         <span class="track-title">
-          {{ selected?.title || selected?.name || '拾音' }}
+          {{ selected?.title || '拾音' }}
         </span>
         <span class="player-artist">
           {{ selected?.artist || (selected ? '' : '听我想听') }}
@@ -221,18 +221,22 @@ function seek(event: Event) {
       </button>
       <button
         v-else
-        :disabled="isDesktop ? desktopLyrics.pending.value : !selected"
-        :aria-pressed="isDesktop ? desktopLyrics.open.value : undefined"
+        :disabled="desktopCapabilities?.desktopLyrics ? desktopLyrics.pending.value : !selected"
+        :aria-pressed="desktopCapabilities?.desktopLyrics ? desktopLyrics.open.value : undefined"
         :title="
-          isDesktop
+          desktopCapabilities?.desktopLyrics
             ? desktopLyrics.error.value ||
               (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词')
             : '查看歌词'
         "
         :aria-label="
-          isDesktop ? (desktopLyrics.open.value ? '收起桌面歌词' : '打开桌面歌词') : '查看歌词'
+          desktopCapabilities?.desktopLyrics
+            ? desktopLyrics.open.value
+              ? '收起桌面歌词'
+              : '打开桌面歌词'
+            : '查看歌词'
         "
-        @click="isDesktop ? desktopLyrics.toggle() : visuals.open()"
+        @click="desktopCapabilities?.desktopLyrics ? desktopLyrics.toggle() : visuals.open()"
       >
         词
       </button>

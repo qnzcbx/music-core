@@ -9,10 +9,14 @@ export function lyricSnapshot(identity: TrackIdentity | null, document: LyricDoc
   return { identity, current: lines[index]?.text ?? '', next: next?.text ?? '', available: lines.length > 0 };
 }
 
+export const lyricChannel = 'musiccore:desktop-lyrics:v1';
+
 export type Snapshot = ReturnType<typeof lyricSnapshot>;
-export type Update = { sequence: number; snapshot: Snapshot; playback?: DesktopPlayback };
+export type Update = { publisher: number; sequence: number; snapshot: Snapshot; playback?: DesktopPlayback };
 export function acceptSnapshot(current: Update, incoming: Update) {
-  return incoming.sequence > current.sequence ? incoming : current;
+  return incoming.publisher > current.publisher ||
+    (incoming.publisher === current.publisher && incoming.sequence > current.sequence)
+    ? incoming : current;
 }
 
 export type PlaybackAction = 'previous' | 'toggle' | 'next';

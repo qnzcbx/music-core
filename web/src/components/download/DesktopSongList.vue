@@ -19,7 +19,9 @@ import PauseIcon from '~icons/lucide/pause';
 import MoreIcon from '~icons/lucide/ellipsis';
 import TrashIcon from '~icons/lucide/trash-2';
 import CoverArt from '../CoverArt.vue';
-import { requestJson } from '../../api/http';
+import { ApiError } from '../../api/http';
+import { invokeCore } from '../../api/transport';
+import { desktopCapabilities } from '../../platform/window';
 import { useCoreClient } from '../../composables/useCoreClient';
 import { formatDownloadBytes } from '../../utils/download-display';
 
@@ -40,7 +42,7 @@ export type DesktopSong = {
 };
 
 defineProps<{ songs: DesktopSong[] }>();
-const emit = defineEmits<{ removed: [id: string] }>();
+const emit = defineEmits<{ removed: [id: string]; reconcile: [] }>();
 const { player, downloads } = useCoreClient();
 const error = ref('');
 const details = ref<HTMLDialogElement>();
@@ -53,19 +55,12 @@ const recyclePlan = ref<{ token: string; name: string }>();
 const preparing = ref(false);
 let confirmation = 0;
 
-function recycleRequest<T>(action: 'prepare' | 'cancel' | 'execute', body: object) {
-  return requestJson<T>(`/api/local-library/recycle/${action}`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
 function cancelConfirmation() {
   confirmation++;
   preparing.value = false;
   const plan = recyclePlan.value;
   recyclePlan.value = undefined;
-  if (plan) void recycleRequest('cancel', { token: plan.token }).catch(() => {});
+  if (plan) void invokeCore({ op: 'recycleCancel', payload: { token: plan.token } }).catch(() => {});
 }
 onScopeDispose(cancelConfirmation);
 
@@ -98,10 +93,7 @@ function play(song: DesktopSong) {
 async function reveal(song: DesktopSong) {
   error.value = '';
   try {
-    await requestJson('/api/local-library/reveal', {
-      method: 'POST',
-      body: JSON.stringify({ id: song.id }),
-    });
+    await invokeCore({ op: 'libraryReveal', payload: { id: song.id } }, { mutation: true });
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法打开文件位置';
   }
@@ -115,13 +107,14 @@ async function confirmRemoval(song: DesktopSong) {
   cancelConfirmation();
   const revision = confirmation;
   removal.value = song;
-  deleteFile.value = true;
+  deleteFile.value = desktopCapabilities.value?.recycle === true;
   removeError.value = '';
+  if (!deleteFile.value) return;
   preparing.value = true;
   try {
-    const plan = await recycleRequest<{ token: string; name: string }>('prepare', { id: song.id, pathHint: song.path });
+    const plan = await invokeCore<{ token: string; name: string }>({ op: 'recyclePrepare', payload: { id: song.id, pathHint: song.path } });
     if (revision === confirmation) recyclePlan.value = plan;
-    else void recycleRequest('cancel', { token: plan.token }).catch(() => {});
+    else void invokeCore({ op: 'recycleCancel', payload: { token: plan.token } }).catch(() => {});
   } catch (reason) {
     if (revision === confirmation) {
       removeError.value = reason instanceof Error ? reason.message : '无法准备文件回收';
@@ -142,22 +135,24 @@ async function remove() {
     if (deleteFile.value && plan) {
       recyclePlan.value = undefined;
       restorePlayback = await player.releaseLocalForRecycle(song.id);
-      const result = await recycleRequest<{ historySaved: boolean }>('execute', { token: plan.token });
+      const result = await invokeCore<{ historySaved: boolean }>({ op: 'recycleExecute', payload: { token: plan.token } }, { mutation: true });
       if (!result.historySaved) {
         error.value = '文件已移至系统回收站，曲库记录暂未保存。重新加载曲库将重试保存。';
       }
     } else {
       cancelConfirmation();
-      await requestJson('/api/local-library/remove', {
-        method: 'POST',
-        body: JSON.stringify({ id: song.id, deleteFile: false }),
-      });
+      await invokeCore({ op: 'libraryRemove', payload: { id: song.id } }, { mutation: true });
     }
     removal.value = undefined;
     void player.removeLocal(song.id);
     downloads.refreshAfterMutation();
     emit('removed', song.id);
   } catch (reason) {
+    const code = reason instanceof ApiError ? reason.code : '';
+    if (code === 'outcome_unknown' || code === 'local_recycle_uncertain') {
+      emit('reconcile');
+      downloads.refreshAfterMutation();
+    }
     restorePlayback?.();
     removeError.value = reason instanceof Error ? reason.message : '删除记录失败，请重试';
   } finally {
@@ -392,7 +387,7 @@ async function remove() {
             <input
               v-model="deleteFile"
               type="checkbox"
-              :disabled="removing"
+              :disabled="removing || !desktopCapabilities?.recycle"
             />
             同时删除本地文件
           </label>

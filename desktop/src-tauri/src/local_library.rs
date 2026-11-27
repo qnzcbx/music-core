@@ -475,17 +475,23 @@ pub(crate) fn merge_directory(
         .map_err(|_| UNAVAILABLE.into())
 }
 
-pub async fn change(downloads: &crate::downloads::Downloads, body: &Value) -> Result<(), String> {
-    let action = body["action"].as_str().ok_or("invalid_input")?;
+pub(crate) enum Change {
+    Import,
+    ChooseDirectory,
+    RefreshDirectory(String),
+    RemoveDirectory(String),
+}
+
+pub async fn change(downloads: &crate::downloads::Downloads, action: Change) -> Result<bool, String> {
     match action {
-        "files" => {
+        Change::Import => {
             let Some(files) = rfd::AsyncFileDialog::new()
                 .set_title("添加歌曲")
                 .add_filter("音乐", &["mp3", "flac"])
                 .pick_files()
                 .await
             else {
-                return Ok(());
+                return Ok(false);
             };
             let paths = files
                 .into_iter()
@@ -503,40 +509,36 @@ pub async fn change(downloads: &crate::downloads::Downloads, body: &Value) -> Re
                 downloads.access_history(|history| import(history, &paths))
             })
             .await
-            .map_err(|_| UNAVAILABLE)?
+            .map_err(|_| UNAVAILABLE)??;
         }
-        "choose" | "refresh" => {
-            let choose = action == "choose";
+        Change::ChooseDirectory | Change::RefreshDirectory(_) => {
+            let choose = matches!(action, Change::ChooseDirectory);
             let (id, path) =
-                if choose {
+                if let Change::RefreshDirectory(id) = action {
+                    let downloads = downloads.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let path = downloads.access_history(|history| {
+                            history.db.lock().query_row(
+                                "SELECT path FROM library_directories WHERE directory_id=?1",
+                                [&id], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)),
+                            ).optional().map_err(|_| UNAVAILABLE)?
+                            .ok_or_else(|| "track_not_found".into())
+                        })?;
+                        Ok::<_, String>((id, path))
+                    }).await.map_err(|_| UNAVAILABLE)??
+                } else {
                     let Some(folder) = rfd::AsyncFileDialog::new()
                         .set_title("添加文件夹")
                         .pick_folder()
                         .await
                     else {
-                        return Ok(());
+                        return Ok(false);
                     };
                     let path = folder
                         .path()
                         .canonicalize()
                         .map_err(|_| "local_directory_unavailable")?;
                     (key(&path), path)
-                } else {
-                    let id = body["id"].as_str().ok_or("track_not_found")?.to_owned();
-                    let downloads = downloads.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let path =
-                            downloads.access_history(|history| {
-                                history.db.lock().query_row(
-                            "SELECT path FROM library_directories WHERE directory_id=?1",
-                            [&id], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)),
-                        ).optional().map_err(|_| UNAVAILABLE)?
-                        .ok_or_else(|| "track_not_found".into())
-                            })?;
-                        Ok::<_, String>((id, path))
-                    })
-                    .await
-                    .map_err(|_| UNAVAILABLE)??
                 };
             let downloads = downloads.clone();
             tokio::task::spawn_blocking(move || {
@@ -545,32 +547,28 @@ pub async fn change(downloads: &crate::downloads::Downloads, body: &Value) -> Re
                     .access_history(|history| merge_directory(history, &id, &path, &files, choose))
             })
             .await
-            .map_err(|_| UNAVAILABLE)?
+            .map_err(|_| UNAVAILABLE)??;
         }
-        "remove" => {
-            if let Some(id) = body["id"].as_str() {
-                let id = id.to_owned();
-                let downloads = downloads.clone();
-                tokio::task::spawn_blocking(move || {
-                    downloads.access_history(|history| {
-                        history
-                            .transact(|tx| {
-                                tx.execute(
-                                    "DELETE FROM library_directories WHERE directory_id=?1",
-                                    [id],
-                                )?;
-                                storage::prune_files(tx)
-                            })
-                            .map_err(|_| UNAVAILABLE.into())
-                    })
+        Change::RemoveDirectory(id) => {
+            let downloads = downloads.clone();
+            tokio::task::spawn_blocking(move || {
+                downloads.access_history(|history| {
+                    history
+                        .transact(|tx| {
+                            tx.execute(
+                                "DELETE FROM library_directories WHERE directory_id=?1",
+                                [id],
+                            )?;
+                            storage::prune_files(tx)
+                        })
+                        .map_err(|_| UNAVAILABLE.into())
                 })
-                .await
-                .map_err(|_| UNAVAILABLE)??;
-            }
-            Ok(())
+            })
+            .await
+            .map_err(|_| UNAVAILABLE)??;
         }
-        _ => Err("invalid_input".into()),
     }
+    Ok(true)
 }
 
 impl Song {
@@ -703,8 +701,8 @@ mod tests {
         assert_eq!(track["title"], "Published");
         assert_eq!(before["downloads"][0]["recordId"], "saved");
 
-        history.remove_song(&kept, &id, false).unwrap();
-        history.remove_song(&missing, &missing_id, false).unwrap();
+        history.remove_song(&kept, &id).unwrap();
+        history.remove_song(&missing, &missing_id).unwrap();
         assert!(kept.is_file() && missing.is_file());
         let outside = temp.path().join("outside.mp3");
         fs::rename(&missing, &outside).unwrap();

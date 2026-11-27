@@ -292,7 +292,7 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
     if (phase.value !== "idle") reset();
   });
   watch(
-    () => [queueKey.value, current.value?.source, current.value?.cover],
+    () => [queueKey.value, current.value?.cover],
     () => {
       reset();
       if (

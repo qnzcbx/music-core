@@ -89,11 +89,12 @@ impl Config {
     }
 }
 
-// 空媒体与明确权限拒绝分开；网络、传输和解码错误不切换解析服务。
-fn eligible(error: &str) -> bool {
-    matches!(
-        error,
-        "QQ 未提供匿名可播放媒体，请选择其他曲目" | "该歌曲未提供匿名可播放媒体"
+// 只有可判定的临时失败才有机会换路线，未知故障按终止处理。
+pub(crate) fn may_try_another_route(error: &str) -> bool {
+    matches!(error,
+        "anonymous_media_unavailable" | "media_unavailable" | "upstream_failure"
+        | "upstream_timeout" | "upstream_invalid_response" | "upstream_rate_limited"
+        | "source_verification_failed" | "untrusted_media" | "provider_context_rejected"
     )
 }
 
@@ -110,7 +111,7 @@ where
 {
     let mut last = match native().await {
         Ok(media) => return Ok((media, "native".into())),
-        Err(error) if eligible(&error) => error,
+        Err(error) if error == "anonymous_media_unavailable" => error,
         Err(error) => return Err(error),
     };
     for route in routes {
@@ -118,16 +119,12 @@ where
             Ok(Ok(media)) => return Ok((media, route.clone())),
             Ok(Err(error)) => {
                 // 无法校验的结果只淘汰当前路线；明确限制不能换服务继续。
-                if error.contains("权限")
-                    || error.contains("试听")
-                    || error.contains("加密")
-                    || error.contains("限制")
-                {
+                if !may_try_another_route(&error) {
                     return Err(error);
                 }
                 last = error;
             }
-            Err(_) => last = "备用解析超时，请稍后重试".into(),
+            Err(_) => last = "upstream_timeout".into(),
         }
     }
     Err(last)
@@ -138,8 +135,8 @@ pub async fn resolve(
     config: &Config,
     identity: &Value,
 ) -> Result<(Media, String), String> {
-    let source = identity["providerId"].as_str().ok_or("歌曲来源无效")?;
-    let id = identity["platformId"].as_str().ok_or("歌曲身份无效")?;
+    let source = identity["providerId"].as_str().ok_or("invalid_input")?;
+    let id = identity["platformId"].as_str().ok_or("invalid_input")?;
     let routes = config.routes(source, id);
     tokio::time::timeout(
         Duration::from_secs(28),
@@ -153,13 +150,13 @@ pub async fn resolve(
                     .redirect(reqwest::redirect::Policy::none())
                     .connect_timeout(Duration::from_secs(4))
                     .build()
-                    .map_err(|_| "备用解析客户端初始化失败")?;
+                    .map_err(|_| "upstream_failure")?;
                 backup(&external, source, id, &route).await
             },
         ),
     )
     .await
-    .map_err(|_| "播放解析总时间已用尽，请稍后重试")?
+    .map_err(|_| "upstream_timeout")?
 }
 
 pub(crate) fn permitted(data: &Value) -> Result<(), String> {
@@ -167,7 +164,7 @@ pub(crate) fn permitted(data: &Value) -> Result<(), String> {
         if matches!(data[field].as_i64(), Some(301 | 401 | 403))
             || matches!(data[field].as_str(), Some("301" | "401" | "403"))
         {
-            return Err("备用服务明确拒绝访问权限".into());
+            return Err("access_denied".into());
         }
     }
     if data.get("code").is_some_and(|code| {
@@ -175,7 +172,7 @@ pub(crate) fn permitted(data: &Value) -> Result<(), String> {
             && !matches!(code.as_i64(), Some(0 | 200))
             && !matches!(code.as_str(), Some("0" | "200"))
     }) {
-        return Err("备用服务未返回成功响应".into());
+        return Err("upstream_failure".into());
     }
     for field in [
         "freeTrialInfo",
@@ -190,7 +187,7 @@ pub(crate) fn permitted(data: &Value) -> Result<(), String> {
             .get(field)
             .is_some_and(|v| !v.is_null() && v != false && v != 0 && v != "0")
         {
-            return Err("备用媒体存在试听或权限限制".into());
+            return Err("access_denied".into());
         }
     }
     Ok(())
@@ -204,7 +201,7 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
     };
     permitted(payload)?;
     if route == "jfjt" && data["success"] != true {
-        return Err("备用服务暂不可用".into());
+        return Err("upstream_failure".into());
     }
     // 请求里的 ID 或详情链接回显不算响应身份；URL-only 不准进入桌面播放器。
     let echoed = if source == "qq" {
@@ -213,7 +210,7 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
         payload.get("id")
     };
     if echoed.and_then(common::id).as_deref() != Some(id) {
-        return Err("备用响应缺少匹配的原平台歌曲身份".into());
+        return Err("source_verification_failed".into());
     }
     if let Some(title) = payload
         .get("song_name")
@@ -225,7 +222,7 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
             .iter()
             .any(|word| title.to_lowercase().contains(word))
         {
-            return Err("备用响应版本需要独立核实，不能替换原曲".into());
+            return Err("source_verification_failed".into());
         }
     }
     let url = match route {
@@ -243,7 +240,7 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
         _ => payload["url"].as_str(),
     }
     .filter(|s| !s.is_empty())
-    .ok_or("备用服务未提供媒体")?;
+    .ok_or("media_unavailable")?;
     common::validate_media(source, url)?;
     Ok(url.into())
 }
@@ -276,7 +273,7 @@ async fn backup(
             .post("https://dm.jfjt.cc/Song_V1")
             .header("Referer", "https://dm.jfjt.cc/")
             .form(&[("url", id), ("level", "standard"), ("type", "json")]),
-        _ => return Err("备用路线无效".into()),
+        _ => return Err("invalid_input".into()),
     };
     let data = common::json(request).await?;
     let url = parse(source, route, id, &data)?;
@@ -294,12 +291,12 @@ async fn probe(client: &reqwest::Client, url: &str) -> Result<(), String> {
         .header("Accept-Encoding", "identity")
         .send()
         .await
-        .map_err(|_| "备用媒体读取失败")?;
+        .map_err(|_| "upstream_failure")?;
     if matches!(response.status().as_u16(), 401 | 403) {
-        return Err("备用媒体访问权限不足".into());
+        return Err("access_denied".into());
     }
     if !matches!(response.status().as_u16(), 200 | 206) {
-        return Err("备用媒体不可用".into());
+        return Err("media_unavailable".into());
     }
     if response.status().as_u16() == 206
         && !response
@@ -308,7 +305,7 @@ async fn probe(client: &reqwest::Client, url: &str) -> Result<(), String> {
             .and_then(|v| v.to_str().ok())
             .is_some_and(|range| range.starts_with("bytes 0-") && range.contains('/'))
     {
-        return Err("备用媒体范围响应无效".into());
+        return Err("upstream_invalid_response".into());
     }
     let mime = response
         .headers()
@@ -316,11 +313,11 @@ async fn probe(client: &reqwest::Client, url: &str) -> Result<(), String> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if mime.contains("html") || mime.contains("json") {
-        return Err("备用地址未返回音频".into());
+        return Err("upstream_invalid_response".into());
     }
     let mut bytes = Vec::new();
     while bytes.len() < 4096 {
-        let Some(chunk) = response.chunk().await.map_err(|_| "备用媒体读取失败")? else {
+        let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? else {
             break;
         };
         bytes.extend_from_slice(&chunk[..chunk.len().min(4096 - bytes.len())]);
@@ -333,7 +330,7 @@ async fn probe(client: &reqwest::Client, url: &str) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("备用地址未返回可识别音频".into())
+        Err("upstream_invalid_response".into())
     }
 }
 
@@ -345,12 +342,26 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    #[test]
+    fn shared_route_policy_stops_on_authorization_and_invalid_input() {
+        let rows: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/contracts/resolution.json"
+        )).unwrap();
+        for row in rows {
+            assert_eq!(
+                may_try_another_route(row["desktop"].as_str().unwrap()),
+                row["continues"].as_bool().unwrap(),
+                "{}", row["code"],
+            );
+        }
+    }
+
     #[tokio::test]
     async fn native_first_and_denials_never_call_backup() {
         for result in [
             Ok(123),
-            Err("QQ 歌曲访问权限不足".into()),
-            Err("来源网络请求失败".into()),
+            Err("access_denied".into()),
+            Err("upstream_failure".into()),
         ] {
             let calls = Arc::new(AtomicUsize::new(0));
             let count = calls.clone();
@@ -397,13 +408,13 @@ mod tests {
     async fn timeout_has_a_bounded_end() {
         let value = choose(
             || async {
-                Err::<u8, _>("QQ 未提供匿名可播放媒体，请选择其他曲目".into())
+                Err::<u8, _>("anonymous_media_unavailable".into())
             },
             &["tang".into()],
             |_| async { std::future::pending().await },
         )
         .await;
-        assert_eq!(value.unwrap_err(), "备用解析超时，请稍后重试");
+        assert_eq!(value.unwrap_err(), "upstream_timeout");
     }
     #[test]
     fn builtin_defaults_and_explicit_overrides() {
@@ -429,16 +440,16 @@ mod tests {
     #[tokio::test]
     async fn invalid_vkeys_result_does_not_block_tang_but_restrictions_do() {
         for error in [
-            "备用响应缺少匹配的原平台歌曲身份",
-            "备用响应版本需要独立核实，不能替换原曲",
-            "备用媒体访问权限不足",
-            "备用媒体存在试听或权限限制",
+            "source_verification_failed",
+            "source_verification_failed",
+            "access_denied",
+            "access_denied",
         ] {
             let calls = Arc::new(AtomicUsize::new(0));
             let count = calls.clone();
             let value = choose(
                 || async {
-                    Err::<u8, _>("QQ 未提供匿名可播放媒体，请选择其他曲目".into())
+                    Err::<u8, _>("anonymous_media_unavailable".into())
                 },
                 &["vkeys".into(), "tang".into()],
                 move |route| {
@@ -453,7 +464,7 @@ mod tests {
                 },
             )
             .await;
-            if error.contains("权限") {
+            if error == "access_denied" {
                 assert!(value.is_err());
                 assert_eq!(calls.load(Ordering::SeqCst), 1);
             } else {

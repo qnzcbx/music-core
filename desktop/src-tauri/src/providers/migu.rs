@@ -15,7 +15,7 @@ pub fn decode(mut bytes: Vec<u8>) -> Result<Value, String> {
     // 与现有后端相同的公开响应字节混淆格式，不是媒体解密。
     if bytes.starts_with(&[0xab, 0xcd, 1]) {
         if bytes.len() < 5 {
-            return Err("咪咕响应格式异常".into());
+            return Err("upstream_invalid_response".into());
         }
         let key = b"Jk8qzuePiJ1qE3mDYhLQ3T73DtDoAhLP";
         let seed = bytes[3];
@@ -25,7 +25,7 @@ pub fn decode(mut bytes: Vec<u8>) -> Result<Value, String> {
             .map(|(i, b)| b.wrapping_add(seed).wrapping_sub(key[i % key.len()]))
             .collect();
     }
-    let data: Value = serde_json::from_slice(&bytes).map_err(|_| "咪咕响应格式异常")?;
+    let data: Value = serde_json::from_slice(&bytes).map_err(|_| "upstream_invalid_response")?;
     if data
         .get("code")
         .or(data.get("returnCode"))
@@ -34,7 +34,7 @@ pub fn decode(mut bytes: Vec<u8>) -> Result<Value, String> {
                 && !matches!(c.as_i64(), Some(0 | 200))
         })
     {
-        return Err("咪咕拒绝当前访问或服务暂不可用".into());
+        return Err("upstream_failure".into());
     }
     Ok(data)
 }
@@ -111,9 +111,9 @@ pub fn context_quality(
     id: &str,
     quality: &str,
 ) -> Result<(String, String, String), String> {
-    let rows = data["resource"].as_array().ok_or("咪咕歌曲详情格式异常")?;
+    let rows = data["resource"].as_array().ok_or("upstream_invalid_response")?;
     if rows.len() != 1 || common::id(&rows[0]["contentId"]).as_deref() != Some(id) {
-        return Err("咪咕歌曲身份不匹配".into());
+        return Err("source_verification_failed".into());
     }
     let row = &rows[0];
     if !row["needEncrypt"].is_null()
@@ -121,11 +121,11 @@ pub fn context_quality(
         && row["needEncrypt"] != 0
         && row["needEncrypt"] != "0"
     {
-        return Err("咪咕加密媒体暂不支持".into());
+        return Err("encrypted_media".into());
     }
     let copyright = common::id(&row["copyrightId"])
         .filter(|s| !s.is_empty() && s.len() <= 64 && s.bytes().all(|c| c.is_ascii_alphanumeric()))
-        .ok_or("咪咕版权身份缺失")?;
+        .ok_or("source_verification_failed")?;
     let tones: &[&str] = match quality {
         "standard" => &["PQ"],
         "high" => &["HQ"],
@@ -145,33 +145,33 @@ pub fn context_quality(
             }
         }
     }
-    Err("咪咕未提供普通可播放格式".into())
+    Err("media_unavailable".into())
 }
 pub fn media(data: Value, id: &str, copyright: &str) -> Result<String, String> {
     let body = &data["data"];
     if common::id(&body["song"]["contentId"]).as_deref() != Some(id)
         || common::id(&body["song"]["copyrightId"]).as_deref() != Some(copyright)
     {
-        return Err("咪咕媒体身份不匹配".into());
+        return Err("source_verification_failed".into());
     }
     if body["audioFormatType"]
         .as_str()
         .is_some_and(|s| !matches!(s, "PQ" | "LQ" | "HQ"))
     {
-        return Err("咪咕媒体格式暂不支持".into());
+        return Err("capability_unsupported".into());
     }
     if !body["freeListenType"].is_null()
         && body["freeListenType"] != 0
         && body["freeListenType"] != "0"
         && body["freeListenType"] != false
     {
-        return Err("咪咕仅提供试听，不能作为完整曲目播放".into());
+        return Err("preview_only".into());
     }
     body["url"]
         .as_str()
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
-        .ok_or("咪咕未提供匿名可播放媒体".into())
+        .ok_or("media_unavailable".into())
 }
 pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, String> {
     resolve_quality(client, id, "auto").await

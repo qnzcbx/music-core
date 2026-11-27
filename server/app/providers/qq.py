@@ -12,7 +12,7 @@ import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
 from app.download_quality import requested, qualify
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError,ErrorCode,may_try_another_route
 
 ENDPOINT='https://u.y.qq.com/cgi-bin/musicu.fcg'
 SEARCH_URL='https://c.y.qq.com/soso/fcgi-bin/client_search_cp'
@@ -158,7 +158,7 @@ class QQProvider:
                     if route=='official':self.last_resolution={'resolver':'official','identity':'official_mid_matched','protocol':'success','media':'upstream_unprobed','scope':'normal'}
                     return result
                 except CoreError as error:
-                    if not self.continue_on_transient or error.code not in (ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.UPSTREAM_FAILURE,ErrorCode.MEDIA_UNAVAILABLE):raise
+                    if not self.continue_on_transient or not may_try_another_route(error.code):raise
                     failure=error
             raise failure or CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         try:return await asyncio.wait_for(execute(),self.resolve_timeout)

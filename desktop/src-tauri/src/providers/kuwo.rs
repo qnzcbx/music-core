@@ -49,26 +49,26 @@ pub fn valid_id(id: &str) -> bool {
 
 pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, String> {
     if body["providerId"] != "kuwo" {
-        return Err("此来源尚未迁移到桌面版".into());
+        return Err("capability_unsupported".into());
     }
     let query = body["query"].as_str().unwrap_or("").trim();
     if query.is_empty() || query.chars().count() > 80 {
-        return Err("请输入 1–80 字的关键词".into());
+        return Err("invalid_input".into());
     }
     let limit = body["limit"].as_u64().unwrap_or(15);
     if !(1..=15).contains(&limit) {
-        return Err("搜索数量无效".into());
+        return Err("invalid_input".into());
     }
     let page = match body["cursor"].as_str() {
         None => 0,
         Some(cursor) => {
             let parts: Vec<_> = cursor.split(':').collect();
             if parts.len() != 2 || parts[1] != limit.to_string() {
-                return Err("搜索游标无效".into());
+                return Err("invalid_input".into());
             }
-            let page = parts[0].parse::<u64>().map_err(|_| "搜索游标无效")?;
+            let page = parts[0].parse::<u64>().map_err(|_| "invalid_input")?;
             if !(1..=9).contains(&page) {
-                return Err("搜索游标无效".into());
+                return Err("invalid_input".into());
             }
             page
         }
@@ -88,15 +88,15 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
         ])
         .send()
         .await
-        .map_err(|_| "酷我搜索网络失败")?
+        .map_err(|_| "upstream_failure")?
         .error_for_status()
-        .map_err(|_| "酷我搜索暂不可用")?;
-    let text = response.text().await.map_err(|_| "搜索响应读取失败")?;
+        .map_err(|_| "upstream_failure")?;
+    let text = response.text().await.map_err(|_| "upstream_failure")?;
     if text.len() > 2 * 1024 * 1024 {
-        return Err("来源响应过大".into());
+        return Err("upstream_invalid_response".into());
     }
-    let data: Value = json5::from_str(&text).map_err(|_| "酷我返回格式异常")?;
-    let rows = data["abslist"].as_array().ok_or("酷我搜索暂不可用")?;
+    let data: Value = json5::from_str(&text).map_err(|_| "upstream_invalid_response")?;
+    let rows = data["abslist"].as_array().ok_or("upstream_failure")?;
     let mut items = Vec::new();
     for item in rows.iter().take(limit as usize).filter_map(candidate) {
         if !items
@@ -117,7 +117,7 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
 pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<String, String> {
     let id = identity["platformId"].as_str().unwrap_or("");
     if identity["providerId"] != "kuwo" || !valid_id(id) {
-        return Err("歌曲来源或身份无效".into());
+        return Err("invalid_input".into());
     }
     // 复用现有同平台 mobi 取链，不需要账户 Cookie。
     let text = client
@@ -135,29 +135,29 @@ pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<Strin
         ])
         .send()
         .await
-        .map_err(|_| "歌曲解析网络失败")?
+        .map_err(|_| "upstream_failure")?
         .error_for_status()
-        .map_err(|_| "歌曲暂不可用")?
+        .map_err(|_| "upstream_failure")?
         .text()
         .await
-        .map_err(|_| "歌曲解析失败")?;
+        .map_err(|_| "upstream_failure")?;
     let fields: std::collections::HashMap<_, _> = text
         .lines()
         .filter_map(|s| s.split_once('='))
         .map(|(k, v)| (k, v.trim()))
         .collect();
     if fields.get("rid") != Some(&id) {
-        return Err("来源未返回匹配的歌曲".into());
+        return Err("source_verification_failed".into());
     }
-    let url = fields.get("url").ok_or("歌曲暂不可播放")?;
-    let parsed = reqwest::Url::parse(url).map_err(|_| "媒体地址无效")?;
+    let url = fields.get("url").ok_or("media_unavailable")?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| "untrusted_media")?;
     let host = parsed.host_str().unwrap_or("");
     if !matches!(parsed.scheme(), "http" | "https")
         || !(host == "kuwo.cn" || host.ends_with(".kuwo.cn"))
         || !parsed.username().is_empty()
         || parsed.password().is_some()
     {
-        return Err("来源返回了不受信任的媒体地址".into());
+        return Err("untrusted_media".into());
     }
     Ok(url.to_string())
 }

@@ -1,12 +1,11 @@
-import type { QueueEntry, PlayableQueueEntry } from '../types/music';
+import type { PlayableQueueEntry } from '../types/music';
 import type { PlaybackMode } from './queue-navigation.ts';
-import { queueKey } from '../utils/player-queue.ts';
+import { isTrackIdentity, queueKey } from '../utils/player-queue.ts';
 
 const SCHEMA_VERSION = 3;
 export const MAX_QUEUE = 200;
 const MAX_HISTORY = 1000,
   MAX_STORAGE_LENGTH = 1_000_000;
-const providers = new Set(['netease', 'kuwo', 'qq', 'migu']);
 const modes = new Set(['order', 'shuffle', 'repeat_all', 'repeat_one']);
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -49,12 +48,10 @@ interface PersistedPlayer {
     upNextKeys: string[];
   };
   position: number;
-  settings: { volume: number };
 }
 interface PersistentPlayerState {
   queue: PlayableQueueEntry[];
   currentQueueKey: string | null;
-  volume: number;
   position?: number;
   navigation: PersistedPlayer['navigation'];
 }
@@ -90,25 +87,9 @@ function normalize(input: ObjectValue): PersistedPlayer {
       });
       continue;
     }
-    if (
-      typeof track.providerId !== 'string' ||
-      !providers.has(track.providerId) ||
-      typeof track.platformId !== 'string' ||
-      !/^[A-Za-z0-9_-]{1,128}$/.test(track.platformId)
-    )
-      continue;
-    if (track.providerId === 'qq' && !/^[A-Za-z0-9]{1,64}$/.test(track.platformId)) continue;
-    if (
-      ['netease', 'kuwo'].includes(track.providerId) &&
-      !/^[1-9][0-9]{0,19}$/.test(track.platformId)
-    )
-      continue;
-    if (track.providerId === 'migu' && !/^[1-9][0-9]{0,31}$/.test(track.platformId)) continue;
-    const identity = {
-        providerId: track.providerId as QueueEntry['track']['providerId'],
-        platformId: track.platformId,
-      },
-      key = queueKey(identity);
+    if (!isTrackIdentity(track)) continue;
+    const identity = { providerId: track.providerId, platformId: track.platformId };
+    const key = queueKey(identity);
     if (seen.has(key)) continue;
     seen.add(key);
     queue.push({
@@ -129,8 +110,7 @@ function normalize(input: ObjectValue): PersistedPlayer {
       },
     });
   }
-  const nav = object(input.navigation),
-    settings = object(input.settings);
+  const nav = object(input.navigation);
   const rawHistory = Array.isArray(nav.history) ? nav.history : [],
     offset = Math.max(0, rawHistory.length - MAX_HISTORY);
   const rawIndex =
@@ -181,15 +161,6 @@ function normalize(input: ObjectValue): PersistedPlayer {
       historyIndex,
       upNextKeys,
     },
-    settings: {
-      volume:
-        typeof settings.volume === 'number' &&
-        Number.isFinite(settings.volume) &&
-        settings.volume >= 0 &&
-        settings.volume <= 1
-          ? settings.volume
-          : 1,
-    },
   };
 }
 /** Explicit projection: never traverse or stringify resolved, promises or credentials. */
@@ -217,7 +188,6 @@ export function encodePlayer(state: PersistentPlayerState): string {
         upNextKeys: state.navigation.upNextKeys,
       },
       position: state.position ?? 0,
-      settings: { volume: state.volume },
     }),
   );
 }

@@ -1,16 +1,53 @@
-import {bridge,publishDesktopLyrics} from './useDesktopLyrics';
-import { computed,inject,onScopeDispose,provide,ref,type InjectionKey } from 'vue';
-import {useCoreSearch} from './useCoreSearch';
-import {usePlayer} from '../player/usePlayer';
-import {useLyrics} from './useLyrics';
-import {isLocalSong} from '../types/music';
-import {trackIdentity} from '../utils/player-queue';
-import {useDownloads} from './useDownloads';
-const key:InjectionKey<{searchState:ReturnType<typeof useCoreSearch>;player:ReturnType<typeof usePlayer>;lyrics:{state:Readonly<ReturnType<typeof useLyrics>["state"]>;retry:ReturnType<typeof useLyrics>["retry"]};downloads:ReturnType<typeof useDownloads>;coverRevision:Readonly<ReturnType<typeof ref<number>>>}>=Symbol('core-client');
-export function provideCoreClient(){const player=usePlayer(),onlineLyrics=useLyrics(computed(()=>player.selected.value&&!isLocalSong(player.selected.value)?trackIdentity(player.selected.value):null));const lyrics={...onlineLyrics,state:computed(()=>player.selected.value&&isLocalSong(player.selected.value)?{document:player.localLyrics.value,loading:false,error:""}:onlineLyrics.state.value)};const coverRevision=ref(0);
- let stop: (()=>void) | undefined, disposed=false;
- void bridge?.event.listen('desktop-cached-covers-changed',()=>{coverRevision.value++;})
-  .then(unlisten=>{if(disposed)unlisten();else stop=unlisten;}).catch(()=>{});
- onScopeDispose(()=>{disposed=true;stop?.();});
- const state={searchState:useCoreSearch(),player,lyrics,downloads:useDownloads(),coverRevision};publishDesktopLyrics(player,lyrics);provide(key,state);return state;}
-export function useCoreClient(){const state=inject(key);if(!state)throw new Error('Core not initialized');return state;}
+import { computed, inject, provide, readonly, ref, type InjectionKey, type Ref } from 'vue';
+import { desktopLyrics, publishDesktopLyrics } from './useDesktopLyrics';
+import { listenDesktop, trackPageVisibility } from '../platform/window';
+import { bindDesktopTray } from '../platform/tray';
+import { usePlayer } from '../player/usePlayer';
+import { isLocalSong } from '../types/music';
+import { useCoreSearch } from './useCoreSearch';
+import { useDownloads } from './useDownloads';
+import { useLyrics } from './useLyrics';
+
+type CoreClient = {
+  searchState: ReturnType<typeof useCoreSearch>;
+  player: ReturnType<typeof usePlayer>;
+  lyrics: { state: Readonly<ReturnType<typeof useLyrics>['state']>; retry: ReturnType<typeof useLyrics>['retry'] };
+  downloads: ReturnType<typeof useDownloads>;
+  coverRevision: Readonly<Ref<number>>;
+};
+
+const key: InjectionKey<CoreClient> = Symbol('core-client');
+
+export function provideCoreClient() {
+  const player = usePlayer();
+  const identity = computed(() => {
+    const song = player.selected.value;
+    return song && !isLocalSong(song) ? song.identity : null;
+  });
+  const onlineLyrics = useLyrics(identity);
+  const lyrics = {
+    retry: onlineLyrics.retry,
+    state: computed(() => {
+      const song = player.selected.value;
+      return song && isLocalSong(song)
+        ? { document: player.localLyrics.value, loading: false, error: '' }
+        : onlineLyrics.state.value;
+    }),
+  };
+  const coverRevision = ref(0);
+  trackPageVisibility();
+  void listenDesktop('desktop-cached-covers-changed', () => { coverRevision.value++; });
+  bindDesktopTray(player, desktopLyrics.toggle);
+  publishDesktopLyrics(player, lyrics);
+  const client: CoreClient = {
+    searchState: useCoreSearch(), player, lyrics, downloads: useDownloads(), coverRevision: readonly(coverRevision),
+  };
+  provide(key, client);
+  return client;
+}
+
+export function useCoreClient() {
+  const client = inject(key);
+  if (!client) throw new Error('Core not initialized');
+  return client;
+}

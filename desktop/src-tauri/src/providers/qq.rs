@@ -43,7 +43,7 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
     )
     .await?;
     if data["code"].as_i64().is_some_and(|n| n != 0) {
-        return Err("QQ 搜索被来源拒绝，请稍后重试".into());
+        return Err("provider_context_rejected".into());
     }
     common::result(
         &data["data"]["song"]["list"],
@@ -56,23 +56,23 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
 pub fn media(data: Value, id: &str) -> Result<String, String> {
     let result = &data["req_0"];
     if data["code"].as_i64().is_some_and(|n| n != 0) || result["code"] != 0 {
-        return Err("QQ 官方接口拒绝当前匿名上下文".into());
+        return Err("provider_context_rejected".into());
     }
     let rows = result["data"]["midurlinfo"]
         .as_array()
-        .ok_or("QQ 媒体响应格式异常")?;
+        .ok_or("upstream_invalid_response")?;
     if rows.len() != 1 || rows[0]["songmid"] != id {
-        return Err("QQ 返回歌曲身份不匹配".into());
+        return Err("source_verification_failed".into());
     }
     let row = &rows[0];
     if matches!(row["result"].as_i64(), Some(301 | 401 | 403)) {
-        return Err("QQ 歌曲访问权限不足".into());
+        return Err("access_denied".into());
     }
     let purl = row["purl"]
         .as_str()
         .filter(|s| !s.is_empty())
         .or(row["wifiurl"].as_str().filter(|s| !s.is_empty()))
-        .ok_or("QQ 未提供匿名可播放媒体，请选择其他曲目")?;
+        .ok_or("anonymous_media_unavailable")?;
     let base = result["data"]["sip"]
         .as_array()
         .into_iter()
@@ -82,10 +82,10 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
     if purl.starts_with("http://") || purl.starts_with("https://") {
         return Ok(purl.into());
     }
-    reqwest::Url::parse(base.ok_or("QQ 媒体地址缺失")?)
+    reqwest::Url::parse(base.ok_or("upstream_invalid_response")?)
         .and_then(|u| u.join(purl))
         .map(|u| u.to_string())
-        .map_err(|_| "QQ 媒体地址无效".into())
+        .map_err(|_| "untrusted_media".into())
 }
 pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, String> {
     let guid = uuid::Uuid::new_v4().as_u128() % 9_000_000_000 + 1_000_000_000;

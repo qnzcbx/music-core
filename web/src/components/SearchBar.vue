@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import type { Provider } from "../composables/useProviders";
+import type { ProviderInfo } from "../types/core";
 import { computed } from "vue";
-import { primarySources } from "../config/source-profile.ts";
 
 const sources = defineModel<string[]>("sources", { required: true });
 const props = defineProps<{
-  providers: readonly Provider[];
+  providers: readonly ProviderInfo[];
 }>();
-const primary = computed(() => primarySources(props.providers));
+const primary = computed(() => props.providers.filter((provider) => provider.capabilities?.search));
 </script>
 
 <template>
@@ -17,17 +16,15 @@ const primary = computed(() => primarySources(props.providers));
       <label 
         v-for="provider in primary" 
         :key="provider.id" 
-        :title="provider.reason || undefined"
       >
         <input
           v-model="sources"
           type="checkbox"
-          :disabled="!provider.enabled || (sources.length === 1 && sources.includes(provider.id))"
+          :disabled="sources.length === 1 && sources.includes(provider.id)"
           :value="provider.id"
         />
         <span>
           {{ provider.name }}
-          <small v-if="!provider.enabled"> · 暂未开放</small>
         </span>
       </label>
     </fieldset>

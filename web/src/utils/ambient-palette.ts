@@ -1,5 +1,6 @@
 import { CLOVER_COVER } from './displayed-cover.ts';
-import { apiFetch, isDesktop } from '../api/transport.ts';
+import { invokeCore } from '../api/transport.ts';
+import { isDesktop } from '../platform/desktop.ts';
 
 export type RGB = readonly [number, number, number];
 export interface AmbientPalette {
@@ -228,12 +229,9 @@ export function coverReadUrl(value: string): string | null {
 async function paletteRelayUrl(value: string): Promise<string | null> {
   if (!isDesktop) return coverReadUrl(value);
   if (!value.startsWith('https://')) return null;
-  const response = await apiFetch('/api/covers/palette', {
-    method: 'POST',
-    body: JSON.stringify({ url: value }),
-  });
-  if (!response.ok) return null;
-  const result = await response.json();
+  const result = await invokeCore<{ url: string }>({
+    op: 'paletteRelay', payload: { url: value },
+  }, { timeoutMs: 20_000 });
   return typeof result?.url === 'string' &&
     /^http:\/\/127\.0\.0\.1:\d+\/covers\/[a-f0-9]{32}$/.test(result.url)
     ? result.url

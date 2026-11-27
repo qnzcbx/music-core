@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue';
-import { isDesktop } from '../../api/transport';
+import { isDesktop } from '../../platform/desktop';
 import { MAX_QUEUE } from '../../player/player-persistence';
-import { requestJson } from '../../api/http';
+import { invokeCore } from '../../api/transport';
 import { useCoreClient } from '../../composables/useCoreClient';
 import PlayIcon from '~icons/lucide/play';
 import PauseIcon from '~icons/lucide/pause';
@@ -34,14 +34,10 @@ if (isDesktop) {
         return;
       }
       try {
-        const urls = await requestJson<(string | null)[]>('/api/media-cache/queue-covers', {
-          method: 'POST',
-          body: JSON.stringify({
-            entries: batch.map((row) =>
-              'kind' in row ? { fileId: row.fileId } : { track: row.track },
-            ),
-          }),
-        });
+        const urls = await invokeCore<(string | null)[]>({
+          op: 'queueCovers',
+          payload: { entries: batch.map((row) => 'kind' in row ? { fileId: row.fileId } : { track: row.track }) },
+        }, { timeoutMs: 20_000 });
         if (current)
           cachedCovers.value = new Map(
             batch.flatMap((row, index) => {
@@ -72,16 +68,11 @@ function downloadEntry(entry: QueueEntry) {
   downloads.choose({
     identity: entry.track,
     id: entry.key,
-    source: entry.track.providerId,
-    platformId: entry.track.platformId,
-    mid: entry.track.platformId,
-    name: entry.metadata.title,
     title: entry.metadata.title,
     artist: entry.metadata.artist,
     album: entry.metadata.album,
     cover: entry.metadata.cover,
     duration: entry.metadata.durationSeconds,
-    resolveState: 'idle',
   });
 }
 </script>

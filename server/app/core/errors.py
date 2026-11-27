@@ -25,6 +25,10 @@ class ErrorCode(str, Enum):
     PROVIDER_CONTEXT_REJECTED = 'provider_context_rejected'
 
 
+def may_try_another_route(code: ErrorCode) -> bool:
+    return code in (ErrorCode.UPSTREAM_FAILURE, ErrorCode.UPSTREAM_TIMEOUT, ErrorCode.MEDIA_UNAVAILABLE)
+
+
 class CoreError(Exception):
     def __init__(self, code: ErrorCode):
         self.code = code

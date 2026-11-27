@@ -193,13 +193,13 @@ mod tests {
         history.add(record).unwrap();
         local_library::change(
             &downloads,
-            &serde_json::json!({"action":"refresh","id":"other"}),
+            local_library::Change::RefreshDirectory("other".into()),
         )
         .await
         .unwrap();
         local_library::change(
             &downloads,
-            &serde_json::json!({"action":"remove","id":"other"}),
+            local_library::Change::RemoveDirectory("other".into()),
         )
         .await
         .unwrap();

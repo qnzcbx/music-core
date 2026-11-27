@@ -160,7 +160,7 @@ impl History {
         let key = local_library::key(&record.path);
         let song_id = local_library::path_key(&record.path);
         let (provider, platform) =
-            crate::media_cache::identity(&record.identity).ok_or("invalid_input")?;
+            crate::provider::common::identity(&record.identity).ok_or("invalid_input")?;
         self.transact(|tx| {
             let file_id = storage::file_id(tx, path, &key)?;
             tx.execute(
@@ -254,10 +254,7 @@ impl History {
             || self.transact(|_| Ok(())).is_ok()
     }
 
-    pub fn remove_song(&mut self, path: &Path, id: &str, delete_file: bool) -> Result<(), String> {
-        if delete_file {
-            return Err("local_recycle_unavailable".into());
-        }
+    pub fn remove_song(&mut self, path: &Path, id: &str) -> Result<(), String> {
         if local_library::path_key(path) != id || self.is_excluded(id)? {
             return Err("track_not_found".into());
         }
@@ -311,7 +308,7 @@ mod tests {
         let id = crate::local_library::path_key(&path);
         history.add(record(path.clone(), false)).unwrap();
         history.add(record(path.clone(), false)).unwrap();
-        history.remove_song(&path, &id, false).unwrap();
+        history.remove_song(&path, &id).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"audio");
 
         let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
@@ -328,32 +325,6 @@ mod tests {
             1
         );
     }
-    #[test]
-    fn physical_removal_is_refused_without_touching_file_or_records() {
-        let root = tempfile::tempdir().unwrap();
-        let config = root.path().join("music-core.sqlite3");
-        let path = root.path().join("song.mp3");
-        std::fs::write(&path, b"audio").unwrap();
-        let id = crate::local_library::path_key(&path);
-        let mut history = History::open(config.clone(), root.path().to_owned()).unwrap();
-        history.add(record(path.clone(), false)).unwrap();
-        assert_eq!(
-            history.remove_song(&path, &id, true),
-            Err("local_recycle_unavailable".into())
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), b"audio");
-        assert_eq!(history.list().unwrap().len(), 1);
-        assert!(!history.is_excluded(&id).unwrap());
-        assert_eq!(
-            History::open(config, root.path().to_owned())
-                .unwrap()
-                .list()
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
     #[test]
     fn settings_and_actual_paths_survive_reopening_without_moving_files() {
         let root = tempfile::tempdir().unwrap();
@@ -417,7 +388,7 @@ mod tests {
              BEGIN SELECT RAISE(ABORT, 'exclude failed'); END;",
             )
             .unwrap();
-        assert!(history.remove_song(&path, &public_id, false).is_err());
+        assert!(history.remove_song(&path, &public_id).is_err());
         assert_eq!(history.list().unwrap()[0].id, previous_id);
         assert!(!history.is_excluded(&public_id).unwrap());
         assert_eq!(std::fs::read(&path).unwrap(), b"audio");

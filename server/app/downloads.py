@@ -10,7 +10,6 @@ import hashlib
 import ipaddress
 import logging
 import threading
-import unicodedata
 from time import time
 from typing import Literal
 from urllib.parse import urljoin, urlsplit, quote
@@ -23,7 +22,9 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 from app.download_index import DownloadIndex, safe_cover
 from app.models import DTO, TrackIdentity, ResolveOptions, MediaRepresentation
-from app.download_quality import inspect_audio, satisfies
+from app.core.file_name import safe_stem
+from app.core.media_probe import inspect_audio
+from app.download_quality import satisfies
 from app.providers import provider_for
 from app.core.errors import CoreError, ErrorCode
 from app.media_stream import validate_target, range_header, OwnedStream
@@ -157,18 +158,6 @@ class Job:
     naming: str = 'artist_title'
     directory: Path | None = None
     worker: asyncio.Task | None = field(default=None, repr=False)
-
-
-def safe_stem(value):
-    value = ''.join('_' if unicodedata.category(c) in ('Cc','Cs') else c for c in value)
-    value = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f]', '_', value).strip(' .')
-    # 按UTF-16长度约束，保留补码字符；避免Windows路径及保留设备名。
-    value = value.encode('utf-16-le', errors='replace')[:240].decode('utf-16-le', errors='ignore').rstrip(' .')
-    if not value:
-        value = '未命名'
-    if re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?', value, re.I):
-        value = '_' + value
-    return value
 
 
 def audio_format(raw):

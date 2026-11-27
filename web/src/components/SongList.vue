@@ -6,18 +6,12 @@ import type { SearchEntry as Song } from "../types/music";
 defineProps<{
   songs: Song[];
   groups: SongGroup[];
-  now: number;
   busy: boolean;
   activeId?: string;
-  submitting: boolean;
-  preResolveEnabled: boolean;
 }>();
 const emit = defineEmits<{
   play: [song: Song];
-  download: [song: Song];
-  playNext: [song: Song, origin: HTMLElement];
   toggle: [key: string];
-  eligible: [key: string, eligible: boolean, visible: boolean];
 }>();
 </script>
 
@@ -36,19 +30,12 @@ const emit = defineEmits<{
     
     <TransitionGroup name="result-row" tag="div">
       <SongGroupItem
-        v-for="(group, index) in groups"
+        v-for="group in groups"
         :key="group.key"
         :group="group"
-        :now="now"
-        :index="index"
         :active-id="activeId"
-        :pre-resolve-enabled="preResolveEnabled"
-        :submitting="submitting"
         @play="emit('play', $event)"
-        @download="emit('download', $event)"
-        @play-next="(song, origin) => emit('playNext', song, origin)"
         @toggle="emit('toggle', $event)"
-        @eligible="(key, eligible, visible) => emit('eligible', key, eligible, visible)"
       />
     </TransitionGroup>
     <slot />

@@ -1,7 +1,8 @@
 use serde_json::{json, Value};
 
 pub fn valid_id(source: &str, id: &str) -> bool {
-    !id.is_empty()
+    matches!(source, "qq" | "kuwo" | "netease" | "migu")
+        && !id.is_empty()
         && if source == "qq" {
             id.len() <= 64 && id.bytes().all(|c| c.is_ascii_alphanumeric())
         } else {
@@ -10,6 +11,12 @@ pub fn valid_id(source: &str, id: &str) -> bool {
                 && id.bytes().all(|c| c.is_ascii_digit())
         }
 }
+pub(crate) fn identity(value: &Value) -> Option<(&str, &str)> {
+    let source = value["providerId"].as_str()?;
+    let id = value["platformId"].as_str()?;
+    valid_id(source, id).then_some((source, id))
+}
+
 pub fn id(value: &Value) -> Option<String> {
     value
         .as_str()
@@ -20,16 +27,16 @@ pub fn page(body: &Value) -> Result<(String, u64, u64), String> {
     let query = body["query"].as_str().unwrap_or("").trim();
     let limit = body["limit"].as_u64().unwrap_or(15);
     if query.is_empty() || query.chars().count() > 80 || !(1..=15).contains(&limit) {
-        return Err("搜索参数无效".into());
+        return Err("invalid_input".into());
     }
     let page = if body["cursor"].is_null() {
         1
     } else {
-        let cursor = body["cursor"].as_str().ok_or("搜索游标无效")?;
-        let (p, l) = cursor.split_once(':').ok_or("搜索游标无效")?;
-        let p = p.parse::<u64>().map_err(|_| "搜索游标无效")?;
+        let cursor = body["cursor"].as_str().ok_or("invalid_input")?;
+        let (p, l) = cursor.split_once(':').ok_or("invalid_input")?;
+        let p = p.parse::<u64>().map_err(|_| "invalid_input")?;
         if !(2..=10).contains(&p) || l != limit.to_string() {
-            return Err("搜索游标无效".into());
+            return Err("invalid_input".into());
         }
         p
     };
@@ -42,7 +49,7 @@ pub fn result(
     page: u64,
     map: fn(&Value) -> Option<Value>,
 ) -> Result<Value, String> {
-    let rows = rows.as_array().ok_or("来源搜索响应格式异常")?;
+    let rows = rows.as_array().ok_or("upstream_invalid_response")?;
     let mut items = Vec::new();
     for row in rows.iter().take(limit as usize).filter_map(map) {
         if !items
@@ -86,31 +93,31 @@ pub fn candidate(
 pub async fn bytes(request: reqwest::RequestBuilder) -> Result<Vec<u8>, String> {
     let mut response = request.send().await.map_err(|e| {
         if e.is_timeout() {
-            "来源请求超时"
+            "upstream_timeout"
         } else {
-            "来源网络请求失败"
+            "upstream_failure"
         }
     })?;
     match response.status().as_u16() {
         200 => {}
-        401 | 403 => return Err("来源拒绝匿名访问或当前访问权限不足".into()),
-        429 => return Err("来源请求过于频繁，请稍后再试".into()),
-        _ => return Err("来源服务暂不可用".into()),
+        401 | 403 => return Err("access_denied".into()),
+        429 => return Err("upstream_rate_limited".into()),
+        _ => return Err("upstream_failure".into()),
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| "来源响应读取失败")? {
+    while let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? {
         if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-            return Err("来源响应过大".into());
+            return Err("upstream_invalid_response".into());
         }
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
 }
 pub async fn json(request: reqwest::RequestBuilder) -> Result<Value, String> {
-    serde_json::from_slice(&bytes(request).await?).map_err(|_| "来源返回格式异常".into())
+    serde_json::from_slice(&bytes(request).await?).map_err(|_| "upstream_invalid_response".into())
 }
 pub fn validate_media(source: &str, url: &str) -> Result<(), String> {
-    let url = reqwest::Url::parse(url).map_err(|_| "媒体地址无效")?;
+    let url = reqwest::Url::parse(url).map_err(|_| "untrusted_media")?;
     let domains: &[&str] = match source {
         "kuwo" => &["kuwo.cn"],
         "netease" => &["music.126.net"],
@@ -127,13 +134,13 @@ pub fn validate_media(source: &str, url: &str) -> Result<(), String> {
             .iter()
             .any(|d| host == *d || host.ends_with(&format!(".{d}")))
     {
-        return Err("来源返回了不受信任的媒体地址".into());
+        return Err("untrusted_media".into());
     }
     if [".m3u8", ".mpd", ".mgg", ".mflac"]
         .iter()
         .any(|s| url.path().to_lowercase().ends_with(s))
     {
-        return Err("该媒体格式暂不支持桌面播放".into());
+        return Err("capability_unsupported".into());
     }
     Ok(())
 }

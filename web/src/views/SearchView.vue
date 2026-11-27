@@ -4,11 +4,10 @@ import { useEventListener, useInfiniteScroll } from "@vueuse/core";
 import SongList from "../components/SongList.vue";
 import { useCoreClient } from "../composables/useCoreClient";
 import { useSongGroups } from "../composables/useSongGroups";
-import type { Song } from "../types/music";
 const { searchState, player } = useCoreClient();
 const { query, songs, busy, error, perSourceStatus, loadingMore, cursors } = searchState;
-const groupsState = useSongGroups(songs, searchState.providers, ref<Song | null>(null));
-const { groups, now } = groupsState;
+const groupsState = useSongGroups(songs, searchState.providers);
+const { groups } = groupsState;
 const hasMore = computed(() => Object.values(cursors.value).some(Boolean));
 const pending = computed(() =>
   Object.values(perSourceStatus.value).some((state) => state.status === "running"),
@@ -113,10 +112,7 @@ function retrySource(source: string) {
     <SongList
       :songs="songs"
       :groups="groups"
-      :now="now"
       :busy="busy"
-      :pre-resolve-enabled="false"
-      :submitting="true"
       :active-id="player.selectedId.value"
       @play="player.select"
       @toggle="groupsState.toggle"

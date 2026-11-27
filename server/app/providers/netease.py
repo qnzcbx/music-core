@@ -10,7 +10,7 @@ import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
 from app.download_quality import requested, qualify
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError,ErrorCode,may_try_another_route
 
 SEARCH_URL='https://music.163.com/api/cloudsearch/pc'
 PLAYER_URL='https://music.163.com/api/song/enhance/player/url'
@@ -132,7 +132,7 @@ class NeteaseProvider:
                         upstreamUrl=candidate['url'],headers={'User-Agent':'Mozilla/5.0'},representation=representation)
                     return await qualify(self.client,media,quality)
                 except CoreError as error:
-                    if error.code not in (ErrorCode.UPSTREAM_FAILURE,ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.MEDIA_UNAVAILABLE):raise
+                    if not may_try_another_route(error.code):raise
                     failure=error
             raise failure
         try:return await asyncio.wait_for(execute(),25)

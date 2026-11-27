@@ -1,3 +1,4 @@
+use crate::provider::common::identity;
 use crate::storage::Database;
 use axum::{
     extract::{Path as RoutePath, State},
@@ -35,13 +36,6 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub(crate) fn identity(value: &Value) -> Option<(&str, &str)> {
-    let source = value["providerId"].as_str()?;
-    let id = value["platformId"].as_str()?;
-    (matches!(source, "qq" | "netease" | "kuwo" | "migu")
-        && crate::provider::common::valid_id(source, id))
-    .then_some((source, id))
-}
 fn cover_key(source: &str, url: &str) -> String {
     let stable = if source == "qq" {
         url.strip_prefix("https://y.gtimg.cn/music/photo_new/T002R500x500M000")
@@ -342,7 +336,7 @@ impl MediaCache {
     }
 
     pub async fn lyrics(&self, client: &reqwest::Client, track: &Value) -> Result<Value, String> {
-        let (source, id) = identity(track).ok_or("歌词曲目无效")?;
+        let (source, id) = identity(track).ok_or("invalid_input")?;
         if let Some(doc) = self.read_lyrics_async(track).await {
             return Ok(doc);
         }
@@ -528,7 +522,7 @@ mod tests {
 
         downloads
             .access_history(|history| {
-                history.remove_song(&mp3, &crate::local_library::path_key(&mp3), false)
+                history.remove_song(&mp3, &crate::local_library::path_key(&mp3))
             })
             .unwrap();
         downloads.clear_media_cache(ClearScope::Lyrics).unwrap();

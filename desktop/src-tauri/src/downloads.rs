@@ -23,6 +23,7 @@ fn now() -> u64 {
 }
 #[derive(Clone)]
 struct Recording {
+    expected_flac: bool,
     quality: String,
     cover: Option<String>,
     identity: Value,
@@ -30,6 +31,10 @@ struct Recording {
     artist: String,
     duration: f64,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum DirectoryAction { Choose, Reset, Open }
+
 struct Job {
     public: Value,
     recording: Recording,
@@ -42,7 +47,7 @@ struct Job {
 // 沿用当前界面使用的命名枚举与默认值。
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Naming {
+pub(crate) enum Naming {
     Title,
     #[default]
     ArtistTitle,
@@ -356,6 +361,13 @@ async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, Stri
     common::validate_media("kuwo", url).map_err(|_| "untrusted_media")?;
     Ok(url.to_string())
 }
+fn validate_source_codec(expected_flac: bool, mode: &str, representation: &Value) -> Result<(), String> {
+    if expected_flac && mode == "original" && representation["codec"] != "flac" {
+        return Err("media_unavailable".into());
+    }
+    Ok(())
+}
+
 async fn prefix(client: &reqwest::Client, r: &Recording) -> Result<Value, String> {
     if r.identity["providerId"] != "kuwo" {
         let resolved = crate::download_resolver::resolve(
@@ -512,15 +524,15 @@ impl Downloads {
         })
     }
 
-    pub async fn directory(&self, body: &Value) -> Result<Value, String> {
+    pub async fn directory(&self, action: DirectoryAction) -> Result<Value, String> {
         let manager = self.clone();
         let current = tokio::task::spawn_blocking(move || {
             manager.access_history(|history| history.directory())
         })
         .await
         .map_err(|_| "download_history_unavailable")??;
-        let directory = match body["action"].as_str() {
-            Some("choose") => {
+        let directory = match action {
+            DirectoryAction::Choose => {
                 let Some(folder) = rfd::AsyncFileDialog::new()
                     .set_title("更改下载目录")
                     .set_directory(&current)
@@ -531,9 +543,8 @@ impl Downloads {
                 };
                 Some(Some(folder.path().to_owned()))
             }
-            Some("reset") => Some(None),
-            Some("open") => None,
-            _ => return Err("invalid_input".into()),
+            DirectoryAction::Reset => Some(None),
+            DirectoryAction::Open => None,
         };
         let manager = self.clone();
         tokio::task::spawn_blocking(move || {
@@ -546,7 +557,7 @@ impl Downloads {
                     .spawn()
                     .map_err(|_| "file_io_error")?;
             }
-            manager.settings(&Value::Null)
+            manager.settings(None)
         })
         .await
         .map_err(|_| "download_history_unavailable")?
@@ -638,10 +649,9 @@ impl Downloads {
         Ok(())
     }
 
-    pub fn settings(&self, body: &Value) -> Result<Value, String> {
+    pub fn settings(&self, naming: Option<Naming>) -> Result<Value, String> {
         self.access_history(|history| {
-            if !body.is_null() {
-                let naming: Naming = serde_json::from_value(body["naming"].clone()).map_err(|_| "invalid_input")?;
+            if let Some(naming) = naming {
                 let value = serde_json::to_value(naming).map_err(|_| "invalid_input")?;
                 history.transact(|tx| {
                     tx.execute("UPDATE download_settings SET naming=?1 WHERE singleton=1", [value.as_str()])?;
@@ -685,6 +695,7 @@ impl Downloads {
                     records.insert(
                         key(&row["identity"]),
                         Recording {
+                            expected_flac: false,
                             cover: row["cover"].as_str().map(str::to_owned),
                             quality: "standard".into(),
                             identity: row["identity"].clone(),
@@ -722,6 +733,7 @@ impl Downloads {
             .cloned()
             .ok_or("access_denied")?;
         recording.quality = body["quality"].as_str().unwrap().into();
+        recording.expected_flac = body["expectedSourceCodec"] == "flac";
         Ok(recording)
     }
 
@@ -790,6 +802,7 @@ impl Downloads {
             recording.duration = duration;
         }
         let mode = body["outputMode"].as_str().unwrap_or("original");
+        validate_source_codec(recording.expected_flac, mode, &rep)?;
         if mode != "original" && (rep["codec"] != "flac" || !self.converter_available()) {
             return Err("capability_unsupported".into());
         }
@@ -884,7 +897,7 @@ impl Downloads {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let part = target.with_file_name(format!(".music-core-{id}.part"));
         let cancel = CancellationToken::new();
-        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":mode,"deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
+        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":mode,"expectedSourceCodec":r.expected_flac.then_some("flac"),"deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
         {
             let mut jobs = self.jobs.lock().unwrap();
             self.check_open()?;
@@ -1196,6 +1209,7 @@ impl Downloads {
         if cancel.is_cancelled() {
             return Err("cancelled".into());
         }
+        validate_source_codec(r.expected_flac, &mode, &rep)?;
         if mode != "original" {
             if rep["codec"] != "flac" {
                 return Err("source_verification_failed".into());
@@ -1319,6 +1333,7 @@ impl Downloads {
                     json!({
                         "identity":job.recording.identity, "quality":job.recording.quality,
                         "outputMode":job.public["outputMode"],
+                        "expectedSourceCodec":job.public["expectedSourceCodec"],
                         "title":job.recording.title, "artist":job.recording.artist, "cover":job.recording.cover,
                     })
                 }
@@ -1452,6 +1467,7 @@ mod tests {
             Job {
                 public: json!({"status":"downloading", "savedId":"saved"}),
                 recording: Recording {
+                    expected_flac: false,
                     quality: "auto".into(),
                     cover: None,
                     identity: json!({}),
@@ -1489,6 +1505,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let manager = Downloads::default();
         let recording = Recording {
+            expected_flac: false,
             quality: "auto".into(),
             cover: None,
             identity: json!({}),
@@ -1567,6 +1584,7 @@ mod tests {
         )
         .unwrap();
         let recording = Recording {
+            expected_flac: false,
             quality: "auto".into(),
             cover: None,
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1708,6 +1726,7 @@ mod tests {
                     ..Downloads::default()
                 };
                 let r = Recording {
+                    expected_flac: false,
                     cover: None,
                     quality: if ["yiluxiangbei", "qifengle"].contains(&label) {
                         "auto"
@@ -1773,6 +1792,7 @@ mod tests {
             std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
                 .unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1978,6 +1998,7 @@ mod tests {
         );
         let bytes = std::fs::read(&source).unwrap();
         let recording = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2091,6 +2112,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let manager = Downloads::with_database(Database::memory(), root.path().into());
         let recording = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2176,6 +2198,7 @@ mod tests {
         )
         .unwrap();
         let recording = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2210,7 +2233,7 @@ mod tests {
             .all(|row| row["identity"] == recording.identity));
         manager
             .access_history(|history| {
-                history.remove_song(&first, &crate::local_library::path_key(&first), false)
+                history.remove_song(&first, &crate::local_library::path_key(&first))
             })
             .unwrap();
         assert!(first.is_file());
@@ -2261,6 +2284,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2341,12 +2365,12 @@ mod tests {
         );
         let reopened = Downloads::with_history(settings, default).unwrap();
         assert_eq!(
-            reopened.settings(&Value::Null).unwrap()["directory"],
+            reopened.settings(None).unwrap()["directory"],
             json!(changed)
         );
         assert_eq!(reopened.saved().unwrap(), saved, "改目录不重写旧记录路径");
         assert!(first.exists() && second.exists());
-        assert_eq!(reopened.settings(&Value::Null).unwrap()["mode"], "desktop");
+        assert_eq!(reopened.settings(None).unwrap()["mode"], "desktop");
         let failed = outside.join("failed.mp3");
         let task = original_save(
             &reopened,
@@ -2371,6 +2395,7 @@ mod tests {
         let target = manager.automatic_target("cancelled.mp3").unwrap();
         let part = target.with_extension("part");
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2411,6 +2436,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn declared_flac_rejects_changed_upstream_codec_before_publish() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/music-core.sqlite3"),
+            root.path().join("music/拾音"),
+        ).unwrap();
+        let target = manager.automatic_target("unexpected.mp3").unwrap();
+        let part = target.with_extension("part");
+        let recording = Recording {
+            expected_flac: true,
+            quality: "auto".into(),
+            cover: None,
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "expected FLAC".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        manager.jobs.lock().unwrap().insert("fixture".into(), Job {
+            public: json!({"status":"downloading","outputMode":"original","expectedSourceCodec":"flac"}),
+            recording: recording.clone(),
+            target: target.clone(),
+            part: part.clone(),
+            cancel: CancellationToken::new(),
+            owns_part: false,
+            owns_output: false,
+        });
+        manager.finish("fixture", &target, manager.save_response(
+            "fixture", &recording, &target, &part, original_response(fixture(20), None, 200),
+        )).await;
+        assert_eq!(manager.list()[0]["errorCode"], "media_unavailable");
+        assert!(!target.exists() && !part.exists());
+        assert!(manager.saved().unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     #[ignore = "已有 FLAC：原格式、转码和回退成品的持久记录；不访问网络"]
     async fn actual_products_and_history_roundtrip() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -2426,6 +2486,7 @@ mod tests {
         let mut manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         manager.tools_dir = Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools"));
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "lossless".into(),
             identity: json!({"providerId":"netease","platformId":"2668397359"}),
@@ -2492,6 +2553,7 @@ mod tests {
         let bytes = fixture(20);
         std::fs::write(&part, &bytes).unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2540,6 +2602,7 @@ mod tests {
         let dir = folder();
         let manager = Downloads::default();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2578,6 +2641,7 @@ mod tests {
         let part = dir.join("owned.part");
         let manager = Downloads::default();
         let mut r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2693,6 +2757,7 @@ mod tests {
                 .unwrap(),
         );
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: quality.into(),
             identity: json!({"providerId":"qq","platformId":"0027oMO61wWi55"}),
@@ -2749,10 +2814,11 @@ mod tests {
         let path = dir.join("music-core.sqlite3");
         let manager = Downloads::with_history(path.clone(), dir.clone()).unwrap();
         assert_eq!(
-            manager.settings(&Value::Null).unwrap()["naming"],
+            manager.settings(None).unwrap()["naming"],
             "artist_title"
         );
         let mut recording = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
@@ -2765,7 +2831,7 @@ mod tests {
             ("artist_title", "Various Artists - 贝多芬：致爱丽丝.mp3"),
             ("title_artist", "贝多芬：致爱丽丝 - Various Artists.mp3"),
         ] {
-            manager.settings(&json!({"naming":rule})).unwrap();
+            manager.settings(Some(serde_json::from_value(json!(rule)).unwrap())).unwrap();
             assert_eq!(
                 suggested_name(&recording, manager.naming().unwrap()),
                 expected
@@ -2773,12 +2839,12 @@ mod tests {
             assert_eq!(
                 Downloads::with_history(path.clone(), dir.clone())
                     .unwrap()
-                    .settings(&Value::Null)
+                    .settings(None)
                     .unwrap()["naming"],
                 rule
             );
         }
-        assert!(manager.settings(&json!({"naming":"arbitrary"})).is_err());
+        assert!(serde_json::from_value::<Naming>(json!("arbitrary")).is_err());
         recording.title = " CON. ".into();
         assert_eq!(suggested_name(&recording, Naming::Title), "_CON.mp3");
         recording.title = "a/b:*?\"<>|\n".into();
@@ -2878,6 +2944,7 @@ mod tests {
         std::fs::write(&untouched, b"other task").unwrap();
         let manager = Downloads::default();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"fixture"}),
@@ -2973,6 +3040,7 @@ mod tests {
             .build()
             .unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
@@ -2981,25 +3049,34 @@ mod tests {
             duration: 235.0,
         };
         let rep = prefix(&client, &r).await.unwrap();
-        assert_eq!(rep["bitrateBps"], 128000);
-        let dir = folder();
-        let target = dir.join("sample.mp3");
-        let part = dir.join("sample.part");
-        let manager = Downloads::default();
-        let result = manager
-            .transfer(
-                "fixture",
-                &client,
-                &r,
-                &target,
-                &part,
-                &CancellationToken::new(),
-            )
-            .await;
-        println!("kuwo/151826227 standard result={result:?}");
-        let _ = std::fs::remove_file(&part);
-        let _ = std::fs::remove_file(&target);
-        std::fs::remove_dir(dir).unwrap();
-        assert!(result.is_ok());
+        assert_eq!(rep["codec"], "mp3");
+        assert!(rep["bitrateBps"].as_u64().is_some_and(|rate| rate.abs_diff(128_000) <= 1_000));
+
+        let dir = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            dir.path().join("music-core.sqlite3"),
+            dir.path().join("music"),
+        ).unwrap();
+        let target = manager.automatic_target("sample.mp3").unwrap();
+        let part = manager.start_mode(r, target.clone(), client, "original").unwrap();
+        assert_eq!(part["deliveryMode"], "desktop");
+
+        let result = tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                let list = manager.list();
+                let task = &list[0];
+                if matches!(task["status"].as_str(), Some("completed" | "failed" | "cancelled")) {
+                    break task.clone();
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }).await.unwrap();
+        assert_eq!(result["status"], "completed", "正式下载：{}", result["errorCode"]);
+        let saved = manager.saved().unwrap();
+        assert_eq!(saved.as_array().unwrap().len(), 1);
+        assert_eq!(saved[0]["identity"]["platformId"], "151826227");
+        let size = target.metadata().unwrap().len();
+        assert_eq!(result["finalSizeBytes"], size);
+        println!("kuwo/151826227 standard published: mp3, {size} bytes");
     }
 }

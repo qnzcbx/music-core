@@ -10,6 +10,8 @@ import subprocess
 from time import time
 from uuid import UUID, uuid4
 
+from app.core.file_name import safe_stem
+
 
 def system_folder(name):
     if os.name != 'nt':
@@ -164,7 +166,6 @@ class LibraryManager:
                             verify.update(chunk)
                     if verify.digest() != digest.digest() or m.fingerprint(source, source.stat()) != identifier:
                         raise OSError('文件完整性验证失败')
-                    from app.downloads import safe_stem
                     for number in range(1, 10001):
                         destination = target / (safe_stem(source.stem) + (f' ({number})' if number > 1 else '') + source.suffix)
                         try:

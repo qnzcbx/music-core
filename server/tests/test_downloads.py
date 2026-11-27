@@ -6,7 +6,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from app.main import create_app
-from app.downloads import DownloadManager, DownloadSettings, DownloadRequest, safe_stem
+from app.downloads import DownloadManager, DownloadSettings, DownloadRequest
+from app.core.file_name import safe_stem
 from app.models import TrackIdentity, ResolvedMedia, MediaRepresentation
 
 TRACK = TrackIdentity(providerId='kuwo', platformId='1')

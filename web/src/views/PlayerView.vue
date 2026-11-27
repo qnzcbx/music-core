@@ -163,7 +163,7 @@ onUnmounted(() => {
           @displayed="showCover"
           :playing="player.playing.value"
           :palette="palette"
-          :label="song.name"
+          :label="song.title"
           :layout="layout"
           :ring-preset="ringPreset"
           :dark="backgroundMode === 'dark'"
@@ -172,7 +172,7 @@ onUnmounted(() => {
       </div>
       <div class="listening-column">
         <div class="immersive-identity">
-          <h1>{{ song.title || song.name }}</h1>
+          <h1>{{ song.title }}</h1>
           <p class="immersive-artist">{{ song.artist }}</p>
           <p class="immersive-album">{{ song.album && song.album !== 'NULL' ? song.album : '' }}</p>
         </div>

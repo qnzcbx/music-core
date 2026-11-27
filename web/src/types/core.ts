@@ -147,6 +147,7 @@ export type DownloadQualityOption = {
   availability: 'available' | 'unavailable';
   representation: MediaRepresentation | null;
   errorCode: string | null;
+  retryable?: boolean;
 };
 
 export type OutputMode = 'original' | 'mp3_320' | 'mp3_192';

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 pub fn parse(raw: &str) -> Result<(Vec<Value>, Option<String>), String> {
     if raw.len() > 1024 * 1024 {
-        return Err("歌词响应过大".into());
+        return Err("upstream_invalid_response".into());
     }
     let stamp = regex::Regex::new(r"\[(\d{1,4}):([0-5]\d)(?:\.(\d{1,6}))?\]").unwrap();
     let metadata = regex::Regex::new(r"\[[^\]]*\]").unwrap();
@@ -25,7 +25,7 @@ pub fn parse(raw: &str) -> Result<(Vec<Value>, Option<String>), String> {
             timed = true;
             count += 1;
             if count > 10000 {
-                return Err("歌词行数过多".into());
+                return Err("upstream_invalid_response".into());
             }
             let fraction = c
                 .get(3)
@@ -49,7 +49,7 @@ pub fn parse(raw: &str) -> Result<(Vec<Value>, Option<String>), String> {
         if !timed && !text.is_empty() {
             plain.push(text);
             if plain.len() > 10000 {
-                return Err("歌词行数过多".into());
+                return Err("upstream_invalid_response".into());
             }
         }
     }
@@ -105,10 +105,10 @@ pub fn document(
     )
 }
 pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, String> {
-    let source = identity["providerId"].as_str().ok_or("歌词来源无效")?;
-    let id = identity["platformId"].as_str().ok_or("歌词身份无效")?;
+    let source = identity["providerId"].as_str().ok_or("invalid_input")?;
+    let id = identity["platformId"].as_str().ok_or("invalid_input")?;
     if !["qq", "netease", "kuwo", "migu"].contains(&source) || !common::valid_id(source, id) {
-        return Err("歌词身份无效".into());
+        return Err("invalid_input".into());
     }
     tokio::time::timeout(std::time::Duration::from_secs(12), async {
         match source {
@@ -130,7 +130,7 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                 )
                 .await?;
                 if data["code"].as_i64().is_some_and(|c| c != 0) || !data["lyric"].is_string() {
-                    return Err("QQ 歌词响应无效".into());
+                    return Err("upstream_invalid_response".into());
                 }
                 let decode = |v: &Value| -> Result<String, String> {
                     String::from_utf8(
@@ -138,7 +138,7 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                             .decode(v.as_str().unwrap_or(""))
                             .map_err(|_| "歌词编码无效")?,
                     )
-                    .map_err(|_| "歌词文本无效".into())
+                    .map_err(|_| "upstream_invalid_response".into())
                 };
                 document(
                     identity,
@@ -169,7 +169,7 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                         && !data.get("nolyric").is_some()
                         && !data.get("uncollected").is_some()
                 {
-                    return Err("网易云歌词响应无效".into());
+                    return Err("upstream_invalid_response".into());
                 }
                 document(
                     identity,
@@ -193,15 +193,15 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                 .await?;
                 let rows = data["data"]["lrclist"]
                     .as_array()
-                    .ok_or("酷我歌词响应无效")?;
+                    .ok_or("upstream_invalid_response")?;
                 let mut raw = String::new();
                 for row in rows {
                     let seconds = row["time"]
                         .as_f64()
                         .or_else(|| row["time"].as_str().and_then(|s| s.parse::<f64>().ok()))
-                        .ok_or("歌词时间无效")?;
+                        .ok_or("upstream_invalid_response")?;
                     if !seconds.is_finite() || !(0.0..600000.0).contains(&seconds) {
-                        return Err("歌词时间无效".into());
+                        return Err("upstream_invalid_response".into());
                     }
                     let ms = (seconds * 1000.0) as u64;
                     raw.push_str(&format!(
@@ -209,7 +209,7 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                         ms / 60000,
                         ms / 1000 % 60,
                         ms % 1000,
-                        row["lineLyric"].as_str().ok_or("歌词文本无效")?
+                        row["lineLyric"].as_str().ok_or("upstream_invalid_response")?
                     ));
                 }
                 document(identity, &raw, "", false)
@@ -222,9 +222,9 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                     )
                     .await?,
                 )?;
-                let rows = data["resource"].as_array().ok_or("咪咕歌词详情无效")?;
+                let rows = data["resource"].as_array().ok_or("upstream_invalid_response")?;
                 if rows.len() != 1 || common::id(&rows[0]["contentId"]).as_deref() != Some(id) {
-                    return Err("咪咕歌词身份不匹配".into());
+                    return Err("source_verification_failed".into());
                 }
                 let Some(url) = rows[0]["lrcUrl"].as_str().filter(|s| !s.is_empty()) else {
                     return document(identity, "", "", false);
@@ -236,7 +236,7 @@ pub async fn get(client: &reqwest::Client, identity: &Value) -> Result<Value, St
                     || parsed.password().is_some()
                     || parsed.port().is_some_and(|p| p != 80 && p != 443)
                 {
-                    return Err("歌词地址不受支持".into());
+                    return Err("untrusted_media".into());
                 }
                 let raw =
                     common::bytes(client.get(url).header("Referer", "https://y.migu.cn/")).await?;

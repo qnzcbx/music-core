@@ -7,9 +7,11 @@ import sys
 from types import SimpleNamespace
 import httpx
 import pytest
+from array import array
+from math import sin, tau
 from app.downloads import DownloadManager,DownloadSettings,DownloadRequest
 from app.models import ResolvedMedia,TrackIdentity
-from app.download_quality import inspect_audio
+from app.core.media_probe import inspect_audio
 from app.core.errors import CoreError,ErrorCode
 from app import transcode
 from test_downloads import Stream,finish
@@ -113,8 +115,18 @@ def test_truncated_source_never_publishes_incomplete_mp3(tmp_path, audio):
 def audio(tmp_path):
     executable,_=transcode.tools()
     if not executable:pytest.skip('本机未安装FFmpeg，缺失能力另有离线测试')
-    path=tmp_path/'fixture.flac'
-    subprocess.run([executable,'-nostdin','-v','error','-f','lavfi','-i','sine=frequency=440:sample_rate=44100:duration=2','-ac','2','-c:a','flac',str(path)],check=True,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+    path = tmp_path / 'fixture.flac'
+    pcm = tmp_path / 'fixture.pcm'
+    samples = array('h', (int(4000 * sin(tau * 440 * sample / 44100)) for sample in range(2 * 44100)))
+    # 随包工具包含 PCM 解码和 FLAC 编码，没有启用 lavfi 的 sine 滤镜。
+    if sys.byteorder != 'little':
+        samples.byteswap()
+    pcm.write_bytes(samples.tobytes())
+    subprocess.run(
+        [executable, '-nostdin', '-v', 'error', '-f', 's16le', '-ar', '44100', '-ac', '1',
+         '-i', str(pcm), '-ac', '2', '-c:a', 'flac', str(path)],
+        check=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
     return path.read_bytes()
 
 async def manager_at(directory,raw,**kwargs):

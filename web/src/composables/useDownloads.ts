@@ -8,8 +8,10 @@ import {
   updateDownload,
   removeDownloadFile,
 } from '../api/downloads';
-import { requestJson, ApiError } from '../api/http';
-import { desktopDownloads } from '../api/downloads';
+import { ApiError } from '../api/http';
+import { getDownloadSettings } from '../api/downloads';
+import { isDesktop as desktopDownloads } from '../platform/desktop';
+import { pageVisible } from '../platform/window';
 import { downloadError } from '../utils/download-display';
 import { trackIdentity, queueKey } from '../utils/player-queue';
 import type { SearchEntry } from '../types/music';
@@ -133,7 +135,7 @@ export function useDownloads() {
         : '下载操作失败';
   function arm() {
     clearTimeout(timer);
-    if (!disposed && !document.hidden && (active.value || error.value))
+    if (!disposed && pageVisible.value && (active.value || error.value))
       timer = setTimeout(() => void refresh(false), error.value ? 5000 : 1500);
   }
   function upsert(task: DownloadTask) {
@@ -307,7 +309,7 @@ export function useDownloads() {
           quality,
           outputMode,
           expectedSourceCodec,
-          title: song.title || song.name,
+          title: song.title,
           artist: song.artist,
           album: song.album,
           cover: song.cover,
@@ -394,24 +396,23 @@ export function useDownloads() {
     }
   });
   const visible = () => {
-    if (document.hidden) clearTimeout(timer);
+    if (!pageVisible.value) clearTimeout(timer);
     else void refresh();
   };
+  watch(pageVisible, visible);
   onMounted(() => {
-    void requestJson<{ mode?: string }>('/api/downloads/settings')
+    void getDownloadSettings()
       .then((value) => {
         localMode.value = value.mode === 'local';
       })
       .catch(() => {})
       .finally(() => void refresh());
-    document.addEventListener('visibilitychange', visible);
     if (desktopDownloads) window.addEventListener('focus', visible);
   });
   onScopeDispose(() => {
     disposed = true;
     clearTimeout(timer);
     for (const request of queries) request.abort();
-    document.removeEventListener('visibilitychange', visible);
     if (desktopDownloads) window.removeEventListener('focus', visible);
   });
   return {

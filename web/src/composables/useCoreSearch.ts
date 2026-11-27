@@ -4,12 +4,24 @@ import { useProviders } from './useProviders';
 import { searchSource } from '../api/search';
 import type { ProviderId } from '../types/core';
 import type { SearchEntry } from '../types/music';
+import { isTrackIdentity, queueKey } from '../utils/player-queue';
 
 export function useCoreSearch(){
  const {providers,providerError,load}=useProviders();
- const sources=useStorage<string[]>('music-core.search.sources.v1',['kuwo']);
- sources.value=Array.isArray(sources.value)?sources.value.filter(p=>['kuwo','qq','netease','migu'].includes(p)):['kuwo'];
- if(!sources.value.length)sources.value=['kuwo'];
+ const savedSources = useStorage<string[] | null>('music-core.search.sources.v1', null, undefined, {
+  serializer: { read: JSON.parse, write: JSON.stringify },
+ });
+ const sources = computed<string[]>({
+  get() {
+   const available = providers.value.filter((provider) => provider.capabilities?.search);
+   const saved = savedSources.value;
+   const selected = Array.isArray(saved) ? available.filter((provider) => saved.includes(provider.id)) : [];
+   if (selected.length) return selected.map((provider) => provider.id);
+   const defaults = available.filter((provider) => provider.defaultSelected);
+   return (defaults.length ? defaults : available.slice(0, 1)).map((provider) => provider.id);
+  },
+  set(value) { savedSources.value = value; },
+ });
  const query=ref(''),resultSources=ref<string[]>([]),songs=ref<SearchEntry[]>([]),busy=ref(false),searchRevision=ref('');
  const cursors=ref<Record<string,string|null>>({});
  const perSourceStatus=ref<Record<string,{status:'running'|'completed'|'failed';message?:string;requestedCursor:string|null}>>({});
@@ -35,10 +47,15 @@ export function useCoreSearch(){
    if(version!==generation)return;
    const known=new Set(songs.value.map(song=>song.id));
    for(const row of page.items){
-    const id=JSON.stringify([row.identity.providerId,row.identity.platformId]);
-    if(known.has(id))continue;known.add(id);
-    songs.value.push({id,identity:row.identity,source:row.identity.providerId,platformId:row.identity.platformId,mid:row.identity.platformId,
-     trackAccess:row.downloadAllowed===undefined?undefined:{playback:{state:'unknown',reason:'',evidence:'metadata'},download:{state:row.downloadAllowed===null?'unknown':row.downloadAllowed?'allowed':'denied',reason:row.downloadAllowed===false?'此来源暂不支持下载，或曲目明确禁止下载':'',evidence:'desktop-source-policy'}},title:row.title,name:row.title,artist:(row.artists??[]).join('、'),album:row.album??'',duration:row.durationSeconds??null,cover:row.cover??null,resolveState:'idle'});
+    if (!isTrackIdentity(row.identity)) continue;
+    const id = queueKey(row.identity);
+    if (known.has(id)) continue;
+    known.add(id);
+    songs.value.push({
+      id, identity: row.identity, title: row.title, artist: (row.artists ?? []).join('、'),
+      album: row.album ?? '', duration: row.durationSeconds ?? null, cover: row.cover ?? null,
+      downloadAllowed: row.downloadAllowed,
+    });
    }
    completed.add(key);
    const next=page.nextCursor??null;
@@ -49,8 +66,17 @@ export function useCoreSearch(){
   }finally{if(running.get(source)===request)running.delete(source);}
  }
  async function search(){
-  reset();if(!query.value.trim()||!sources.value.length)return;
-  activeQuery=query.value.trim();resultSources.value=[...sources.value];const version=generation;busy.value=true;
+  const requested = query.value.trim();
+  reset();
+  if (!requested) return;
+  if (!providers.value.length) {
+   try { await load(); } catch { return; }
+  }
+  if (requested !== query.value.trim() || !sources.value.length) return;
+  activeQuery = requested;
+  resultSources.value = [...sources.value];
+  const version = generation;
+  busy.value = true;
   await Promise.all(resultSources.value.map(source=>requestPage(source,null,version)));
   if(version===generation)busy.value=false;
  }

@@ -11,11 +11,6 @@ pub struct Resolved {
     pub representation: Value,
     pub route: String,
 }
-fn stop(error: &str) -> bool {
-    ["权限", "试听", "加密", "登录", "限制", "access_denied"]
-        .iter()
-        .any(|word| error.contains(word))
-}
 pub async fn probe(client: &reqwest::Client, media: &Media) -> Result<Value, String> {
     let limit = download_media::PREFIX_BYTES;
     let mut response = client
@@ -138,15 +133,15 @@ where
 {
     let mut last = match native.await {
         Ok(value) => return Ok(value),
-        Err(e) if stop(&e) => return Err(e),
+        Err(e) if !fallback::may_try_another_route(&e) => return Err(e),
         Err(e) => e,
     };
     for route in routes {
         match tokio::time::timeout(Duration::from_secs(10), backup(route.clone())).await {
             Ok(Ok(value)) => return Ok(value),
-            Ok(Err(e)) if stop(&e) => return Err(e),
-            Ok(Err(e)) => last = format!("{route}: {e}"),
-            Err(_) => last = format!("{route}: upstream_timeout"),
+            Ok(Err(e)) if !fallback::may_try_another_route(&e) => return Err(e),
+            Ok(Err(e)) => last = e,
+            Err(_) => last = "upstream_timeout".into(),
         }
     }
     Err(last)
