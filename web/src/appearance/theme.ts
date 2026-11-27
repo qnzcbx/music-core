@@ -1,6 +1,6 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type EffectiveTheme = Exclude<ThemeMode, 'system'>;
-export const APPEARANCE_KEY = 'media-lab.appearance.v1';
+export const APPEARANCE_KEY = 'music-core.appearance.v1';
 export const APPEARANCE = Symbol('appearance');
 export function themeMode(value: unknown): ThemeMode {
   return value === 'light' || value === 'dark' ? value : 'system';

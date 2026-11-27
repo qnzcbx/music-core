@@ -117,7 +117,6 @@ function retrySource(source: string) {
       :busy="busy"
       :pre-resolve-enabled="false"
       :submitting="true"
-      :download-jobs="{}"
       :active-id="player.selectedId.value"
       @play="player.select"
       @toggle="groupsState.toggle"

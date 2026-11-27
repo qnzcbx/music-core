@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {effectScope} from 'vue';
 import {useQueue} from '../src/player/useQueue.ts';
 import {decodePlayer} from '../src/player/player-persistence.ts';
+import {trackIdentity} from '../src/utils/player-queue.ts';
 const song=(id,source='kuwo')=>({id,source,platformId:id,mid:id,name:'同名歌曲',title:'同名歌曲',artist:'歌手',album:'专辑',duration:10,resolveState:'idle'});
 const local=fileId=>({kind:'local',fileId,id:JSON.stringify(['local',fileId]),source:'local',name:'历史.mp3',title:'历史.mp3',artist:'',album:'',cover:null,duration:null});
 function fixture(storage,open=async()=>{}) {
@@ -54,13 +55,10 @@ test('稳定本地文件 ID、混合队列、模式和进度恢复但不打开�
  f.close();restored.close();empty.close();
 });
 
-test('旧快照兼容，非法进度归零，恢复身份与元数据显式投影',()=>{
- for(const version of [1,2,3]){
-   const value=decodePlayer(JSON.stringify({schemaVersion:version,queue:[],position:-10}));
-   assert.equal(value.kind,'valid');assert.equal(value.value.position,0);
- }
- for(const position of ['60',null,-1,86401]){
+test('V3 快照非法进度归零，身份与元数据显式投影',()=>{
+ for(const position of ['60',null,-1,-10,86401]){
    const value=decodePlayer(JSON.stringify({schemaVersion:3,position}));
+   assert.equal(value.kind,'valid');
    assert.equal(value.value.position,0);
  }
  for(const query of ['token=secret','Authorization=secret','signature=secret']){
@@ -95,6 +93,8 @@ test('安全持久化、刷新仅恢复展示，损坏及未知版本存储忽�
  let raw=null;const storage={getItem:()=>raw,setItem:(_key,value)=>{raw=value;}};
  const f=fixture(storage);await f.queue.select({...song('1'),streamUrl:'secret',token:'secret',cover:'https://x.test/a.jpg?access_token=secret'});f.queue.setMode('shuffle');
  f.queue.entries.value[0].resolved={playbackId:'secret',streamUrl:'secret',lease:'secret'};
+ f.queue.setMode('order');
+ f.queue.setMode('shuffle');
  assert.ok(!raw.includes('secret'));f.close();const restored=fixture(storage);
  assert.equal(restored.queue.entries.value.length,1);assert.equal(restored.queue.navigation.mode,'shuffle');assert.deepEqual(restored.calls,[]);restored.close();
  for(raw of ['{bad','{"schemaVersion":999}',null]){const invalid=fixture(storage);assert.equal(invalid.queue.entries.value.length,0);invalid.close();}
@@ -124,4 +124,53 @@ test('online queue discards expired desktop relay URLs but preserves the track a
  const restored=decodePlayer(JSON.stringify(old)).value.queue;
  assert.deepEqual(restored.map(row=>[row.track.platformId,row.metadata.cover]),[['12',null],['13',stable],['14',null]]);
  f.close();
+});
+
+test('仅 V3 恢复现有队列、优先待播顺序和当前位置', async () => {
+  let raw = null;
+  const storage = { getItem: () => raw, setItem: (_key, value) => { raw = value; } };
+  const current = fixture(storage);
+  const queue = current.queue;
+  await queue.select(song('1'));
+  queue.add(song('3'));
+  queue.add(song('2'));
+  queue.navigation.upNextKeys = [queue.key(song('3'))];
+  queue.setMode('repeat_all');
+  queue.position.value = 42;
+  const snapshot = JSON.parse(raw);
+  current.close();
+
+  for (const schemaVersion of [1, 2, 999, 3]) {
+    raw = JSON.stringify({ ...snapshot, schemaVersion });
+    const restored = fixture(storage);
+    assert.deepEqual(restored.calls, []);
+    if (schemaVersion === 3) {
+      assert.deepEqual(restored.queue.entries.value.map(entry => entry.track.platformId), ['1', '3', '2']);
+      assert.deepEqual(restored.queue.navigation.upNextKeys, [queue.key(song('3'))]);
+      assert.equal(restored.queue.current.value, queue.key(song('1')));
+      assert.equal(restored.queue.navigation.mode, 'repeat_all');
+      assert.equal(restored.queue.position.value, 42);
+    } else {
+      assert.deepEqual(restored.queue.entries.value, []);
+      assert.equal(restored.queue.current.value, null);
+      assert.equal(restored.queue.navigation.mode, 'order');
+      assert.equal(restored.queue.position.value, 0);
+    }
+    restored.close();
+  }
+});
+
+test('规范来源保留 mid 回退，咪咕必须使用明确的有效 contentId', () => {
+  for (const providerId of ['qq', 'netease', 'kuwo']) {
+    assert.deepEqual(trackIdentity({ source: providerId, mid: '123' }), {
+      providerId, platformId: '123',
+    });
+  }
+  assert.throws(() => trackIdentity({ source: 'migu', mid: '123' }));
+  assert.throws(() => trackIdentity(song('copyright-id', 'migu')));
+  assert.deepEqual(trackIdentity({
+    source: 'migu',
+    mid: 'copyright-id',
+    recordingIdentity: { providerId: 'migu', platformId: '123' },
+  }), { providerId: 'migu', platformId: '123' });
 });

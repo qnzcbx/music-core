@@ -1,33 +1,19 @@
-import type { QueueEntry, SearchEntry, Song, TrackIdentity } from '../types/music';
+import type { QueueEntry, SearchEntry, TrackIdentity } from '../types/music';
 
-const aliases: Record<string, string> = {
-  QQMusicClient: 'qq',
-  NeteaseMusicClient: 'netease',
-  KuwoMusicClient: 'kuwo',
-  KugouMusicClient: 'kugou',
-  SoundCloudMusicClient: 'soundcloud',
-  MiguMusicClient: 'migu',
-  FMAMusicClient: 'fma',
-  AudiusMusicClient: 'audius',
-};
 const providers = new Set(['qq', 'netease', 'kuwo', 'migu']);
 export const queueKey = (track: TrackIdentity) =>
   JSON.stringify([track.providerId, track.platformId]);
 export function trackIdentity(item: SearchEntry): TrackIdentity {
-  const provider =
+  const providerId =
     'resolveState' in item
       ? item.source
       : (item.recordingIdentity?.providerId ?? item.providerId ?? item.source);
-  const providerId = aliases[provider] ?? provider;
-  // 仅对这些旧版适配器而言，Song.mid 才是已知的平台 ID。
-  // 例如，咪咕（Migu）必须使用原始的 Candidate 身份，而不能据此推断出 contentId。
+  // QQ、网易云、酷我的 Song.mid 可用作平台 ID；咪咕需要明确的 contentId。
   const platformId =
     'resolveState' in item
       ? item.platformId
       : (item.recordingIdentity?.platformId ??
-        (['qq', 'netease', 'kuwo', 'kugou', 'soundcloud', 'audius', 'fma'].includes(providerId)
-          ? item.mid
-          : undefined));
+        (['qq', 'netease', 'kuwo'].includes(providerId) ? item.mid : undefined));
   if (
     !providers.has(providerId) ||
     typeof platformId !== 'string' ||
@@ -53,9 +39,4 @@ export function queueEntryFrom(item: SearchEntry): QueueEntry {
       cover: item.cover,
     },
   };
-}
-export function requireQueueMedia(entry: QueueEntry, song: Song) {
-  const identity = song.recordingIdentity;
-  if (song.providerId !== entry.track.providerId || !identity || queueKey(identity) !== entry.key)
-    throw new Error('解析资源与队列歌曲身份不匹配，没有切换播放器');
 }

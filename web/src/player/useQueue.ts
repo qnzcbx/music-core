@@ -1,5 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue';
-import type { QueueEntry, PlayableQueueEntry, PlayableSong, CandidateRow } from '../types/music.ts';
+import type { PlayableQueueEntry, PlayableSong } from '../types/music.ts';
 import { isLocalSong } from '../types/music.ts';
 import { queueEntryFrom } from '../utils/player-queue.ts';
 import { createQueueNavigation, type PlaybackMode, type QueueStep } from './queue-navigation.ts';

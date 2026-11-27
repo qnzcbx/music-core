@@ -24,12 +24,6 @@ export function normalizeTitle(value: string): string {
     .replace(/[\s\u3000]+/gu, ' ');
 }
 export const normalizeArtist = normalizeTitle;
-const providerKeys: Record<string, string> = {
-  QQMusicClient: 'qq',
-  NeteaseMusicClient: 'netease',
-  KuwoMusicClient: 'kuwo',
-  MiguMusicClient: 'migu',
-};
 
 export function buildSongGroups(
   songs: readonly Song[],
@@ -40,7 +34,7 @@ export function buildSongGroups(
   const groups = new Map<string, SongGroup>();
   const rank = (song: Song) => {
     const index = sources.indexOf(
-      ('providerId' in song && song.providerId) || providerKeys[song.source] || song.source,
+      ('providerId' in song && song.providerId) || song.source,
     );
     return index < 0 ? sources.length : index;
   };
@@ -109,8 +103,7 @@ export function createSongGroupState() {
       const state = states.get(group.key) ?? { expanded: false, locked: false };
       states.set(group.key, state);
       const score = (song: Song) => {
-        const source =
-          ('providerId' in song && song.providerId) || providerKeys[song.source] || song.source;
+        const source = ('providerId' in song && song.providerId) || song.source;
         const rank = order.indexOf(source);
         return (
           (availabilityOf(song, now) === 'ready' ? 0 : 1) * (order.length + 1) +
@@ -125,12 +118,8 @@ export function createSongGroupState() {
             (song.id === activeId || ('resolveState' in song && song.resolvedId === activeId))) ||
           (playing?.mid &&
             song.mid === playing.mid &&
-            (('providerId' in song && song.providerId) ||
-              providerKeys[song.source] ||
-              song.source) ===
-              (('providerId' in playing && playing.providerId) ||
-                providerKeys[playing.source] ||
-                playing.source)),
+            (('providerId' in song && song.providerId) || song.source) ===
+              (('providerId' in playing && playing.providerId) || playing.source)),
       );
       let chosen = selected ?? active ?? (state.locked ? current : undefined);
       if (!chosen) {

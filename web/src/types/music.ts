@@ -75,35 +75,6 @@ export interface Song extends TrackContract {
   media_host: string;
 }
 
-export interface DownloadJob extends TrackContract {
-  selectionOrigin?: import('./download').DownloadOptionOrigin | 'legacy_policy';
-  requestedQuality?: string | null;
-  actualProviderQuality?: string | null;
-  actualCodec?: string | null;
-  title?: string;
-  artist?: string;
-  source?: string;
-  filename?: string;
-  size?: number;
-  selection?: import('./download').DownloadQualityOption | null;
-  actualMedia?: {
-    container: string;
-    codec: string;
-    lossless: boolean;
-    bitrate: number | null;
-    tier: string;
-  };
-  qualityPolicy?: QualityPolicy | null;
-  variant?: MediaVariant;
-  id: string;
-  state: string;
-  message: string;
-  path?: string;
-  downloaded_bytes?: number;
-  total_bytes?: number;
-  percent?: number | null;
-}
-
 // 候选与媒体记录是两个领域对象；候选没有已确认的格式或可播放标记。
 export interface CandidateRow extends TrackContract {
   identity: import('./core').TrackIdentity;
@@ -141,8 +112,6 @@ export interface QueueEntry {
   key: string;
   track: TrackIdentity;
   metadata: TrackSnapshot;
-  /** 仅用于运行时兼容；选择此条目时必须重新准备媒体。 */
-  resolved?: Song;
 }
 
 /** 本地条目只携带稳定文件引用，绝不伪装为在线平台。 */

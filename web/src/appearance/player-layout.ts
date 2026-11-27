@@ -30,7 +30,7 @@ export const DEFAULT_LYRIC_ALIGNMENTS: Record<PlayerLayout, LyricAlignment> = {
   'square-cover': 'center',
   'lyrics-only': 'center',
 };
-export const PLAYER_LAYOUT_KEY = 'media-lab.player-layout.v1';
+export const PLAYER_LAYOUT_KEY = 'music-core.player-layout.v1';
 type LayoutStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export function isPlayerLayout(value: unknown): value is PlayerLayout {
   return PLAYER_LAYOUTS.some((item) => item.id === value);
@@ -51,9 +51,7 @@ export function createPlayerLayoutSelection(
   let savedRing: RingPreset = 'smoky';
   try {
     const saved = JSON.parse(storage?.getItem(PLAYER_LAYOUT_KEY) ?? 'null');
-    if (saved?.version === 1 && (saved.layout === 'classic' || saved.layout === 'vinyl-wide'))
-      initial = saved.layout;
-    if (saved?.version === 2 || saved?.version === 3) {
+    if (saved?.version === 3) {
       if (isPlayerLayout(saved.layout)) initial = saved.layout;
       for (const { id } of PLAYER_LAYOUTS) {
         const value = saved.lyricAlignments?.[id];
@@ -61,8 +59,8 @@ export function createPlayerLayoutSelection(
         const background = saved.backgrounds?.[id];
         if (['cover', 'light', 'dark'].includes(background)) backgrounds[id] = background;
       }
+      if (isRingPreset(saved.ringPreset)) savedRing = saved.ringPreset;
     }
-    if (isRingPreset(saved?.ringPreset)) savedRing = saved.ringPreset;
   } catch {
     /* 存储缺失、损坏或被拒绝时保持默认值。 */
   }

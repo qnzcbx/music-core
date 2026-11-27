@@ -23,16 +23,8 @@ export interface Provider {
 const catalog = ref<Provider[]>([]);
 const error = ref("");
 let pending: Promise<void> | undefined;
-// 旧 resolved DTO 的兼容别名；新 DTO 使用 providerId，不作为可选来源目录。
-export const legacyProviderIds: Record<string, string> = {
-  QQMusicClient: "qq",
-  NeteaseMusicClient: "netease",
-  KuwoMusicClient: "kuwo",
-  KugouMusicClient: "kugou",
-  MiguMusicClient: "migu",
-};
 export function providerFor(source: string) {
-  return catalog.value.find((p) => p.id === (legacyProviderIds[source] ?? source));
+  return catalog.value.find((p) => p.id === source);
 }
 export function providerName(source: string) {
   return providerFor(source)?.name ?? source;

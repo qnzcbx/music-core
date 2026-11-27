@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import SongGroupItem from "./SongGroupItem.vue";
 import type { SongGroup } from "../utils/song-group";
-import type { SearchEntry as Song, DownloadJob } from "../types/music";
+import type { SearchEntry as Song } from "../types/music";
 
 defineProps<{
   songs: Song[];
@@ -10,7 +10,6 @@ defineProps<{
   busy: boolean;
   activeId?: string;
   submitting: boolean;
-  downloadJobs: Record<string, DownloadJob>;
   preResolveEnabled: boolean;
 }>();
 const emit = defineEmits<{
@@ -45,7 +44,6 @@ const emit = defineEmits<{
         :active-id="activeId"
         :pre-resolve-enabled="preResolveEnabled"
         :submitting="submitting"
-        :download-jobs="downloadJobs"
         @play="emit('play', $event)"
         @download="emit('download', $event)"
         @play-next="(song, origin) => emit('playNext', song, origin)"

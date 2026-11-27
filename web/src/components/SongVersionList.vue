@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import SongItem from './SongItem.vue';
-import type { SearchEntry as Song, DownloadJob } from '../types/music';
+import type { SearchEntry as Song } from '../types/music';
 
 defineProps<{
   versions: Song[];
   now: number;
   activeId?: string;
   submitting: boolean;
-  downloadJobs: Record<string, DownloadJob>;
 }>();
 const emit = defineEmits<{
   play: [song: Song];
@@ -35,7 +34,6 @@ const emit = defineEmits<{
         (!!activeId && 'resolveState' in song && activeId === song.resolvedId)
       "
       :submitting="submitting"
-      :job="downloadJobs[song.id]"
       @play="emit('play', $event)"
       @download="emit('download', $event)"
       @play-next="(song, origin) => emit('playNext', song, origin)"

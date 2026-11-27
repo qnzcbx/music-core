@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createPlayerLayoutSelection,
+  PLAYER_LAYOUTS,
   PLAYER_RING_PRESETS,
 } from '../src/appearance/player-layout.ts';
 
@@ -30,9 +31,9 @@ function fixture(saved) {
   };
 }
 
-test('旧样式与对齐迁移后保留，缺少的新偏好使用默认值', () => {
+test('V3 保留布局和对齐，缺少的偏好使用默认值', () => {
   const { state } = fixture({
-    version: 2,
+    version: 3,
     layout: 'square-cover',
     lyricAlignments: { 'square-cover': 'left' },
   });
@@ -81,4 +82,28 @@ test('无效字段和拒绝存储不妨碍当前会话设置', () => {
   });
   unavailable.selectBackground('dark');
   assert.equal(unavailable.backgroundMode.value, 'dark');
+});
+
+test('V1、V2 和未知版本全部使用默认布局偏好', () => {
+  for (const version of [1, 2, 99]) {
+    const { state } = fixture({
+      version,
+      layout: 'vinyl-wide',
+      lyricAlignments: { classic: 'left' },
+      backgrounds: { classic: 'dark' },
+      ringPreset: 'amber',
+    });
+    assert.equal(state.layout.value, 'classic');
+    assert.equal(state.lyricAlignment.value, 'center');
+    assert.equal(state.backgroundMode.value, 'cover');
+    assert.equal(state.ringPreset.value, 'smoky');
+  }
+});
+
+test('所有现行布局均可保存恢复', () => {
+  const { state, restore } = fixture(null);
+  for (const layout of PLAYER_LAYOUTS) {
+    state.selectLayout(layout.id);
+    assert.equal(restore().layout.value, layout.id);
+  }
 });

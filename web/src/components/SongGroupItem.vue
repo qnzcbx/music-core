@@ -2,7 +2,7 @@
 import SongItem from "./SongItem.vue";
 import SongVersionList from "./SongVersionList.vue";
 import type { SongGroup } from "../utils/song-group";
-import type { SearchEntry as Song, DownloadJob } from "../types/music";
+import type { SearchEntry as Song } from "../types/music";
 import { computed, onUnmounted, ref, watch } from "vue";
 import DownIcon from "~icons/lucide/chevron-down";
 import UpIcon from "~icons/lucide/chevron-up";
@@ -14,7 +14,6 @@ const props = defineProps<{
   index: number;
   activeId?: string;
   submitting: boolean;
-  downloadJobs: Record<string, DownloadJob>;
   preResolveEnabled: boolean;
 }>();
 const emit = defineEmits<{
@@ -98,7 +97,6 @@ onUnmounted(() => {
           activeId === group.representative.resolvedId)
       "
       :submitting="submitting"
-      :job="downloadJobs[group.representative.id]"
       :group-expanded="group.expanded"
       @play="emit('play', $event)"
       @download="emit('download', $event)"
@@ -125,7 +123,6 @@ onUnmounted(() => {
         :versions="otherVersions"
         :active-id="activeId"
         :submitting="submitting"
-        :download-jobs="downloadJobs"
         @play="emit('play', $event)"
         @download="emit('download', $event)"
         @play-next="(song, origin) => emit('playNext', song, origin)"

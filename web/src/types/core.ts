@@ -88,7 +88,6 @@ export type MediaRepresentation = {
   bitrateBps?: number | null;
   lossless?: boolean | null;
 };
-export type OpenRequest = { identity: TrackIdentity };
 export type OpenResponse = {
   playbackId: string;
   streamUrl: string;

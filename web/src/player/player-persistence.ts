@@ -2,10 +2,9 @@ import type { QueueEntry, PlayableQueueEntry } from '../types/music';
 import type { PlaybackMode } from './queue-navigation.ts';
 import { queueKey } from '../utils/player-queue.ts';
 
-export const PLAYER_STORAGE_KEY = 'media-lab.player.v1';
-export const SCHEMA_VERSION = 3;
-export const MAX_QUEUE = 200,
-  MAX_HISTORY = 1000,
+const SCHEMA_VERSION = 3;
+export const MAX_QUEUE = 200;
+const MAX_HISTORY = 1000,
   MAX_STORAGE_LENGTH = 1_000_000;
 const providers = new Set(['netease', 'kuwo', 'qq', 'migu']);
 const modes = new Set(['order', 'shuffle', 'repeat_all', 'repeat_one']);
@@ -38,7 +37,7 @@ function cover(value: unknown, online = false): string | null {
     return null;
   }
 }
-export interface PersistedPlayer {
+interface PersistedPlayer {
   schemaVersion: 3;
   queue: PlayableQueueEntry[];
   currentQueueKey: string | null;
@@ -52,7 +51,7 @@ export interface PersistedPlayer {
   position: number;
   settings: { volume: number };
 }
-export interface PersistentPlayerState {
+interface PersistentPlayerState {
   queue: PlayableQueueEntry[];
   currentQueueKey: string | null;
   volume: number;
@@ -229,15 +228,7 @@ export function decodePlayer(
   if (raw.length > MAX_STORAGE_LENGTH) return { kind: 'invalid' };
   try {
     const input = object(JSON.parse(raw));
-    if (input.schemaVersion === 1) {
-      // v1 did not support priority intent: discard any injected extension.
-      return {
-        kind: 'valid',
-        value: normalize({ ...input, navigation: { ...object(input.navigation), upNextKeys: [] } }),
-      };
-    }
-    if (input.schemaVersion !== 2 && input.schemaVersion !== SCHEMA_VERSION)
-      return { kind: 'unsupported' };
+    if (input.schemaVersion !== SCHEMA_VERSION) return { kind: 'unsupported' };
     return { kind: 'valid', value: normalize(input) };
   } catch {
     return { kind: 'invalid' };

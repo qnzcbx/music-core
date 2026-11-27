@@ -16,7 +16,7 @@ import {
 import CoverArt from './CoverArt.vue';
 import { providerName, providerFor } from '../composables/useProviders';
 import { availabilityOf, availabilityLabels } from '../utils/candidate-availability';
-import type { SearchEntry as Song, DownloadJob } from '../types/music';
+import type { SearchEntry as Song } from '../types/music';
 import { playbackBlockReason, downloadBlockReason } from '../utils/track-access';
 import { queueEntryFrom } from '../utils/player-queue';
 
@@ -26,7 +26,6 @@ const props = defineProps<{
   index: number;
   selected: boolean;
   submitting: boolean;
-  job?: DownloadJob;
   version?: boolean;
   groupExpanded?: boolean;
 }>();
