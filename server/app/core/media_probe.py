@@ -3,7 +3,7 @@ from urllib.parse import urljoin,urlsplit
 import re
 import httpx
 from app.media_stream import validate_target
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError, ErrorCode, UnsupportedRouteFormat
 from app.models import MediaRepresentation
 
 QQ_ENCRYPTED_SUFFIXES=('.mgg','.mflac')
@@ -80,8 +80,11 @@ async def verify_media(client,url,provider_id='qq',*,detail=False,headers=None):
     try:
         for hop in range(4):
             await validate_target(url,provider_id)
-            if provider_id=='qq' and urlsplit(url).path.lower().endswith(QQ_ENCRYPTED_SUFFIXES):
-                raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+            if provider_id in ('qq','netease'):
+                path=urlsplit(url).path.lower()
+                encrypted_suffixes=QQ_ENCRYPTED_SUFFIXES if provider_id=='qq' else ('.ncm',)
+                if path.endswith(encrypted_suffixes):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                if path.endswith(('.m3u8','.mpd')):raise UnsupportedRouteFormat()
             response=await client.send(httpx.Request('GET',url,headers={**(headers or {}),'Range':f'bytes=0-{limit-1}',
                 'Accept-Encoding':'identity','User-Agent':'Mozilla/5.0'}),stream=True,follow_redirects=False,auth=None)
             try:

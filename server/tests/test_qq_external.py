@@ -2,7 +2,7 @@
 import asyncio
 import httpx
 import pytest
-from app.providers.qq_resolvers import vkeys,tang,result,request_json
+from app.providers.qq_resolvers import vkeys,tang,xunhuisi,result,request_json
 from app.providers.qq import QQProvider
 from app.models import TrackIdentity
 from app.core.errors import CoreError,ErrorCode
@@ -39,8 +39,8 @@ def test_business_failure(code):
 @pytest.mark.parametrize('payload,expected',[
     ({'song_mid':MID,'song_name':'原曲','singer_name':'歌手','song_play_url_pq':URL},True),
     ({'song_mid':'wrong','song_name':'原曲','singer_name':'歌手','song_play_url_sq':URL},False),
-    ({'song_mid':MID,'song_name':'伴奏','singer_name':'歌手','song_play_url_sq':URL},False),
-    ({'song_mid':MID,'song_name':'翻唱版','singer_name':'歌手','song_play_url_sq':URL},False),
+    ({'song_mid':MID,'song_name':'伴奏','singer_name':'歌手','song_play_url_sq':URL},True),
+    ({'song_mid':MID,'song_name':'翻唱版','singer_name':'歌手','song_play_url_sq':URL},True),
     ({'song_mid':MID,'song_name':'原曲','singer_name':'歌手','song_play_url_accom':URL},False),
     ({'song_mid':MID},False),({},False)])
 def test_tang_identity_and_fields(payload,expected):
@@ -100,6 +100,23 @@ def test_enabled_confirmed_dispatch_and_probe(monkeypatch):
 def test_tang_version_mismatch():
     payload={'song_mid':MID,'song_name':'原曲 Live','singer_name':'歌手','song_play_url_pq':URL}
     with pytest.raises(CoreError):run(lambda c:tang.resolve(c,MID,expected_title='原曲'),lambda r:httpx.Response(200,json=payload))
+
+
+@pytest.mark.parametrize(('fields', 'evidence'), [
+    ({'songMID': MID}, 'confirmed'),
+    ({'link': f'https://y.qq.com/n/ryqq/songDetail/{MID}'}, 'request_bound'),
+    ({}, None),
+    ({'songMID': MID, 'mid': 'wrong'}, None),
+])
+def test_xunhuisi_requested_live_version(fields, evidence):
+    payload = {'code': 200, 'title': '晴天 (Live)', 'singer': '歌手', 'music_url': URL, **fields}
+    handler = lambda request: httpx.Response(200, json=payload)
+    if evidence is None:
+        with pytest.raises(CoreError) as error:
+            run(lambda client: xunhuisi.resolve(client, MID), handler)
+        assert error.value.code == ErrorCode.UPSTREAM_INVALID_RESPONSE
+    else:
+        assert run(lambda client: xunhuisi.resolve(client, MID), handler).evidence == evidence
 
 
 @pytest.mark.parametrize('status,mime,raw,valid',[(206,'audio/mpeg',b'ID3x',True),

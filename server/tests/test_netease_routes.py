@@ -116,6 +116,7 @@ def test_total_budget_cancels_current_route(monkeypatch):
 
 @pytest.mark.parametrize('failure,continues', [
     ('timeout', True), ('server_error', True), ('no_media', True),
+    ('wrong_id', True), ('hls', True), ('preview', False),
     ('endpoint_challenge', True), ('unknown_403', False), ('permission_json', False),
     ('json_with_challenge_header', False), ('html_without_challenge_header', False),
 ])
@@ -146,6 +147,12 @@ def test_gd_fault_scope_and_jfjt_fallback(monkeypatch, failure, continues, quali
                 return httpx.Response(503)
             if failure == 'no_media':
                 return httpx.Response(200, json={'id':167691,'url':''})
+            if failure == 'wrong_id':
+                return httpx.Response(200, json={'id':167692,'url':URL})
+            if failure == 'preview':
+                return httpx.Response(200, json={'id':167691,'url':'','freeTrialInfo':{'end':30}})
+            if failure == 'hls':
+                return httpx.Response(200, json={'id':167691,'url':URL+'.m3u8'})
             if failure == 'endpoint_challenge':
                 return httpx.Response(403, headers={'cf-mitigated':'challenge','content-type':'text/html; charset=UTF-8'}, text='<title>Just a moment...</title>')
             if failure == 'html_without_challenge_header':

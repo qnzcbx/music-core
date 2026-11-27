@@ -210,12 +210,7 @@ async fn backup(
         _ => return Err("capability_unsupported".into()),
     };
     let response = request.send().await.map_err(|_| "upstream_failure")?;
-    if response.status() == 403
-        && response
-            .headers()
-            .get("cf-mitigated")
-            .is_some_and(|v| v == "challenge")
-    {
+    if route == "gdstudio-preview" && common::is_endpoint_challenge(&response) {
         return Err("upstream_failure".into());
     }
     if matches!(response.status().as_u16(), 401 | 403) {

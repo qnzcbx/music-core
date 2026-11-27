@@ -6,7 +6,7 @@ from dataclasses import dataclass,field
 from urllib.parse import urlsplit
 import httpx
 from pydantic import SecretStr
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError, ErrorCode, UnsupportedRouteFormat, check_access
 from app.core.media_probe import QQ_ENCRYPTED_SUFFIXES
 
 
@@ -23,23 +23,10 @@ class RouteResult:
         return 'confirmed' if self.response_mid is not None else 'request_bound'
 
 
-class UnsupportedRouteFormat(CoreError):
-    def __init__(self):
-        super().__init__(ErrorCode.CAPABILITY_UNSUPPORTED)
-
-
-def check_access(payload):
-    if any(payload.get(field) in (301,401,403,'301','401','403') for field in ('code','status')):
-        raise CoreError(ErrorCode.ACCESS_DENIED)
-    for field in ('freeTrialInfo','freeListenType','drm','encrypted','requiresLogin','requiresPayment','regionBlocked'):
-        if payload.get(field) not in (None,False,0,'0'):
-            raise CoreError(ErrorCode.ACCESS_DENIED)
-
-
 def result(route,mid,payload):
     if not isinstance(payload,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
     check_access(payload)
-    fields=('song_mid','mid','songMID') if route=='vkeys' else ('song_mid','mid')
+    fields=('song_mid','mid','songMID') if route in ('vkeys','xunhuisi') else ('song_mid','mid')
     echoes=[payload[field] for field in fields if field in payload]
     if any(not isinstance(echo,str) or not echo or echo!=mid for echo in echoes):
         raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)

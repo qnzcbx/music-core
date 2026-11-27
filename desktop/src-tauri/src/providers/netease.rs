@@ -42,6 +42,10 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
     common::result(&rows, &data["result"]["songCount"], limit, page, candidate)
 }
 pub fn media(data: Value, id: &str) -> Result<String, String> {
+    if matches!(data["code"].as_i64(), Some(301 | 401 | 403)) {
+        return Err("auth_required".into());
+    }
+    common::check_access(&data)?;
     let data = check(data)?;
     let rows = data["data"].as_array().ok_or("upstream_invalid_response")?;
     if rows.len() != 1 || common::id(&rows[0]["id"]).as_deref() != Some(id) {
@@ -55,6 +59,7 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
     if !row["freeTrialInfo"].is_null() {
         return Err("preview_only".into());
     }
+    common::check_access(row)?;
     // -110 + 空链接是已观察到的原生取链失败。和 Python 一样，允许既有备用路线继续验证。
     if row["code"] == -110 && url.is_none() {
         return Err("anonymous_media_unavailable".into());

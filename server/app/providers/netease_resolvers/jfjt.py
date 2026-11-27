@@ -5,7 +5,7 @@ import re
 from urllib.parse import urlsplit
 import httpx
 from pydantic import SecretStr
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError, ErrorCode, UnsupportedRouteFormat, check_access
 
 
 async def resolve(client,song_id,*,quality=None):
@@ -25,10 +25,11 @@ async def resolve(client,song_id,*,quality=None):
             try:body=json.loads(raw)
             except (ValueError,UnicodeError):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
             if not isinstance(body,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-            if body.get('status') in (401,403,'401','403'):raise CoreError(ErrorCode.ACCESS_DENIED)
+            check_access(body)
             if body.get('success') is not True:raise CoreError(ErrorCode.UPSTREAM_FAILURE)
             data=body.get('data')
             if not isinstance(data,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+            check_access(data)
             echoed=data.get('id')
             if echoed is not None and (type(echoed) not in (str,int) or str(echoed)!=song_id):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
             url=data.get('url')
@@ -37,7 +38,8 @@ async def resolve(client,song_id,*,quality=None):
                 if not isinstance(url,str):raise ValueError()
                 parsed=urlsplit(url)
                 if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:raise ValueError()
-                if parsed.path.lower().endswith(('.m3u8','.mpd')):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                if parsed.path.lower().endswith('.ncm'):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                if parsed.path.lower().endswith(('.m3u8','.mpd')):raise UnsupportedRouteFormat()
             except ValueError:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
             return {'url':SecretStr(url),'evidence':'response_id_matched' if echoed is not None else 'request_bound',
                 'title':data.get('name'),'artist':data.get('ar_name')}

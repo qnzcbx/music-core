@@ -91,13 +91,24 @@ pub fn candidate(
     )
 }
 pub async fn bytes(request: reqwest::RequestBuilder) -> Result<Vec<u8>, String> {
-    let mut response = request.send().await.map_err(|e| {
+    let response = request.send().await.map_err(|e| {
         if e.is_timeout() {
             "upstream_timeout"
         } else {
             "upstream_failure"
         }
     })?;
+    response_bytes(response).await
+}
+
+pub(crate) fn is_endpoint_challenge(response: &reqwest::Response) -> bool {
+    response.status() == 403
+        && response.headers().get("cf-mitigated").is_some_and(|v| v == "challenge")
+        && response.headers().get("content-type").and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next()).is_some_and(|v| v.trim().eq_ignore_ascii_case("text/html"))
+}
+
+pub(crate) async fn response_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, String> {
     match response.status().as_u16() {
         200 => {}
         401 | 403 => return Err("access_denied".into()),
@@ -136,11 +147,44 @@ pub fn validate_media(source: &str, url: &str) -> Result<(), String> {
     {
         return Err("untrusted_media".into());
     }
-    if [".m3u8", ".mpd", ".mgg", ".mflac"]
+    if matches!(source, "qq" | "netease")
+        && [".m3u8", ".mpd"].iter().any(|suffix| url.path().to_lowercase().ends_with(suffix))
+    {
+        return Err("upstream_invalid_response".into());
+    }
+    if (source == "netease" && url.path().to_lowercase().ends_with(".ncm"))
+        || [".m3u8", ".mpd", ".mgg", ".mflac"]
         .iter()
         .any(|s| url.path().to_lowercase().ends_with(s))
     {
         return Err("capability_unsupported".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn check_access(data: &Value) -> Result<(), String> {
+    for field in ["code", "status"] {
+        if matches!(data[field].as_i64(), Some(301 | 401 | 403))
+            || matches!(data[field].as_str(), Some("301" | "401" | "403"))
+        {
+            return Err("access_denied".into());
+        }
+    }
+    for field in [
+        "freeTrialInfo",
+        "freeListenType",
+        "drm",
+        "encrypted",
+        "requiresLogin",
+        "requiresPayment",
+        "regionBlocked",
+    ] {
+        if data
+            .get(field)
+            .is_some_and(|v| !v.is_null() && v != false && v != 0 && v != "0")
+        {
+            return Err("access_denied".into());
+        }
     }
     Ok(())
 }

@@ -68,6 +68,7 @@ pub fn media(data: Value, id: &str) -> Result<String, String> {
     if matches!(row["result"].as_i64(), Some(301 | 401 | 403)) {
         return Err("access_denied".into());
     }
+    common::check_access(row)?;
     let purl = row["purl"]
         .as_str()
         .filter(|s| !s.is_empty())

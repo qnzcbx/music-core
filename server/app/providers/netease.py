@@ -10,7 +10,7 @@ import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
 from app.download_quality import requested, qualify
-from app.core.errors import CoreError,ErrorCode,may_try_another_route
+from app.core.errors import CoreError, ErrorCode, UnsupportedRouteFormat, check_access, may_try_another_route
 
 SEARCH_URL='https://music.163.com/api/cloudsearch/pc'
 PLAYER_URL='https://music.163.com/api/song/enhance/player/url'
@@ -66,7 +66,7 @@ class NeteaseProvider:
                 try:data=json.loads(body)
                 except (ValueError,UnicodeError):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
                 if not isinstance(data,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-                if data.get('code') in (301,401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
+                check_access(data)
                 if data.get('code')!=200:raise CoreError(ErrorCode.UPSTREAM_FAILURE)
                 return data
             finally:
@@ -127,12 +127,16 @@ class NeteaseProvider:
                         actual={a.strip().casefold() for a in re.split(r'[/,、，]',artist) if a.strip()} if isinstance(artist,str) else set()
                         if not actual or not actual<=expected:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
                     representation=await verify_media(self.client,candidate['url'].get_secret_value(),'netease',detail=options.purpose=='download')
-                    self.last_resolution={'resolver':route,'identity':candidate['evidence'],'scope':'configured_preview'}
                     media=ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=int(time()*1000),validUntil=None,
                         upstreamUrl=candidate['url'],headers={'User-Agent':'Mozilla/5.0'},representation=representation)
-                    return await qualify(self.client,media,quality)
+                    value=await qualify(self.client,media,quality)
+                    self.last_resolution={'resolver':route,'identity':candidate['evidence'],'scope':'configured_preview'}
+                    return value
                 except CoreError as error:
-                    if not may_try_another_route(error.code):raise
+                    if not (may_try_another_route(error.code)
+                            or error.code in (ErrorCode.UPSTREAM_INVALID_RESPONSE, ErrorCode.UNTRUSTED_MEDIA)
+                            or isinstance(error, UnsupportedRouteFormat)):
+                        raise
                     failure=error
             raise failure
         try:return await asyncio.wait_for(execute(),25)
@@ -147,6 +151,8 @@ class NeteaseProvider:
         rows=data.get('data')
         if not isinstance(rows,list) or len(rows)!=1 or not isinstance(rows[0],dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         row=rows[0]
+        if row.get('freeTrialInfo'):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        check_access(row)
         if song_id(row.get('id'))!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         if row.get('code') in (301,401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
         if row.get('code')==404:raise CoreError(ErrorCode.TRACK_NOT_FOUND)
@@ -155,15 +161,15 @@ class NeteaseProvider:
             error.platform_code=row.get('code') if type(row.get('code'))is int else None
             raise error
         if not row.get('url'):raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
-        # 试听截取不能静默伪装成完整录音；不推断空URL的会员原因。
-        if row.get('freeTrialInfo'):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         now=int(time()*1000)
         expiry=row.get('expi')
         valid_until=now+expiry*1000 if type(expiry)is int and 0<expiry<=86400 else None
         size=row.get('size');bitrate=row.get('br')
         try:
-            if isinstance(row['url'],str) and urlsplit(row['url']).path.lower().endswith(('.m3u8','.mpd')):
-                raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+            if isinstance(row['url'],str):
+                path=urlsplit(row['url']).path.lower()
+                if path.endswith('.ncm'):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                if path.endswith(('.m3u8','.mpd')):raise UnsupportedRouteFormat()
             return ResolvedMedia(id=uuid4().hex,identity=identity,resolvedAt=now,validUntil=valid_until,
                 upstreamUrl=row['url'],headers=HEADERS,
                 representation=MediaRepresentation(providerQualityId='standard',

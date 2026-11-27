@@ -23,8 +23,24 @@ pub struct Grant {
     pub route: String,
     #[serde(default)]
     pub tracks: Option<Vec<String>>,
-    #[serde(default)]
-    allow_request_bound: bool,
+    #[serde(default, deserialize_with = "deserialize_request_bound")]
+    allow_request_bound: Option<bool>,
+}
+
+fn deserialize_request_bound<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
+}
+
+impl Grant {
+    fn is_xunhuisi(&self) -> bool {
+        self.provider == "qq" && self.route == "xunhuisi"
+    }
+
+    fn allows_request_bound(&self) -> bool {
+        self.is_xunhuisi() && self.allow_request_bound.unwrap_or(true)
+    }
 }
 
 impl Default for Config {
@@ -37,7 +53,7 @@ impl Default for Config {
                         provider: (*source).into(),
                         route: (*route).into(),
                         tracks: None,
-                        allow_request_bound: false,
+                        allow_request_bound: None,
                     })
                 })
                 .collect(),
@@ -66,8 +82,7 @@ impl Config {
                 .map(|(_, routes)| *routes)
                 .unwrap_or(&[]);
             if !allowed.contains(&grant.route.as_str())
-                || (grant.allow_request_bound
-                    && (grant.provider != "qq" || grant.route != "xunhuisi"))
+                || (grant.allow_request_bound == Some(true) && !grant.is_xunhuisi())
                 || !seen.insert((&grant.provider, &grant.route))
                 || grant.tracks.as_ref().is_some_and(|tracks| {
                     tracks
@@ -116,7 +131,7 @@ where
 {
     let mut last = match native().await {
         Ok(media) => return Ok((media, "native".into())),
-        Err(error) if error == "anonymous_media_unavailable" => error,
+        Err(error) if may_try_another_route(&error) => error,
         Err(error) => return Err(error),
     };
     for route in routes {
@@ -161,7 +176,7 @@ pub async fn resolve(
                     .build()
                     .map_err(|_| "upstream_failure")?;
                 let allow_request_bound = config.routes.iter().any(|grant| {
-                    grant.provider == source && grant.route == route && grant.allow_request_bound
+                    grant.provider == source && grant.route == route && grant.allows_request_bound()
                 });
                 backup(&external, source, id, &route, allow_request_bound).await
             },
@@ -173,35 +188,13 @@ pub async fn resolve(
 }
 
 pub(crate) fn permitted(data: &Value) -> Result<(), String> {
-    for field in ["code", "status"] {
-        if matches!(data[field].as_i64(), Some(301 | 401 | 403))
-            || matches!(data[field].as_str(), Some("301" | "401" | "403"))
-        {
-            return Err("access_denied".into());
-        }
-    }
+    common::check_access(data)?;
     if data.get("code").is_some_and(|code| {
         !code.is_null()
             && !matches!(code.as_i64(), Some(0 | 200))
             && !matches!(code.as_str(), Some("0" | "200"))
     }) {
         return Err("upstream_failure".into());
-    }
-    for field in [
-        "freeTrialInfo",
-        "freeListenType",
-        "drm",
-        "encrypted",
-        "requiresLogin",
-        "requiresPayment",
-        "regionBlocked",
-    ] {
-        if data
-            .get(field)
-            .is_some_and(|v| !v.is_null() && v != false && v != 0 && v != "0")
-        {
-            return Err("access_denied".into());
-        }
     }
     Ok(())
 }
@@ -304,15 +297,14 @@ fn parse(
     } else {
         return Err("source_verification_failed".into());
     };
-    let title = if is_xunhuisi {
-        payload.get("title")
-    } else {
-        payload
-            .get("song_name")
-            .or(payload.get("title"))
-            .or(payload.get("name"))
-    };
-    if let Some(title) = title.and_then(Value::as_str) {
+    let title = payload
+        .get("song_name")
+        .or(payload.get("title"))
+        .or(payload.get("name"));
+    if let Some(title) = title
+        .and_then(Value::as_str)
+        .filter(|_| source != "qq")
+    {
         if ["伴奏", "伴唱", "翻唱", "live", "现场"]
             .iter()
             .any(|word| title.to_lowercase().contains(word))
@@ -371,7 +363,16 @@ async fn backup(
             .form(&[("url", id), ("level", "standard"), ("type", "json")]),
         _ => return Err("invalid_input".into()),
     };
-    let data = common::json(request).await?;
+    let data = if route == "gdstudio-preview" {
+        let response = request.send().await.map_err(|_| "upstream_failure")?;
+        if common::is_endpoint_challenge(&response) {
+            return Err("upstream_failure".into());
+        }
+        serde_json::from_slice(&common::response_bytes(response).await?)
+            .map_err(|_| "upstream_invalid_response")?
+    } else {
+        common::json(request).await?
+    };
     let (url, evidence) = parse(source, route, id, &data, allow_request_bound)?;
     probe(client, &url).await?;
     Ok((
@@ -455,6 +456,12 @@ mod tests {
             super::parse("qq", "xunhuisi", id, &data, true).unwrap().1,
             IdentityEvidence::RequestBound
         );
+        let mut live = data.clone();
+        live["title"] = json!("晴天 Live");
+        assert_eq!(
+            super::parse("qq", "xunhuisi", id, &live, true).unwrap().1,
+            IdentityEvidence::RequestBound
+        );
         let mut confirmed = data.clone();
         confirmed["song_mid"] = json!(id);
         assert_eq!(
@@ -469,7 +476,6 @@ mod tests {
             ("mid", json!("other")),
             ("mid", json!(null)),
             ("mid", json!(123)),
-            ("title", json!("晴天 Live")),
             ("title", json!(false)),
             ("singer", json!("  ")),
             ("link", json!(null)),
@@ -657,7 +663,7 @@ mod tests {
         for result in [
             Ok(123),
             Err("access_denied".into()),
-            Err("upstream_failure".into()),
+            Err("preview_only".into()),
         ] {
             let calls = Arc::new(AtomicUsize::new(0));
             let count = calls.clone();
@@ -681,6 +687,7 @@ mod tests {
     async fn netease_empty_minus_110_can_reach_verified_backup() {
         for (id, code, trial, expected) in [
             ("30612793", -110, Value::Null, true),
+            ("30612793", 500, Value::Null, true),
             ("2083785152", -110, Value::Null, true),
             ("30612793", 403, Value::Null, false),
             ("30612793", 200, json!({"start":0,"end":30}), false),
@@ -700,6 +707,45 @@ mod tests {
             assert_eq!(result.is_ok(), expected, "{id}: {result:?}");
         }
     }
+    #[test]
+    fn qq_matching_mid_accepts_requested_version() {
+        let id = "0039MnYb0qxYhV";
+        let url = "https://aqqmusic.tc.qq.com/fixture.m4a";
+        for title in ["晴天 Live", "晴天（现场）", "晴天伴奏", "晴天翻唱"] {
+            let data = json!({"song_mid":id,"song_name":title,"song_play_url":url});
+            assert!(parse("qq", "tang", id, &data).is_ok());
+            let data = json!({"mid":id,"title":title,"music_url":url});
+            assert!(parse("qq", "xunhuisi", id, &data).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn default_qq_chain_reaches_request_bound_after_technical_failures() {
+        let config = Config::default();
+        let id = "0039MnYb0qxYhV";
+        let data = json!({"title":"晴天", "singer":"周杰伦",
+            "link":format!("https://y.qq.com/n/ryqq/songDetail/{id}"),
+            "music_url":"https://aqqmusic.tc.qq.com/fixture.m4a"});
+        let (evidence, route) = choose(
+            || async { Err("upstream_timeout".into()) },
+            &config.routes("qq", id),
+            |route| {
+                let result = match route.as_str() {
+                    "vkeys" => Err("source_verification_failed".into()),
+                    "tang" => Err("upstream_timeout".into()),
+                    _ => {
+                        let allow = config.routes.iter().any(|grant| grant.allows_request_bound());
+                        super::parse("qq", &route, id, &data, allow).map(|(_, evidence)| evidence)
+                    }
+                };
+                async { result }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(route, "xunhuisi");
+        assert_eq!(evidence, IdentityEvidence::RequestBound);
+    }
     #[tokio::test]
     async fn timeout_has_a_bounded_end() {
         let value = choose(
@@ -712,6 +758,24 @@ mod tests {
         .await;
         assert_eq!(value.unwrap_err(), "upstream_timeout");
     }
+    #[test]
+    fn xunhuisi_request_binding_configuration() {
+        let defaults = Config::default();
+        for grant in &defaults.routes {
+            assert_eq!(
+                grant.allows_request_bound(),
+                grant.provider == "qq" && grant.route == "xunhuisi"
+            );
+        }
+        for (setting, expected) in [("", true), (r#", "allow_request_bound": false"#, false)] {
+            let config = Config::parse(&format!(
+                r#"{{"routes":[{{"provider":"qq","route":"xunhuisi"{setting}}}]}}"#
+            ))
+            .unwrap();
+            assert_eq!(config.routes[0].allows_request_bound(), expected);
+        }
+    }
+
     #[test]
     fn builtin_defaults_and_explicit_overrides() {
         let config = Config::default();
@@ -794,7 +858,7 @@ mod tests {
             "qq",
             "tang",
             "123",
-            &json!({"song_mid":"123","song_name":"原曲 Live","song_play_url":url})
+            &json!({"song_mid":"999","song_name":"原曲 Live","song_play_url":url})
         )
         .is_err());
         assert!(parse(
@@ -951,6 +1015,7 @@ mod tests {
             ("qq", "0027oMO61wWi55"),
             ("qq", "0037WF7I0yUPLu"),
             ("qq", "0039MnYb0qxYhV"),
+            ("qq", "004Fs2FP1EvZYc"),
             ("netease", "2668397359"),
             ("netease", "186016"),
         ] {
