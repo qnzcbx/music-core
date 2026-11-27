@@ -8,7 +8,6 @@ import re
 import stat
 import hashlib
 import ipaddress
-import json
 import logging
 import threading
 import unicodedata
@@ -204,7 +203,7 @@ class DownloadManager:
         self.root = Path(settings.directory).resolve()
         self.index = DownloadIndex(settings.data_directory or self.root.parent / ('.music-core-data-' + hashlib.sha256(str(self.root).encode()).hexdigest()[:16]))
         if settings.local_mode:
-            self.index.libraries(self.root, ROOT.resolve()) if settings.data_directory else self.index.libraries(self.root)
+            self.index.libraries(self.root)
         self.jobs = {}
         self.slots = asyncio.Semaphore(settings.concurrency)
         self.conversion_slots = asyncio.Semaphore(1)
@@ -246,32 +245,6 @@ class DownloadManager:
     def fingerprint(self, path, info):
         value = (str(path.parent), path.name, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         return hashlib.sha256(repr(value).encode('utf-8')).hexdigest()
-
-    def hidden(self, root=None):
-        path = (root or self.root) / '.music-core-hidden.json'
-        if not path.exists(): return set()
-        info = path.lstat()
-        if path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400 or not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
-            raise OSError('隐藏索引不可读')
-        try:
-            data = json.loads(path.read_text(encoding='utf-8'))
-            if data.get('version') != 1 or not isinstance(data.get('hidden'), list): raise ValueError()
-            if any(not isinstance(x, str) or not re.fullmatch('[0-9a-f]{64}', x) for x in data['hidden']): raise ValueError()
-            return set(data['hidden'])
-        except (ValueError, AttributeError): raise OSError('隐藏索引损坏') from None
-
-    def write_hidden(self, identifiers):
-        temporary = self.root / ('.music-core-hidden-' + uuid4().hex + '.tmp')
-        content = json.dumps({'version': 1, 'hidden': sorted(identifiers)})
-        if len(content.encode('utf-8')) > 1048576: raise OSError('隐藏索引容量已满')
-        try:
-            with temporary.open('x', encoding='utf-8') as output:
-                output.write(content)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, self.root / '.music-core-hidden.json')
-        finally:
-            temporary.unlink(missing_ok=True)
 
     def snapshots(self):
         for root in self.index.libraries():
@@ -317,14 +290,12 @@ class DownloadManager:
         output = []
         try:
             with self.file_lock:
-                hidden = self.hidden()
                 for path, info, kind in self.snapshots():
                     identifier = self.fingerprint(path, info)
                     if self.index.resolve(identifier) != identifier:
                         continue
                     metadata, indexed_hidden = self.index.metadata(identifier)
-                    legacy_hidden = self.hidden(path.parent)
-                    if identifier not in hidden and identifier not in legacy_hidden and not indexed_hidden:
+                    if not indexed_hidden:
                         output.append(SavedDownloadFile(fileId=self.index.public_id(identifier),filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000), **metadata))
             return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
         except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
@@ -339,12 +310,9 @@ class DownloadManager:
                 if self.fingerprint(path, path.lstat()) != identifier: raise FileNotFoundError()
                 self.unlink_file(path, identifier)
             else:
-                if path.parent == self.root:
-                    hidden = self.hidden()
-                    hidden.add(identifier)
-                    self.write_hidden(hidden)
-                else:
-                    self.index.hide(identifier)
+                if self.fingerprint(path, path.lstat()) != identifier:
+                    raise FileNotFoundError()
+                self.index.hide(identifier)
 
     def unlink_file(self, path, identifier):
         """Windows 在经过验证的句柄上删除，避免检查后同名替换的竞态。"""

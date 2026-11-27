@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import shutil
+import pytest
 
 from app.downloads import DownloadManager, DownloadSettings, DownloadTask, Job
 from app.models import TrackIdentity, MediaRepresentation
@@ -29,7 +30,6 @@ def test_libraries_identity_metadata_and_missing(tmp_path):
     assert old.exists()
     assert row.fileId not in {r.fileId for r in manager(b, data).files()}
     old.unlink()
-    import pytest
     with pytest.raises(FileNotFoundError):
         second.find_file(row.fileId)
     other = next(r for r in second.files() if r.filename == old.name)
@@ -79,3 +79,40 @@ def test_naming_publish_and_restart(tmp_path):
     assert restarted.index.naming() == 'title_artist'
     assert all(r.album == '专辑' for r in restarted.files() if r.filename.startswith(('歌名', '歌手')))
     assert safe_cover('https://example.test/a.jpg?token=secret') is None
+
+
+def test_current_schema_and_hidden_survive_reregistration(tmp_path):
+    from app.download_index import DownloadIndex
+    index = DownloadIndex(tmp_path)
+    with index.connect() as db:
+        assert {row[1] for row in db.execute('PRAGMA table_info(files)')} == {
+            'id', 'path', 'metadata', 'hidden', 'published',
+        }
+    path = tmp_path / 'audio.mp3'
+    index.record('scanned', path)
+    index.hide('scanned')
+    index.naming('title_artist')
+    index.setting('directory', str(tmp_path))
+    reopened = DownloadIndex(tmp_path)
+    reopened.record('scanned', path)
+    reopened.record('scanned', path, {'title': 'fixture'}, published=True)
+    assert reopened.metadata('scanned') == ({'title': 'fixture'}, True)
+    assert len(reopened.published()) == 1
+    assert reopened.naming() == 'title_artist'
+    assert reopened.setting('directory') == str(tmp_path)
+    with pytest.raises(OSError, match='索引记录'):
+        reopened.hide('missing')
+
+
+def test_old_schema_rejected_without_modification(tmp_path):
+    import sqlite3
+    from contextlib import closing
+    from app.download_index import DownloadIndex
+    path = tmp_path / 'downloads.sqlite3'
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute('CREATE TABLE files (id TEXT PRIMARY KEY, path TEXT, metadata TEXT, hidden INTEGER)')
+        db.execute("INSERT INTO files VALUES ('old', 'song.mp3', '{}', 1)")
+    before = path.read_bytes()
+    with pytest.raises(OSError, match='不受支持的旧结构'):
+        DownloadIndex(tmp_path)
+    assert path.read_bytes() == before

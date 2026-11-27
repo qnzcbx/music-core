@@ -128,21 +128,41 @@ def test_real_symlink_rejected(tmp_path):
     assert manager(root).files() == [] and outside.read_bytes() == b'ID3private'
 
 
-def test_atomic_index_failure_and_concurrent_hides(tmp_path, monkeypatch):
+def test_concurrent_hides(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
-    import app.downloads as downloads
     for i in range(6): (tmp_path / f'{i}.mp3').write_bytes(b'ID3test')
     m = manager(tmp_path); identifiers = [f.fileId for f in m.files()]
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(lambda value: m.remove_file(value, False), identifiers))
     assert manager(tmp_path).files() == []
-    (tmp_path / 'new.mp3').write_bytes(b'ID3new')
-    identifier = m.files()[0].fileId
-    def denied(*args): raise PermissionError()
-    monkeypatch.setattr(downloads.os, 'replace', denied)
-    with pytest.raises(PermissionError): m.remove_file(identifier, False)
-    assert len(manager(tmp_path).files()) == 1
-    assert not list(tmp_path.glob('*.tmp'))
+    assert not list(tmp_path.glob('.music-core-hidden*'))
+
+
+def test_hide_write_failure_keeps_file_and_reports_failure(local):
+    client, identifier, root, app = local
+    target = root / '甲.mp3'
+    original = target.read_bytes()
+    with app.state.downloads.index.connect() as db:
+        db.execute('''
+            CREATE TRIGGER reject_hide BEFORE UPDATE OF hidden ON files
+            BEGIN SELECT RAISE(ABORT, 'test write failure'); END
+        ''')
+    response = client.post(f'/api/downloads/files/{identifier}/remove', json={})
+    assert response.status_code == 503
+    assert client.get('/api/downloads/files').json()[0]['fileId'] == identifier
+    assert target.read_bytes() == original
+
+
+def test_old_hidden_json_is_ignored_and_preserved(local):
+    import json
+    client, identifier, root, _ = local
+    legacy = root / '.music-core-hidden.json'
+    old_data = json.dumps({'version': 1, 'hidden': [identifier]})
+    legacy.write_text(old_data, encoding='utf-8')
+    assert client.get('/api/downloads/files').json()[0]['fileId'] == identifier
+    assert client.post(f'/api/downloads/files/{identifier}/remove', json={}).status_code == 200
+    assert client.get('/api/downloads/files').json() == []
+    assert legacy.read_text(encoding='utf-8') == old_data
 
 
 def test_bounded_stream_cancel_releases_handle(tmp_path):

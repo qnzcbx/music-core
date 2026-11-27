@@ -30,14 +30,18 @@ def system_folder(name):
         ctypes.windll.ole32.CoTaskMemFree(result)
 
 
-def initial_directory(data, legacy, override=None):
+def initial_directory(data, default_directory, override=None):
     from app.download_index import DownloadIndex
     if override is not None and not override.strip():
         raise ValueError('音乐库目录不能为空')
-    existed = (Path(data) / 'downloads.sqlite3').exists()
     index = DownloadIndex(data)
     saved = index.setting('directory')
-    selected = Path(override) if override is not None else Path(saved) if saved else legacy if existed or legacy.exists() else system_folder('music') if os.name == 'nt' else legacy
+    if override is not None:
+        selected = Path(override)
+    elif saved:
+        selected = Path(saved)
+    else:
+        selected = system_folder('music') if os.name == 'nt' else default_directory
     if override is not None or not saved:
         index.setting('directory', str(selected.resolve()))
     return selected
@@ -123,14 +127,13 @@ class LibraryManager:
         output = []
         for identifier, path, raw, hidden in m.index.published():
             metadata = json.loads(raw)
-            # 06 只有 publish 会写这些元数据；扫描记录为 {}，不能当下载来源。
-            if not metadata or m.index.resolve(identifier) != identifier:
+            if m.index.resolve(identifier) != identifier:
                 continue
             try:
-                source, info, _ = m.find_file(identifier)
+                source, _, _ = m.find_file(identifier)
             except FileNotFoundError:
                 continue
-            output.append((identifier, source, metadata, hidden or identifier in m.hidden(source.parent)))
+            output.append((identifier, source, metadata, hidden))
         return output
 
     def change(self, target, migrate):
