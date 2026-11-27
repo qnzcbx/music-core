@@ -14,7 +14,7 @@ def satisfies(rep,quality):
     if quality in (None,'auto'):return True
     if quality=='lossless':return rep.lossless is True and rep.codec in ('flac','alac')
     if quality=='high':return rep.lossless is True or rep.bitrateBps is not None and rep.bitrateBps>=188160
-    return rep.lossless is False and rep.bitrateBps is not None and rep.bitrateBps<=160000
+    return rep.lossless is False and rep.bitrateBps is not None and rep.bitrateBps>0
 
 async def qualify(client,media,quality):
     if quality is None:return media

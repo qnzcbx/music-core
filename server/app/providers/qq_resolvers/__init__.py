@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import SecretStr
 from app.core.errors import CoreError,ErrorCode
+from app.core.media_probe import QQ_ENCRYPTED_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -22,19 +23,36 @@ class RouteResult:
         return 'confirmed' if self.response_mid is not None else 'request_bound'
 
 
+class UnsupportedRouteFormat(CoreError):
+    def __init__(self):
+        super().__init__(ErrorCode.CAPABILITY_UNSUPPORTED)
+
+
+def check_access(payload):
+    if any(payload.get(field) in (301,401,403,'301','401','403') for field in ('code','status')):
+        raise CoreError(ErrorCode.ACCESS_DENIED)
+    for field in ('freeTrialInfo','freeListenType','drm','encrypted','requiresLogin','requiresPayment','regionBlocked'):
+        if payload.get(field) not in (None,False,0,'0'):
+            raise CoreError(ErrorCode.ACCESS_DENIED)
+
+
 def result(route,mid,payload):
     if not isinstance(payload,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-    echoed=payload.get('song_mid') or payload.get('mid')
-    if echoed is not None and echoed!=mid:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
+    check_access(payload)
+    fields=('song_mid','mid','songMID') if route=='vkeys' else ('song_mid','mid')
+    echoes=[payload[field] for field in fields if field in payload]
+    if any(not isinstance(echo,str) or not echo or echo!=mid for echo in echoes):
+        raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
     url=payload.get('url')
     if not url:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
     try:
         if not isinstance(url,str):raise ValueError()
         parsed=urlsplit(url)
         if parsed.scheme not in ('https','http') or not parsed.hostname or parsed.username or parsed.password:raise ValueError()
-        if parsed.path.lower().endswith(('.m3u8','.mpd')):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if parsed.path.lower().endswith(QQ_ENCRYPTED_SUFFIXES):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+        if parsed.path.lower().endswith(('.m3u8','.mpd')):raise UnsupportedRouteFormat()
     except ValueError:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
-    return RouteResult(route,SecretStr(url),echoed,
+    return RouteResult(route,SecretStr(url),mid if echoes else None,
         payload.get('song_name'),payload.get('singer_name'))
 
 
@@ -56,7 +74,7 @@ async def request_json(client,request):
             try:data=json.loads(raw)
             except (ValueError,UnicodeError):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
             if not isinstance(data,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-            if data.get('code') in (401,403,'401','403'):raise CoreError(ErrorCode.ACCESS_DENIED)
+            check_access(data)
             if data.get('code') not in (None,0,200,'0','200'):raise CoreError(ErrorCode.UPSTREAM_FAILURE)
             return data
         finally:

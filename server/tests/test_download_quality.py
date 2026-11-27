@@ -31,7 +31,7 @@ def test_no_suffix_or_id3_or_container_quality_inference():
         assert not satisfies(inspect_audio(data),'lossless')
     assert not satisfies(inspect_audio(mp3(True)),'lossless')
 
-@pytest.mark.parametrize('quality,raw,success',[('standard',mp3(),True),('high',mp3(True),True),('lossless',mp3(True),False),('lossless',flac(),True),('high',mp3(),False)])
+@pytest.mark.parametrize('quality,raw,success',[('standard',mp3(),True),('standard',mp3(True),True),('high',mp3(True),True),('lossless',mp3(True),False),('lossless',flac(),True),('high',mp3(),False)])
 def test_manager_checks_real_bytes_and_cleanup(tmp_path,quality,raw,success):
     async def scenario():
         build,calls,_=setup(tmp_path,Stream(raw),{'content-length':str(len(raw))})
@@ -210,3 +210,9 @@ def test_probe_reports_entity_total_not_received_prefix(monkeypatch, status, hea
             result = await probe.verify_media(client, 'https://cdn.test/media', detail=True)
             assert result.codec == 'flac' and result.sizeBytes == total
     asyncio.run(scenario())
+
+
+def test_standard_accepts_observed_lossy_aac_without_marking_it_lossless():
+    aac = MediaRepresentation(codec='aac', lossless=False, sampleRateHz=44100, bitrateBps=191800)
+    assert satisfies(aac, 'standard')
+    assert not satisfies(aac, 'lossless')

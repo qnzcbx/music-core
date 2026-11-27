@@ -101,3 +101,36 @@ pub async fn resolve(client: &reqwest::Client, id: &str) -> Result<String, Strin
         id,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anonymous_media_requires_matching_identity_and_respects_denial() {
+        let id = "0039MnYb0qxYhV";
+        let data = |purl, result| {
+            json!({
+                "code": 0,
+                "req_0": {"code": 0, "data": {
+                    "sip": ["https://stream.qqmusic.qq.com/"],
+                    "midurlinfo": [{"songmid": id, "result": result, "purl": purl, "wifiurl": ""}],
+                }},
+            })
+        };
+
+        assert!(media(data("fixture.mp3", 0), id).is_ok());
+        assert_eq!(
+            media(data("", 104003), id).unwrap_err(),
+            "anonymous_media_unavailable"
+        );
+        assert_eq!(
+            media(data("fixture.mp3", 403), id).unwrap_err(),
+            "access_denied"
+        );
+        assert_eq!(
+            media(data("fixture.mp3", 0), "wrongMID").unwrap_err(),
+            "source_verification_failed"
+        );
+    }
+}

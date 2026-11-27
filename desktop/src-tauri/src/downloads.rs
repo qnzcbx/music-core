@@ -1192,16 +1192,6 @@ impl Downloads {
         }
         self.update(id, json!({"phase":"verifying"}));
         let rep = crate::download_media::inspect_original(part, &r.quality)?;
-        // 仅明确标准档要求 128k；自动和其他显式档由实际表示匹配。
-        if r.identity["providerId"] == "kuwo"
-            && r.quality == "standard"
-            && (rep["codec"] != "mp3"
-                || !rep["bitrateBps"]
-                    .as_u64()
-                    .is_some_and(|n| n.abs_diff(128000) <= 1000))
-        {
-            return Err("media_unavailable".into());
-        }
         let mode = self.jobs.lock().unwrap()[id].public["outputMode"]
             .as_str()
             .unwrap_or("original")

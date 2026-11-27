@@ -15,7 +15,7 @@ pub fn satisfies(rep: &Value, quality: &str) -> bool {
     let bitrate = rep["bitrateBps"].as_u64();
     match quality {
         "auto" => true,
-        "standard" => rep["lossless"] == false && bitrate.is_some_and(|n| n > 0 && n <= 160000),
+        "standard" => rep["lossless"] == false && bitrate.is_some_and(|n| n > 0),
         "high" => rep["lossless"] == true || bitrate.is_some_and(|n| n >= 188160),
         "lossless" => rep["lossless"] == true,
         _ => false,
@@ -239,6 +239,9 @@ mod tests {
         let a = json!({"codec":"aac","lossless":false,"bitrateBps":128000});
         assert!(satisfies(&a, "standard"));
         assert!(!satisfies(&a, "high"));
+        let aac_192 = json!({"codec":"aac","lossless":false,"bitrateBps":191800});
+        assert!(satisfies(&aac_192, "standard"));
+        assert!(!satisfies(&aac_192, "lossless"));
         let f = json!({"codec":"flac","lossless":true});
         assert!(satisfies(&f, "high"));
         assert!(satisfies(&f, "lossless"));

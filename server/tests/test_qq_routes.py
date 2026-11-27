@@ -26,7 +26,8 @@ def test_disabled_external_cannot_make_requests():
     asyncio.run(execute())
 
 @pytest.mark.parametrize('code,continues',[(ErrorCode.UPSTREAM_FAILURE,True),(ErrorCode.UPSTREAM_TIMEOUT,True),
-    (ErrorCode.MEDIA_UNAVAILABLE,True),(ErrorCode.ACCESS_DENIED,False),(ErrorCode.UPSTREAM_INVALID_RESPONSE,False)])
+    (ErrorCode.MEDIA_UNAVAILABLE,True),(ErrorCode.ACCESS_DENIED,False),(ErrorCode.UPSTREAM_INVALID_RESPONSE,True),
+    (ErrorCode.UNTRUSTED_MEDIA,True),(ErrorCode.CAPABILITY_UNSUPPORTED,False)])
 def test_order_and_failure_boundary(code,continues):
     async def execute():
         calls=[]
@@ -83,4 +84,34 @@ def test_total_budget_cancel_and_no_continuation():
         p._resolve_route=failed;calls.clear()
         with pytest.raises(CoreError):await p.resolve(TRACK)
         assert calls==['vkeys']
+    asyncio.run(execute())
+
+
+@pytest.mark.parametrize(('suffix', 'next_route'), [('.m3u8', True), ('.mpd', True), ('.mflac', False)])
+def test_format_failure_only_falls_back_for_unprotected_protocol(suffix, next_route):
+    from app.providers.qq_resolvers import result
+
+    async def execute():
+        calls = []
+        class Fixture(QQProvider):
+            available_routes = ('vkeys', 'official')
+
+            async def _resolve_route(self, route, identity, options):
+                calls.append(route)
+                if route == 'vkeys':
+                    result(route, identity.platformId, {
+                        'songMID': identity.platformId,
+                        'url': 'https://aqqmusic.tc.qq.com/fixture' + suffix,
+                    })
+                return media().model_copy(update={'identity': identity})
+
+        provider = Fixture(None, route_order=('vkeys', 'official'))
+        if next_route:
+            assert (await provider.resolve(TRACK)).identity == TRACK
+        else:
+            with pytest.raises(CoreError) as error:
+                await provider.resolve(TRACK)
+            assert error.value.code == ErrorCode.CAPABILITY_UNSUPPORTED
+        assert calls == (['vkeys', 'official'] if next_route else ['vkeys'])
+
     asyncio.run(execute())

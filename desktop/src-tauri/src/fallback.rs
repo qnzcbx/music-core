@@ -193,6 +193,28 @@ pub(crate) fn permitted(data: &Value) -> Result<(), String> {
     Ok(())
 }
 
+// vkeys 使用区分大小写的 songMID。多个身份字段必须相互一致。
+pub(crate) fn response_identity_matches(
+    source: &str,
+    route: &str,
+    payload: &Value,
+    id: &str,
+) -> Result<bool, String> {
+    let fields: &[&str] = match (source, route) {
+        ("qq", "vkeys") => &["songMID", "song_mid", "mid"],
+        ("qq", _) => &["song_mid", "mid"],
+        _ => &["id"],
+    };
+    let mut present = false;
+    for value in fields.iter().filter_map(|field| payload.get(*field)) {
+        if common::id(value).as_deref() != Some(id) {
+            return Err("source_verification_failed".into());
+        }
+        present = true;
+    }
+    Ok(present)
+}
+
 pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String, String> {
     permitted(data)?;
     let payload = match route {
@@ -204,12 +226,7 @@ pub fn parse(source: &str, route: &str, id: &str, data: &Value) -> Result<String
         return Err("upstream_failure".into());
     }
     // 请求里的 ID 或详情链接回显不算响应身份；URL-only 不准进入桌面播放器。
-    let echoed = if source == "qq" {
-        payload.get("song_mid").or(payload.get("mid"))
-    } else {
-        payload.get("id")
-    };
-    if echoed.and_then(common::id).as_deref() != Some(id) {
+    if !response_identity_matches(source, route, payload, id)? {
         return Err("source_verification_failed".into());
     }
     if let Some(title) = payload
@@ -342,6 +359,70 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    #[test]
+    fn vkeys_uses_returned_song_mid_and_rejects_conflicting_evidence() {
+        let id = "0039MnYb0qxYhV";
+        // 复现上游 data 的字段形状，媒体地址使用测试占位。
+        for (quality, ext) in [("auto", "flac"), ("standard", "m4a")] {
+            let fixture = serde_json::json!({
+                "code": 0,
+                "data": {
+                    "songID": 123,
+                    "songMID": id,
+                    "kbps": null,
+                    "link": null,
+                    "url": format!("https://stream.qqmusic.qq.com/fixture.{ext}"),
+                },
+            });
+            assert!(parse("qq", "vkeys", id, &fixture).is_ok(), "{quality}");
+            assert!(
+                crate::download_resolver::parse("qq", "vkeys", id, &fixture, "晴天", "周杰伦")
+                    .is_ok(),
+                "{quality}"
+            );
+
+            let mut missing = fixture.clone();
+            missing["data"].as_object_mut().unwrap().remove("songMID");
+            assert_eq!(
+                parse("qq", "vkeys", id, &missing).unwrap_err(),
+                "source_verification_failed"
+            );
+
+            let mut wrong = fixture.clone();
+            wrong["data"]["songMID"] = serde_json::json!("wrongMID");
+            for response in [wrong.clone(), {
+                wrong["data"]["song_mid"] = serde_json::json!(id);
+                wrong
+            }] {
+                assert_eq!(
+                    parse("qq", "vkeys", id, &response).unwrap_err(),
+                    "source_verification_failed"
+                );
+                assert_eq!(
+                    crate::download_resolver::parse("qq", "vkeys", id, &response, "晴天", "周杰伦")
+                        .unwrap_err(),
+                    "source_verification_failed",
+                );
+            }
+
+            let mut restricted = fixture;
+            restricted["data"]["freeTrialInfo"] = serde_json::json!({"limited": true});
+            assert_eq!(
+                parse("qq", "vkeys", id, &restricted).unwrap_err(),
+                "access_denied"
+            );
+        }
+
+        let only_vkeys_field = serde_json::json!({
+            "songMID": id,
+            "song_play_url": "https://stream.qqmusic.qq.com/fixture.mp3",
+        });
+        assert_eq!(
+            parse("qq", "tang", id, &only_vkeys_field).unwrap_err(),
+            "source_verification_failed",
+        );
+    }
+
     #[test]
     fn shared_route_policy_stops_on_authorization_and_invalid_input() {
         let rows: Vec<Value> = serde_json::from_str(include_str!(

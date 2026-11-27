@@ -249,14 +249,7 @@ pub fn parse(
     if route == "jfjt" && data["success"] != true {
         return Err("upstream_failure".into());
     }
-    let echoed = if source == "qq" {
-        payload.get("song_mid").or(payload.get("mid"))
-    } else {
-        payload.get("id")
-    };
-    if echoed.is_some_and(|v| common::id(v).as_deref() != Some(id)) {
-        return Err("source_verification_failed".into());
-    }
+    let identity_confirmed = fallback::response_identity_matches(source, route, payload, id)?;
     // 与 Python 启动配置一致，允许精确 ID 请求绑定；有回显时必须匹配，另核对版本元数据和整文件时长。
     if matches!(route, "tang" | "xunhuisi" | "jfjt") {
         let (name, singer) = match route {
@@ -290,7 +283,7 @@ pub fn parse(
                 }
             }
         }
-        if route == "tang" && echoed.is_none() {
+        if route == "tang" && !identity_confirmed {
             return Err("source_verification_failed".into());
         }
     }

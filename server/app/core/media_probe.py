@@ -1,10 +1,12 @@
 """发布前的有界媒体检查，按来源使用现有目标规则。"""
-from urllib.parse import urljoin
+from urllib.parse import urljoin,urlsplit
 import re
 import httpx
 from app.media_stream import validate_target
 from app.core.errors import CoreError,ErrorCode
 from app.models import MediaRepresentation
+
+QQ_ENCRYPTED_SUFFIXES=('.mgg','.mflac')
 
 
 def inspect_audio(raw):
@@ -78,6 +80,8 @@ async def verify_media(client,url,provider_id='qq',*,detail=False,headers=None):
     try:
         for hop in range(4):
             await validate_target(url,provider_id)
+            if provider_id=='qq' and urlsplit(url).path.lower().endswith(QQ_ENCRYPTED_SUFFIXES):
+                raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
             response=await client.send(httpx.Request('GET',url,headers={**(headers or {}),'Range':f'bytes=0-{limit-1}',
                 'Accept-Encoding':'identity','User-Agent':'Mozilla/5.0'}),stream=True,follow_redirects=False,auth=None)
             try:
