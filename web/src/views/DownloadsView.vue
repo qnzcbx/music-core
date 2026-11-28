@@ -181,7 +181,6 @@ onMounted(() => {
       >
         还没有下载的歌曲
       </p>
-      <p class="download-location">任务历史仅为服务快照。</p>
     </template>
     <template v-else>
       <DownloadItem
@@ -299,14 +298,10 @@ onMounted(() => {
   font-size: 11px;
   border-bottom: 1px solid var(--app-border-soft);
 }
-.download-notice,
-.download-location {
+.download-notice {
   font-size: 12px;
   color: var(--app-text-muted);
   line-height: 1.8;
-}
-.download-location {
-  margin-top: 24px;
 }
 .downloads-view .download-empty {
   min-height: 40vh;

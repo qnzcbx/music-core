@@ -1,4 +1,4 @@
-/* Semantic app colors. Album palettes and turntable materials are independent. */
+/* 应用语义化颜色变量，专辑封面取色与唱片机材质配色独立管理。 */
 :root {
   --app-bg: #f6f6f6;
   --app-sidebar: #f0f0f0;
@@ -15,7 +15,7 @@
   --app-border-soft: #e2e2e2;
   --app-border-strong: #a8a8a8;
   --app-accent: #717171;
-  --app-link: #717171
+  --app-link: #717171;
   --app-button: #00cc65;
   --app-button-hover: #00b95c;
   --app-on-button: #092414;

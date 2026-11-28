@@ -1,7 +1,10 @@
 @layer theme, base, components, utilities;
-/* Deliberately omit preflight.css: existing native CSS owns element defaults. */
+
+/* 不引入 Preflight 样式重置，保留现有原生 CSS 对元素默认样式的控制。 */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source("../");
+
+/* 将应用语义化主题变量映射为 Tailwind 工具类。 */
 @theme inline {
   --color-app-bg: var(--app-bg);
   --color-app-surface: var(--app-surface);
