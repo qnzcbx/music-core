@@ -79,7 +79,7 @@ async def verify_media(client,url,provider_id='qq',*,detail=False,headers=None):
     limit=65536 if detail else 4096
     try:
         for hop in range(4):
-            await validate_target(url,provider_id)
+            await validate_target(url,provider_id,client)
             if provider_id in ('qq','netease'):
                 path=urlsplit(url).path.lower()
                 encrypted_suffixes=QQ_ENCRYPTED_SUFFIXES if provider_id=='qq' else ('.ncm',)

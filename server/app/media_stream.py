@@ -4,7 +4,7 @@ import ipaddress
 import re
 import socket
 from time import time
-from urllib.parse import urlsplit,urljoin
+from urllib.parse import urljoin
 import anyio
 import httpx
 from starlette.responses import StreamingResponse
@@ -15,16 +15,26 @@ MEDIA_DOMAINS={'kuwo':('kuwo.cn',),'qq':('stream.qqmusic.qq.com','aqqmusic.tc.qq
     'netease':('m701.music.126.net','m801.music.126.net','m10.music.126.net'),'migu':('freetyst.nf.migu.cn',)}
 
 
-async def validate_target(url,provider_id='kuwo'):
+class MediaClient(httpx.AsyncClient):
+    def uses_proxy(self, url):
+        # HTTPX 固定在 0.28.1。此客户端只使用 HTTPX 的代理挂载（含 NO_PROXY）与默认传输。
+        # 用与发送请求相同的选择器，避免把代理排除项或注入的测试传输当作代理。
+        return self._transport_for_url(url) is not self._transport
+
+
+async def validate_target(url,provider_id='kuwo',client=None):
     try:
-        parsed = urlsplit(url)
-        host = (parsed.hostname or '').lower()
+        parsed = httpx.URL(url)
+        host = parsed.host
         port = parsed.port
-    except ValueError:
+    except (httpx.InvalidURL, ValueError):
         raise CoreError(ErrorCode.UNTRUSTED_MEDIA) from None
-    if (parsed.scheme not in ('http','https') or parsed.username or parsed.password
+    if (parsed.scheme not in ('http','https') or parsed.userinfo
             or port not in (None,80,443) or not any(host==domain or provider_id!='migu' and host.endswith('.'+domain) for domain in MEDIA_DOMAINS.get(provider_id,()))):
         raise CoreError(ErrorCode.UNTRUSTED_MEDIA)
+    # 显式代理接收原始域名。只有实际代理路由才委托解析，直连继续拒绝所有非公网地址。
+    if isinstance(client, MediaClient) and client.uses_proxy(parsed):
+        return
     try:
         addresses = await asyncio.get_running_loop().getaddrinfo(host,parsed.port or (443 if parsed.scheme=='https' else 80),type=socket.SOCK_STREAM)
         if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
@@ -87,7 +97,7 @@ async def proxy(request, media, client, release, target_check=validate_target):
             if condition and len(condition)<=200 and not condition.startswith('W/'):
                 headers['If-Range']=condition
         for redirect in range(4):
-            if target_check is validate_target:await target_check(url,media.identity.providerId)
+            if target_check is validate_target:await target_check(url,media.identity.providerId,client)
             else:await target_check(url)
             # 直接建Request防止共享Client自动合并Cookie和默认认证头。
             upstream = await client.send(httpx.Request(request.method,url,headers=headers),stream=True)

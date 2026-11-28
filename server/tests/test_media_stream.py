@@ -13,6 +13,54 @@ from test_media_lifecycle import media
 DATA=bytes(range(256))*4
 
 
+@pytest.mark.parametrize(('host', 'provider', 'bypass'), [
+    ('isure.stream.qqmusic.qq.com', 'qq', False),
+    ('m801.music.126.net', 'netease', False),
+    ('isure.stream.qqmusic.qq.com', 'qq', True),
+    ('isure.stream.qqmusic.qq.com.example.invalid', 'qq', False),
+])
+def test_media_probe_uses_actual_proxy_route(monkeypatch, host, provider, bypass):
+    from app.core.media_probe import verify_media
+    from app.media_stream import MediaClient
+
+    async def exercise():
+        requests = []
+
+        async def forward(reader, writer):
+            try:
+                block = await reader.readuntil(b'\r\n\r\n')
+                requests.append(block.splitlines()[0])
+                writer.write(b'HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\n'
+                             b'Content-Range: bytes 0-3/4\r\nContent-Length: 4\r\nConnection: close\r\n\r\nID3x')
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        async with await asyncio.start_server(forward, '127.0.0.1', 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            monkeypatch.setenv('HTTP_PROXY', f'http://127.0.0.1:{port}')
+            monkeypatch.setenv('NO_PROXY', host if bypass else '')
+
+            async def fake_dns(*args, **kwargs):
+                return [(None,None,None,None,('198.18.3.4', 80))]
+
+            monkeypatch.setattr(asyncio.get_running_loop(), 'getaddrinfo', fake_dns)
+            async with MediaClient() as client:
+                url = f'http://{host}/audio'
+                if bypass or host.endswith('.invalid'):
+                    with pytest.raises(CoreError) as error:
+                        await verify_media(client, url, provider)
+                    assert error.value.code == ErrorCode.UNTRUSTED_MEDIA
+                    assert not requests
+                else:
+                    result = await verify_media(client, url, provider)
+                    assert result.codec == 'mp3'
+                    assert requests == [f'GET {url} HTTP/1.1'.encode()]
+
+    asyncio.run(exercise())
+
+
 async def allow_test_target(url):
     """仅测试依赖注入，生产始终进行目标白名单及DNS检查。"""
 

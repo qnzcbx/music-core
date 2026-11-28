@@ -585,7 +585,7 @@ class DownloadManager:
         try:
             for hop in range(4):
                 check = self.state.target_check
-                if check is validate_target: await check(url, media.identity.providerId)
+                if check is validate_target: await check(url, media.identity.providerId,self.state.http_client)
                 else: await check(url)
                 response = await self.state.http_client.send(httpx.Request('GET', url, headers=headers),
                                                              stream=True, follow_redirects=False, auth=None)

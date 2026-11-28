@@ -28,7 +28,7 @@ def playback_router(*, dev_player=False):
         if media.identity!=body.identity:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         validator=request.app.state.target_check
         if validator is validate_target:
-            await validator(media.upstreamUrl.get_secret_value(),media.identity.providerId)
+            await validator(media.upstreamUrl.get_secret_value(),media.identity.providerId,request.app.state.http_client)
         else:await validator(media.upstreamUrl.get_secret_value())
         store,leases=request.app.state.media_store,request.app.state.playback_leases
         stored=store.put(media)

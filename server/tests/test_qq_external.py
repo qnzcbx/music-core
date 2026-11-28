@@ -125,7 +125,7 @@ def test_xunhuisi_requested_live_version(fields, evidence):
 def test_bounded_media_validation(monkeypatch,status,mime,raw,valid):
     from app.core import media_probe as media
     closed=[];targets=[]
-    async def guard(url,provider):targets.append(url);assert provider=='qq'
+    async def guard(url,provider,client):targets.append(url);assert provider=='qq'
     monkeypatch.setattr(media,'validate_target',guard)
     class Bytes(httpx.AsyncByteStream):
         async def __aiter__(self):yield raw
@@ -191,7 +191,7 @@ def test_vkeys_confirmed_mid_cannot_bypass_restrictions(root, payload):
 def test_encrypted_media_redirect_is_terminal(monkeypatch):
     from app.core import media_probe
 
-    async def guard(url, provider):
+    async def guard(url, provider, client):
         pass
 
     monkeypatch.setattr(media_probe, 'validate_target', guard)
