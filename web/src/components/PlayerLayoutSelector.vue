@@ -104,7 +104,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <StyleIcon aria-hidden="true" />
       <span v-if="!iconOnly">样式</span>
     </summary>
-    <div class="layout-panel">
+    <div class="layout-panel scrollbar-thin">
       <h2
         v-if="!inline"
         class="layout-heading"
@@ -167,7 +167,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <DialogPortal>
         <DialogOverlay class="editor-overlay" />
         <DialogContent
-          class="editor-dialog"
+          class="editor-dialog scrollbar-thin"
           :aria-describedby="undefined"
           @close-auto-focus="restoreFocus"
         >
@@ -295,7 +295,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 }
 .layout-panel {
   overflow: auto;
-  scrollbar-width: thin;
   overscroll-behavior: contain;
 }
 .layout-name {

@@ -9,13 +9,14 @@ import {
   DropdownMenuItem,
 } from 'reka-ui';
 import CirclePlusIcon from '~icons/lucide/circle-plus';
-import SearchIcon from '~icons/lucide/search';
 import XIcon from '~icons/lucide/x';
 import { ApiError } from '../../api/http';
 import { invokeCore } from '../../api/transport';
 import type { Choice } from '../../api/downloads';
 import { useCoreClient } from '../../composables/useCoreClient';
 
+import LibraryToolbar from './LibraryToolbar.vue';
+import { librarySong, matchesLibrarySearch } from '../../utils/library-songs';
 import DesktopSongList, { type DesktopSong } from './DesktopSongList.vue';
 
 const props = defineProps<{ tab: 'local' | 'files' }>();
@@ -25,24 +26,21 @@ type Library = {
   directories: { id: string; path: string; available: boolean }[];
 };
 
-const { downloads, coverRevision } = useCoreClient();
+const { downloads, coverRevision, player } = useCoreClient();
 const library = ref<Library>({ songs: [], downloads: [], directories: [] });
 const scanDialog = ref<HTMLDialogElement>();
 const scanOpen = ref(false);
-const searching = ref(false);
 const query = ref('');
-const searchInput = ref<HTMLInputElement>();
-const searchButton = ref<HTMLButtonElement>();
 const songs = computed(() =>
   props.tab === 'local' ? library.value.songs : library.value.downloads,
 );
-const visibleSongs = computed(() => {
-  const search = query.value.trim().toLowerCase();
-  if (props.tab !== 'local' || !search) return songs.value;
-  return songs.value.filter((song) =>
-    [song.title, song.artist].some((value) => value.toLowerCase().includes(search)),
-  );
-});
+const visibleSongs = computed(() => songs.value.filter((song) => matchesLibrarySearch(song, query.value)));
+const playable = computed(() => visibleSongs.value.filter((song) => song.available));
+const queueNotice = ref('');
+async function playAll() {
+  const { skipped } = await player.queue.playAll(playable.value.map((song) => librarySong(song.id, song)));
+  queueNotice.value = skipped ? `队列已满，${skipped} 首未加入` : '';
+}
 const pageSize = 48;
 const renderedCount = ref(pageSize);
 const listEnd = ref<HTMLElement>();
@@ -68,14 +66,6 @@ async function openScan() {
   await nextTick();
   scanDialog.value?.showModal();
   scanOpen.value = true;
-}
-
-async function toggleSearch() {
-  searching.value = !searching.value;
-  if (!searching.value) query.value = '';
-  await nextTick();
-  if (searching.value) searchInput.value?.focus();
-  else searchButton.value?.focus();
 }
 
 let removalRevision = 0;
@@ -139,7 +129,7 @@ watch(
   () => props.tab,
   () => {
     scanOpen.value = false;
-    searching.value = false;
+    queueNotice.value = '';
     query.value = '';
   },
 );
@@ -153,78 +143,51 @@ watch(
     >
       {{ error }}
     </p>
-    <template v-if="tab === 'local'">
-      <div :class="empty ? 'local-empty' : 'local-toolbar'">
-        <template v-if="empty">
-          <h2>还没有本地歌曲</h2>
-          <p>添加歌曲或文件夹，拾音下载的音乐也会出现在这里。</p>
-        </template>
-        <div class="local-toolbar-row">
-          <div class="local-controls">
-            <DropdownMenuRoot>
-              <DropdownMenuTrigger as-child>
-                <button
-                  class="add-trigger"
-                  type="button"
-                  :disabled="busy"
-                >
-                  <CirclePlusIcon aria-hidden="true" /> 添加音乐
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuContent
-                  class="music-layer add-menu"
-                  align="start"
-                  :side-offset="6"
-                >
-                  <DropdownMenuItem
-                    data-slot="dropdown-menu-item"
-                    @select="refresh('files')"
-                  >
-                    手动添加
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-slot="dropdown-menu-item"
-                    @select="openScan"
-                  >
-                    自动扫描
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenuPortal>
-            </DropdownMenuRoot>
-          </div>
-
-          <div
-            v-if="loaded && !empty"
-            class="local-search"
-          >
-            <input
-              v-if="searching"
-              ref="searchInput"
-              v-model="query"
-              type="search"
-              aria-label="按歌名或歌手搜索本地歌曲"
-              placeholder="搜索歌名或歌手"
-              @keydown.esc.prevent="toggleSearch"
-            />
+    <LibraryToolbar :key="tab" v-model="query" :can-play="playable.length > 0"
+      :can-search="loaded && !empty" @play="playAll">
+      <template v-if="tab === 'local'">
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
             <button
-              ref="searchButton"
-              class="local-search-toggle"
+              class="library-toolbar-action"
               type="button"
-              :aria-expanded="searching"
-              :aria-label="searching ? '关闭本地歌曲搜索' : '搜索本地歌曲'"
-              :title="searching ? '关闭本地歌曲搜索' : '搜索本地歌曲'"
-              @click="toggleSearch"
+              :disabled="busy"
             >
-              <SearchIcon aria-hidden="true" />
+              <CirclePlusIcon aria-hidden="true" /> 添加音乐
             </button>
-          </div>
-        </div>
-      </div>
-
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent
+              class="music-layer add-menu"
+              align="start"
+              :side-offset="6"
+            >
+              <DropdownMenuItem
+                data-slot="dropdown-menu-item"
+                @select="refresh('files')"
+              >
+                手动添加
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-slot="dropdown-menu-item"
+                @select="openScan"
+              >
+                自动扫描
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
+      </template>
+    </LibraryToolbar>
+    <p v-if="queueNotice" role="status">{{ queueNotice }}</p>
+    <div v-if="tab === 'local' && empty" class="local-empty">
+      <h2>还没有本地歌曲</h2>
+      <p>添加歌曲或文件夹，拾音下载的音乐也会出现在这里。</p>
+    </div>
+    <template v-if="tab === 'local'">
       <dialog
         ref="scanDialog"
-        class="scan-dialog"
+        class="scan-dialog scrollbar-thin"
         aria-labelledby="scan-title"
         @close="scanOpen = false"
         @cancel="busy && $event.preventDefault()"
@@ -320,11 +283,11 @@ watch(
       还没有下载的歌曲
     </p>
     <p
-      v-if="searching && query.trim() && !visibleSongs.length"
+      v-if="query.trim() && !visibleSongs.length"
       class="local-empty"
       role="status"
     >
-      没有找到匹配的本地歌曲
+      没有找到匹配的歌曲
     </p>
     <DesktopSongList
       :songs="renderedSongs"
@@ -339,9 +302,6 @@ watch(
 
 <style scoped>
 .local-list-end { padding: 12px 0; text-align: center; }
-.local-toolbar {
-  padding: 0 0 12px;
-}
 .local-empty {
   min-height: 44vh;
   display: flex;
@@ -366,53 +326,6 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.local-toolbar-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.local-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  margin-inline-start: auto;
-}
-.local-search input {
-  box-sizing: border-box;
-  width: 190px;
-  min-width: 0;
-  height: 32px;
-  padding-inline: 9px;
-  border: 1px solid var(--app-border-soft);
-  border-radius: 7px;
-  background: var(--app-surface);
-  color: var(--app-text);
-  font-size: 13px;
-}
-.local-search-toggle {
-  display: grid;
-  place-items: center;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-}
-.local-search-toggle svg {
-  width: 16px;
-  height: 16px;
-}
-.add-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.add-trigger svg {
-  width: 14px;
-  height: 14px;
 }
 .music-layer.add-menu {
   padding: 4px;

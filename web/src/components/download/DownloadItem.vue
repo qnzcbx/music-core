@@ -4,6 +4,9 @@ import type { DownloadTask, SavedDownloadFile } from '../../types/core';
 import PlayIcon from '~icons/lucide/play';
 import PauseIcon from '~icons/lucide/pause';
 import LoadingIcon from '~icons/lucide/loader-circle';
+import MoreIcon from '~icons/lucide/ellipsis';
+import PlayNextButton from '../player/PlayNextButton.vue';
+import { librarySong } from '../../utils/library-songs';
 import CopyIcon from '~icons/lucide/copy';
 import DownloadIcon from '~icons/lucide/download';
 import RetryIcon from '~icons/lucide/rotate-cw';
@@ -298,14 +301,9 @@ async function copy() {
             <RetryIcon v-else />
           </button>
           <template v-if="file">
-            <button
-              class="file-icon"
-              aria-label="复制名称"
-              title="复制名称"
-              @click.stop="copy"
-            >
-              <CopyIcon />
-            </button>
+            <PlayNextButton class="file-icon" :song="librarySong(file.fileId, {
+              ...file, title: file.title || task?.title || file.filename, artist: file.artist || task?.artist, cover,
+            })" />
             <button
               class="file-icon delete-icon"
               aria-label="删除下载记录"
@@ -315,11 +313,12 @@ async function copy() {
               <TrashIcon />
             </button>
             <button
-              class="accessible-actions"
-              aria-label="文件操作"
+              class="file-icon"
+              title="更多"
+              aria-label="更多"
               @click.stop="openMenu(trigger!)"
             >
-              文件操作
+              <MoreIcon aria-hidden="true" />
             </button>
           </template>
           <small
@@ -440,6 +439,7 @@ progress::-webkit-progress-value {
   align-items: center;
   flex-wrap: wrap;
 }
+.saved-row .download-actions { gap: 2px; flex-wrap: nowrap; }
 .download-actions button {
   padding: 8px 10px;
   min-height: 36px;
@@ -507,7 +507,11 @@ button:disabled {
   cursor: pointer;
 }
 .saved-row {
+  grid-template-columns: minmax(0, 2fr) minmax(110px, .7fr) minmax(160px, 1fr) 116px;
   cursor: pointer;
+}
+@media (max-width: 1000px) {
+  .saved-row { grid-template-columns: minmax(0, 1fr) 140px 116px; }
 }
 .saved-row:hover,
 .saved-row:focus-within {
@@ -573,35 +577,14 @@ button:disabled {
   display: grid;
   place-items: center;
 }
-.file-icon svg {
+.file-icon :deep(svg) {
   width: 16px;
   height: 16px;
 }
 .download-actions .delete-icon:hover {
   color: #b86b6b;
 }
-.download-actions .accessible-actions {
-  position: absolute !important;
-  right: 0;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.download-actions .accessible-actions:focus-visible {
-  position: static !important;
-  width: auto;
-  height: auto;
-  min-height: 40px;
-  padding: 8px 10px;
-  border: 1px solid var(--app-border-soft);
-  clip-path: none;
-}
+
 .saved-row .download-identity:focus-visible {
   outline: 2px solid var(--app-focus);
   outline-offset: 4px;
@@ -609,7 +592,8 @@ button:disabled {
 }
 @media (max-width: 600px) {
   .saved-row {
-    display: block;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 16px 0;
     position: relative;
     user-select: none;
@@ -619,24 +603,20 @@ button:disabled {
   .saved-row .download-cover,
   .saved-row .download-size,
   .saved-row .download-state,
-  .saved-row .file-icon,
   .saved-row .saved-filename {
     display: none;
   }
   .saved-row .download-title {
     width: 100%;
   }
+  .saved-row .download-identity { grid-column: 1; }
   .saved-row .download-title h3 {
     margin-bottom: 5px;
   }
   .saved-row .download-title p {
     font-size: 12px;
   }
-  .saved-row .download-actions {
-    position: absolute;
-    right: 0;
-    top: 0;
-  }
+  .saved-row .download-actions { grid-column: 2; grid-row: 1; }
   .saved-row .download-actions small {
     position: absolute;
     right: 4px;

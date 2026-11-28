@@ -30,6 +30,7 @@ watch(
   >
     <DrawerTrigger as-child>
       <button
+        data-queue-trigger
         aria-label="播放队列"
         :disabled="!player.queue.entries.value.length"
       >
@@ -56,6 +57,7 @@ watch(
   >
     <PopoverTrigger as-child>
       <button
+        data-queue-trigger
         aria-label="播放队列"
         :disabled="!player.queue.entries.value.length"
       >

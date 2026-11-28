@@ -48,7 +48,7 @@ const emit = defineEmits<{
 }
 .song-list-columns {
   display: grid;
-  grid-template-columns: minmax(220px, 2fr) 76px minmax(130px, 1fr) 64px 104px;
+  grid-template-columns: minmax(220px, 2fr) 116px minmax(130px, 1fr) 64px 104px;
   gap: 12px;
   padding: 16px 10px;
   border-bottom: 1px solid var(--app-border);
@@ -60,7 +60,7 @@ const emit = defineEmits<{
 }
 @media (max-width: 1050px) {
   .song-list-columns {
-    grid-template-columns: minmax(0, 1fr) 76px 104px;
+    grid-template-columns: minmax(0, 1fr) 116px 104px;
     gap: 10px;
   }
   .album-heading,

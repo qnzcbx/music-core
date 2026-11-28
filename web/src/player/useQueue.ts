@@ -1,7 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import type { PlayableQueueEntry, PlayableSong } from '../types/music.ts';
 import { isLocalSong } from '../types/music.ts';
-import { queueEntryFrom } from '../utils/player-queue.ts';
+import { isTrackIdentity, queueEntryFrom } from '../utils/player-queue.ts';
 import { createQueueNavigation, type PlaybackMode, type QueueStep } from './queue-navigation.ts';
 import { decodePlayer, encodePlayer, MAX_QUEUE } from './player-persistence.ts';
 
@@ -99,6 +99,56 @@ export function useQueue(
     const entry = add(song);
     if (entry) await choose(entry);
   }
+  function hasPlayableIdentity(song: PlayableSong) {
+    return isLocalSong(song) ? /^[a-f0-9]{64}$/.test(song.fileId) : isTrackIdentity(song.identity);
+  }
+  function playNext(song: PlayableSong) {
+    if (!hasPlayableIdentity(song)) return false;
+    const key = entryFrom(song).key;
+    if (key === current.value || key === navigation.upNextKeys[0]) return false;
+    persistence.pause();
+    try {
+      if (!add(song)) return false;
+      navigation.upNextKeys = [key, ...navigation.upNextKeys.filter((item) => item !== key)];
+      return true;
+    } finally {
+      persistence.resume();
+    }
+  }
+  async function playAll(songs: readonly PlayableSong[]) {
+    const existing = new Map(entries.value.map((entry) => [entry.key, entry]));
+    const batch = new Map<string, PlayableQueueEntry>();
+    const skippedKeys = new Set<string>();
+    for (const song of songs) {
+      if (!hasPlayableIdentity(song)) continue;
+      const entry = entryFrom(song);
+      if (batch.has(entry.key)) continue;
+      if (!existing.has(entry.key) && existing.size >= MAX_QUEUE) {
+        skippedKeys.add(entry.key);
+        continue;
+      }
+      batch.set(entry.key, entry);
+      existing.set(entry.key, entry);
+    }
+    const skipped = skippedKeys.size;
+    const first = batch.values().next().value;
+    if (!first) return { skipped };
+    let opening: Promise<void>;
+    persistence.pause();
+    try {
+      entries.value = [...existing.values()];
+      sync();
+      navigation.upNextKeys = [
+        ...[...batch.keys()].slice(1),
+        ...navigation.upNextKeys.filter((key) => !batch.has(key)),
+      ];
+      opening = choose(first);
+    } finally {
+      persistence.resume();
+    }
+    await opening;
+    return { skipped };
+  }
   async function advance(ended = false) {
     const step = navigation.next(keys(), current.value, ended);
     if (!step) return;
@@ -138,7 +188,7 @@ export function useQueue(
     },
     { flush: 'sync' },
   );
-  watch(
+  const persistence = watch(
     [entries, current, navigation, position],
     () => {
       try {
@@ -168,6 +218,8 @@ export function useQueue(
     }),
     add,
     select,
+    playNext,
+    playAll,
     choose,
     remove,
     clearPending,

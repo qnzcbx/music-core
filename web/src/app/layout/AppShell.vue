@@ -66,12 +66,11 @@ watch(
       <main
         id="app-content"
         ref="content"
-        class="app-content"
+        class="app-content scrollbar-thin"
         :class="{
           'full-screen-content': immersive,
           'home-content': home,
           'not-found-content': notFound,
-          'settings-content': route.path === '/settings',
         }"
         tabindex="-1"
       >
@@ -157,13 +156,6 @@ watch(
   padding: 0;
   overflow: hidden;
   scrollbar-gutter: auto;
-}
-.settings-content {
-  scrollbar-width: none;
-  scrollbar-gutter: auto;
-}
-.settings-content::-webkit-scrollbar {
-  display: none;
 }
 @media (max-width: 800px) {
   .app-content {

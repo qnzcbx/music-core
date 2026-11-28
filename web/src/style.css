@@ -407,6 +407,40 @@ article {
 .no-scrollbar {
   scrollbar-width: none;
 }
+
+.scrollbar-thin {
+  --scroll-thumb: color-mix(in srgb, var(--app-text) 24%, transparent);
+  --scroll-thumb-hover: color-mix(in srgb, var(--app-text) 44%, transparent);
+  scrollbar-color: var(--scroll-thumb) transparent;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.scrollbar-thin:hover { scrollbar-color: var(--scroll-thumb-hover) transparent; }
+@supports selector(::-webkit-scrollbar) {
+  .scrollbar-thin, .scrollbar-thin:hover { scrollbar-color: auto; scrollbar-width: auto; }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 999px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:is(:hover, :active) { background: var(--scroll-thumb-hover); }
+  .scrollbar-thin::-webkit-scrollbar-button { display: none; }
+}
+
+.queue-flight {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 105;
+  pointer-events: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--app-surface-raised);
+  color: var(--app-text-muted);
+  box-shadow: var(--app-shadow-panel);
+}
+.queue-flight img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

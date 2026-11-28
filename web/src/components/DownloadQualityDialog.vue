@@ -164,7 +164,7 @@ onScopeDispose(() => {
 <template>
   <dialog
     ref="dialog"
-    class="quality-dialog"
+    class="scrollbar-thin quality-dialog"
     aria-labelledby="quality-heading"
     @cancel.prevent="close"
     @click="
@@ -280,7 +280,6 @@ onScopeDispose(() => {
   max-height: calc(100dvh - 32px);
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-width: none;
   margin: auto;
   padding: 24px;
   border: 1px solid var(--app-border-soft);
@@ -288,9 +287,6 @@ onScopeDispose(() => {
   background: var(--app-surface-raised);
   color: var(--app-text);
   box-shadow: var(--app-shadow-panel);
-}
-.quality-dialog::-webkit-scrollbar {
-  display: none;
 }
 .quality-dialog::backdrop {
   background: #0005;

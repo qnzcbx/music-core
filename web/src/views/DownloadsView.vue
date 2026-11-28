@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useCoreClient } from '../composables/useCoreClient';
 import DesktopLocalLibrary from '../components/download/DesktopLocalLibrary.vue';
+import LibraryToolbar from '../components/download/LibraryToolbar.vue';
+import { librarySong, matchesLibrarySearch } from '../utils/library-songs';
 import DownloadItem from '../components/download/DownloadItem.vue';
 import RefreshIcon from '~icons/lucide/refresh-cw';
 import {
@@ -22,6 +24,25 @@ function taskFor(file: SavedDownloadFile) {
   return tasks.value.find(
     (task) => (task.status === 'completed' || task.sourcePreserved) && task.fileId === file.fileId,
   );
+}
+const query = ref('');
+const queueNotice = ref('');
+const visibleFiles = computed(() => downloads.files.value.filter((file) => {
+  const task = taskFor(file);
+  return matchesLibrarySearch({
+    title: file.title || task?.title || file.filename,
+    artist: file.artist || task?.artist,
+  }, query.value);
+}));
+watch(tab, () => { query.value = ''; queueNotice.value = ''; });
+async function playAll() {
+  const { skipped } = await player.queue.playAll(visibleFiles.value.map((file) => {
+    const task = taskFor(file);
+    return librarySong(file.fileId, {
+      ...file, title: file.title || task?.title || file.filename, artist: file.artist || task?.artist,
+    });
+  }));
+  queueNotice.value = skipped ? `队列已满，${skipped} 首未加入` : '';
 }
 const removal = ref<SavedDownloadFile | null>(null),
   deleteFile = ref(false),
@@ -118,9 +139,15 @@ onMounted(() => {
     >
       {{ downloads.feedback.value.text }}
     </p>
+    <template v-if="!downloads.desktopMode && downloads.localMode.value && tab === 'files'">
+      <LibraryToolbar v-model="query" :can-play="visibleFiles.length > 0"
+        :can-search="downloads.files.value.length > 0" @play="playAll" />
+      <p v-if="queueNotice" role="status">{{ queueNotice }}</p>
+    </template>
     <div
       v-if="!downloads.desktopMode || tab === 'tasks'"
       class="download-columns"
+      :class="{ 'saved-columns': downloads.localMode.value && tab === 'files' }"
       aria-hidden="true"
     >
       <span>歌曲 / 歌手</span><span>大小</span><span>状态</span><span>操作</span>
@@ -130,8 +157,9 @@ onMounted(() => {
       :tab="tab"
     />
     <template v-else-if="downloads.localMode.value && tab === 'files'">
+      <p v-if="query.trim() && !visibleFiles.length" class="download-empty" role="status">没有找到匹配的歌曲</p>
       <DownloadItem
-        v-for="file in downloads.files.value"
+        v-for="file in visibleFiles"
         :key="file.fileId"
         :current="player.selectedId.value === JSON.stringify(['local', file.fileId])"
         :playing="player.playing.value"
@@ -187,7 +215,7 @@ onMounted(() => {
       <AlertDialogPortal>
         <AlertDialogOverlay class="file-dialog-overlay" />
         <AlertDialogContent
-          class="file-dialog"
+          class="file-dialog scrollbar-thin"
           @escape-key-down="
             (event) => {
               if (removing) event.preventDefault();
@@ -455,5 +483,14 @@ article {
 }
 .file-dialog .file-delete-warning {
   color: #b86b6b;
+}
+</style>
+
+<style scoped>
+.download-columns.saved-columns {
+  grid-template-columns: minmax(0, 2fr) minmax(110px, .7fr) minmax(160px, 1fr) 116px;
+}
+@media (max-width: 1000px) {
+  .download-columns.saved-columns { grid-template-columns: minmax(0, 1fr) 140px 116px; }
 }
 </style>

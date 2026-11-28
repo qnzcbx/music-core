@@ -19,6 +19,8 @@ import PauseIcon from '~icons/lucide/pause';
 import MoreIcon from '~icons/lucide/ellipsis';
 import TrashIcon from '~icons/lucide/trash-2';
 import CoverArt from '../CoverArt.vue';
+import PlayNextButton from '../player/PlayNextButton.vue';
+import { librarySong } from '../../utils/library-songs';
 import { ApiError } from '../../api/http';
 import { invokeCore } from '../../api/transport';
 import { desktopCapabilities } from '../../platform/window';
@@ -88,7 +90,7 @@ function playing(song: DesktopSong) {
 function play(song: DesktopSong) {
   error.value = '';
   if (current(song)) void player.toggle();
-  else void player.selectDesktopLocal({ id: song.id, title: title(song), artist: song.artist });
+  else void player.select(librarySong(song.id, { ...song, title: title(song) }));
 }
 async function reveal(song: DesktopSong) {
   error.value = '';
@@ -273,6 +275,7 @@ async function remove() {
           class="more-cell"
           role="cell"
         >
+          <PlayNextButton class="song-action" :song="librarySong(song.id, song)" :disabled="!song.available" />
           <button
             class="song-action song-delete"
             type="button"
@@ -336,7 +339,7 @@ async function remove() {
     </div>
     <dialog
       ref="details"
-      class="file-dialog"
+      class="file-dialog scrollbar-thin"
       aria-labelledby="desktop-song-details"
     >
       <template v-if="detailSong">
@@ -370,7 +373,7 @@ async function remove() {
       <AlertDialogPortal>
         <AlertDialogOverlay class="file-dialog-overlay" />
         <AlertDialogContent
-          class="file-dialog"
+          class="file-dialog scrollbar-thin"
           @escape-key-down="
             (event) => {
               if (removing) event.preventDefault();
@@ -425,7 +428,7 @@ async function remove() {
   container-type: inline-size;
 }
 .song-grid {
-  --actions-width: 92px;
+  --actions-width: 116px;
   display: grid;
   grid-template-columns: minmax(0, 2.5fr) var(--actions-width) minmax(0, 1fr) 56px 74px;
   align-items: center;
@@ -527,6 +530,7 @@ async function remove() {
   height: 44px;
   border-radius: 5px;
 }
+.song-action:disabled,
 .song-cover:disabled {
   cursor: default;
 }
@@ -570,7 +574,7 @@ async function remove() {
   height: 36px;
   color: var(--app-link);
 }
-.song-action svg {
+.song-action :deep(svg) {
   width: 18px;
   height: 18px;
 }
@@ -621,7 +625,7 @@ async function remove() {
 }
 @container (max-width: 620px) {
   .song-grid {
-    --actions-width: 84px;
+    --actions-width: 116px;
     grid-template-columns: minmax(0, 1fr) var(--actions-width) 52px 70px;
     padding-inline-end: 10px;
   }

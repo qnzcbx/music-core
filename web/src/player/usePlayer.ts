@@ -422,17 +422,6 @@ export function usePlayer() {
         cover: file.cover || null,
         duration: null,
       }),
-    selectDesktopLocal: (file: { id: string; title: string; artist: string }) =>
-      queue.select({
-        kind: 'local',
-        fileId: file.id,
-        id: JSON.stringify(['local', file.id]),
-        title: file.title,
-        artist: file.artist,
-        album: '',
-        cover: null,
-        duration: null,
-      }),
     releaseLocalForRecycle,
     removeLocal: (fileId: string) => queue.remove(JSON.stringify(['local', fileId])),
     toggle: () => {

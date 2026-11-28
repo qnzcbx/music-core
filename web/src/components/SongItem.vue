@@ -6,7 +6,8 @@ import PauseIcon from '~icons/lucide/pause';
 import LoadingIcon from '~icons/lucide/loader-circle';
 import PlayIcon from '~icons/lucide/play';
 import DownloadStateIcon from './DownloadStateIcon.vue';
-import NextIcon from '~icons/lucide/list-plus';
+import MoreIcon from '~icons/lucide/ellipsis';
+import PlayNextButton from './player/PlayNextButton.vue';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -111,6 +112,7 @@ function download() {
       class="song-actions"
       aria-label="版本操作"
     >
+      <PlayNextButton :song="song" class="song-action action-play-next" />
       <button
         :disabled="
           !!downloadBlockReason(song) ||
@@ -128,13 +130,13 @@ function download() {
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <button
-            title="歌曲操作"
+            title="更多"
             type="button"
-            class="song-action action-play-next"
-            :aria-label="'歌曲操作 ' + versionLabel"
+            class="song-action action-more"
+            :aria-label="'更多 ' + versionLabel"
             @click.stop
           >
-            <NextIcon aria-hidden="true" />
+            <MoreIcon aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -174,7 +176,7 @@ function download() {
 .song-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(220px, 2fr) 76px minmax(130px, 1fr) 64px 104px;
+  grid-template-columns: minmax(220px, 2fr) 116px minmax(130px, 1fr) 64px 104px;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -332,7 +334,7 @@ function download() {
   color: var(--app-link);
   cursor: pointer;
 }
-.song-action svg {
+.song-action :deep(svg) {
   width: 18px;
   height: 18px;
 }
@@ -356,7 +358,7 @@ function download() {
 }
 @media (max-width: 1050px) {
   .song-row {
-    grid-template-columns: minmax(0, 1fr) 76px 104px;
+    grid-template-columns: minmax(0, 1fr) 116px 104px;
     gap: 10px;
   }
   .row-album,
@@ -450,7 +452,7 @@ function download() {
     .song-actions:has(
       [data-download-state]:not([data-download-state='none']):not([data-download-state='cancelled'])
     )
-    .action-play-next {
+    :is(.action-play-next, .action-more) {
     opacity: 0;
   }
 }

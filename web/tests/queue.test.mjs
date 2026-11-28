@@ -7,6 +7,41 @@ import {decodePlayer} from '../src/player/player-persistence.ts';
 import {trackIdentity} from '../src/utils/player-queue.ts';
 const song=(id,providerId='kuwo')=>({id,identity:{providerId,platformId:id},title:'同名歌曲',artist:'歌手',album:'专辑',duration:10});
 const local=fileId=>({kind:'local',fileId,id:JSON.stringify(['local',fileId]),title:'历史.mp3',artist:'',album:'',cover:null,duration:null});
+test('下一首最后指定优先，去重且不打断当前播放', async () => {
+ const f=fixture(), q=f.queue;
+ assert.equal(q.playNext(song('2')),true);
+ assert.deepEqual(f.calls,[]);
+ await q.select(song('1'));
+ q.position.value=5;
+ assert.equal(q.playNext(song('3')),true);
+ assert.equal(q.playNext(song('2')),true);
+ assert.equal(q.playNext(song('1')),false);
+ assert.equal(q.playNext(song('2')),false);
+ assert.equal(q.position.value,5);
+ assert.equal(q.entries.value.length,3);
+ q.setMode('repeat_one');
+ await q.advance(true);
+ assert.equal(f.calls.at(-1),'1');
+ await q.next();
+ assert.equal(f.calls.at(-1),'2');
+ f.close();
+});
+
+test('批量播放完整集合，保留旧条目并只打开首曲', async () => {
+ const f=fixture(), q=f.queue;
+ q.add(song('999'));
+ q.add(song('2'));
+ const rows=Array.from({length:205},(_,i)=>song(String(i+1)));
+ const result=await q.playAll(rows);
+ assert.equal(result.skipped,6);
+ assert.equal(q.entries.value.length,200);
+ assert.deepEqual(f.calls,['1']);
+ assert.ok(q.entries.value.some(e=>e.key===q.key(song('999'))));
+ await q.next();
+ assert.equal(f.calls.at(-1),'2');
+ assert.equal(q.playNext(song('555')),false);
+ f.close();
+});
 function fixture(storage,open=async()=>{}) {
  const scope=effectScope(),calls=[],stops=[];
  const queue=scope.run(()=>useQueue(async row=>{calls.push(row.identity?.platformId);await open(row);},async()=>{stops.push(true);},()=>true,()=>0,storage));

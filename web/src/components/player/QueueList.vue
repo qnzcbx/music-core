@@ -104,7 +104,7 @@ function downloadEntry(entry: QueueEntry) {
     </header>
 
     <div
-      class="queue-content"
+      class="scrollbar-thin queue-content"
       data-reka-swipe-ignore
       tabindex="0"
       aria-label="队列歌曲列表"
