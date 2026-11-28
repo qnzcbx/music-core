@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { requestJson } from '../api/http';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { ApiError, requestJson } from '../api/http';
+import {
+  getDownloadSettings,
+  saveDownloadNaming,
+  type DownloadSettings as Settings,
+  type Choice,
+} from '../api/downloads';
+import { invokeCore } from '../api/transport';
+import { desktopCapabilities } from '../platform/window';
 
-type Settings = {
-  mode?: 'local' | 'browser' | 'desktop';
-  directory?: string;
-  defaultDirectory?: string;
-  usingDefaultDirectory?: boolean;
-  naming: string;
-  error: string | null;
-  deploymentLocked: boolean;
-  canManage: boolean;
-};
 const settings = ref<Settings>();
 const error = ref('');
 const saving = ref(false);
@@ -30,24 +28,23 @@ const cacheActions = [
   { value: 'lyrics', label: '清理歌词缓存' },
   { value: 'all', label: '全部清理' },
 ] as const;
+
 async function operateCache(action: 'open' | (typeof cacheActions)[number]['value']) {
   if (cacheBusy.value) return;
   cacheBusy.value = true;
   cacheFeedback.value = '';
   try {
     if (action === 'open') {
-      await requestJson('/api/media-cache/settings', {
-        method: 'POST',
-        body: JSON.stringify({ action }),
-      });
+      await invokeCore({ op: 'cacheOpen' }, { mutation: true });
     } else {
-      await requestJson('/api/media-cache/clear', {
-        method: 'POST',
-        body: JSON.stringify({ scope: action }),
-      });
+      await invokeCore({ op: 'cacheClear', payload: { scope: action } }, { mutation: true });
       cacheFeedback.value = '已清理所选缓存，下载歌曲的离线资源已保留。';
     }
-  } catch {
+  } catch (reason) {
+    if (reason instanceof ApiError && reason.code === 'outcome_unknown') {
+      cacheFeedback.value = reason.message;
+      return;
+    }
     cacheFeedback.value = action === 'open' ? '无法打开缓存文件夹。' : '缓存清理失败，请重试。';
   } finally {
     cacheBusy.value = false;
@@ -55,19 +52,28 @@ async function operateCache(action: 'open' | (typeof cacheActions)[number]['valu
 }
 async function load() {
   try {
-    settings.value = await requestJson('/api/downloads/settings');
-    if (settings.value?.mode === 'desktop') {
-      try {
-        const cache = await requestJson<{ directory: string }>('/api/media-cache/settings');
-        cacheDirectory.value = cache.directory;
-      } catch {
-        cacheFeedback.value = '缓存目录暂不可用。';
-      }
-    }
+    settings.value = await getDownloadSettings();
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法读取下载设置';
   }
 }
+watch(
+  () => desktopCapabilities.value?.mediaCache,
+  async (available) => {
+    if (!available) return;
+    try {
+      const cache = await invokeCore<{ directory: string }>(
+        { op: 'cacheSettings' },
+        { timeoutMs: 20_000 },
+      );
+      cacheDirectory.value = cache.directory;
+    } catch {
+      cacheFeedback.value = '缓存目录暂不可用。';
+    }
+  },
+  { immediate: true },
+);
+
 async function authorize() {
   try {
     sessionStorage.removeItem('library-admin');
@@ -130,6 +136,7 @@ async function saveDirectory() {
       method: 'POST',
       body: body(),
       timeoutMs: 1800000,
+      mutation: true,
     });
     const failed = response.results.filter((row) => row.status === 'failed');
     result.value = failed.length
@@ -138,6 +145,7 @@ async function saveDirectory() {
     await load();
     dialog.value?.close();
   } catch (reason) {
+    if (reason instanceof ApiError && reason.code === 'outcome_unknown') await load();
     directoryError.value = reason instanceof Error ? reason.message : '目录更改失败';
   } finally {
     saving.value = false;
@@ -148,12 +156,13 @@ async function desktopDirectory(action: 'choose' | 'reset' | 'open') {
   saving.value = true;
   error.value = '';
   try {
-    const value = await requestJson<Settings | null>('/api/downloads/settings/directory', {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    });
-    if (value) settings.value = value;
+    const result = await invokeCore<Choice<Settings>>(
+      { op: 'downloadDirectory', payload: { action } },
+      { mutation: true },
+    );
+    if (result.status === 'selected') settings.value = result.value;
   } catch (reason) {
+    if (reason instanceof ApiError && reason.code === 'outcome_unknown') await load();
     error.value = reason instanceof Error ? reason.message : '目录操作失败';
   } finally {
     saving.value = false;
@@ -166,13 +175,11 @@ async function change(naming: string) {
   saving.value = true;
   error.value = '';
   try {
-    await requestJson('/api/downloads/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ naming }),
-    });
-  } catch {
-    error.value = '保存命名格式失败，请重试';
+    await saveDownloadNaming(naming);
+  } catch (reason) {
     if (settings.value) settings.value.naming = previous;
+    if (reason instanceof ApiError && reason.code === 'outcome_unknown') await load();
+    error.value = reason instanceof Error ? reason.message : '保存命名格式失败，请重试';
   } finally {
     saving.value = false;
   }
@@ -200,7 +207,6 @@ async function change(naming: string) {
             更改目录
           </button>
         </div>
-        <p>这是运行后端那台机器上的目录；只发现目录内的音频，不包含子目录。</p>
         <p v-if="settings.deploymentLocked">由部署配置管理</p>
         <p v-if="!settings.canManage && !settings.deploymentLocked">
           当前访问为只读。请从本机“打开音乐客户端”入口打开应用以管理目录。

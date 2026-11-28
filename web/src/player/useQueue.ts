@@ -1,5 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue';
-import type { QueueEntry, PlayableQueueEntry, PlayableSong, CandidateRow } from '../types/music.ts';
+import type { PlayableQueueEntry, PlayableSong } from '../types/music.ts';
 import { isLocalSong } from '../types/music.ts';
 import { queueEntryFrom } from '../utils/player-queue.ts';
 import { createQueueNavigation, type PlaybackMode, type QueueStep } from './queue-navigation.ts';
@@ -68,9 +68,7 @@ export function useQueue(
         kind: 'local',
         fileId: entry.fileId,
         id: entry.key,
-        source: 'local',
         title: entry.metadata.title,
-        name: entry.metadata.title,
         artist: entry.metadata.artist,
         album: entry.metadata.album,
         cover: entry.metadata.cover,
@@ -79,16 +77,11 @@ export function useQueue(
     return {
       identity: entry.track,
       id: entry.key,
-      source: entry.track.providerId,
-      platformId: entry.track.platformId,
-      mid: entry.track.platformId,
       title: entry.metadata.title,
-      name: entry.metadata.title,
       artist: entry.metadata.artist,
       album: entry.metadata.album,
       duration: entry.metadata.durationSeconds,
       cover: entry.metadata.cover,
-      resolveState: 'idle',
     };
   }
   async function choose(entry: PlayableQueueEntry, step?: QueueStep) {
@@ -155,7 +148,6 @@ export function useQueue(
             queue: entries.value,
             currentQueueKey: current.value,
             navigation,
-            volume: 1,
             position: position.value,
           }),
         );

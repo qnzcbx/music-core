@@ -15,6 +15,7 @@ function arc(
   context.arc(x, y, radius, start, end);
   context.stroke();
 }
+
 export function drawDeadAirCover(
   ctx: CanvasRenderingContext2D,
   w: number,

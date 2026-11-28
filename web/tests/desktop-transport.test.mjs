@@ -1,29 +1,53 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-test('桌面 IPC 保留会话 URL 白名单，未迁移操作不落到 HTTP', async () => {
+test('续租失效、查询取消及迟到结果经显式桌面命令处理', async () => {
   const calls = [];
-  let mediaUrl = 'http://127.0.0.1:43210/api/playback/0123456789abcdef0123456789abcdef/stream';
+  let finish;
+  const mediaPort = 43210;
+  const playbackId = '0123456789abcdef0123456789abcdef';
+  let returnedPort = mediaPort;
+  const identity = { providerId: 'kuwo', platformId: '123' };
   globalThis.window = { __TAURI__: { core: { invoke: async (command, args) => {
-    calls.push({ command, ...args });
-    if (args.path === '/api/playback/open') return { streamUrl: mediaUrl };
-    if (args.path.endsWith('/close')) return null;
-    if (args.path === '/api/lyrics') return {identity:args.body,status:'unavailable',lines:[]};
-    throw '此功能尚未迁移到桌面版';
+    calls.push([command, args?.request]);
+    if (command === 'desktop_platform') return { mediaPort };
+    if (args.request.op === 'playbackOpen') {
+      return {
+        playbackId, identity, expiresInSeconds: 120,
+        streamUrl: 'http://127.0.0.1:' + returnedPort + '/api/playback/' + playbackId + '/stream',
+      };
+    }
+    if (args.request.op === 'playbackClose') return null;
+    if (args.request.op === 'downloadCreate') throw new Error('host disconnected');
+    if (args.request.op === 'playbackRenew') {
+      throw { code: 'playback_expired', status: 410, message: '播放会话已过期', retryable: false };
+    }
+    return new Promise(resolve => { finish = resolve; });
   } } } };
-  const { apiFetch, isPlaybackUrl } = await import('../src/api/transport.ts');
-  const opened = await apiFetch('/api/playback/open', { body: JSON.stringify({ identity: { providerId: 'kuwo', platformId: '123' } }) });
-  assert.equal(opened.status, 200);
-  assert.equal(isPlaybackUrl(mediaUrl), true);
-  assert.equal(isPlaybackUrl('http://127.0.0.1:9999/arbitrary'), false);
-  assert.equal((await apiFetch('/api/downloads')).status, 503);
-  assert.equal(calls[1].command, 'desktop_request');
-  assert.equal((await apiFetch('/api/playback/0123456789abcdef0123456789abcdef/close')).status, 204);
-  assert.equal(isPlaybackUrl(mediaUrl), false);
-  mediaUrl = 'https://private.invalid/song';
-  assert.equal((await apiFetch('/api/playback/open')).status, 503);
-  const lyric = await apiFetch('/api/lyrics?providerId=qq&platformId=0027oMO61wWi55');
-  assert.deepEqual((await lyric.json()).identity,{providerId:'qq',platformId:'0027oMO61wWi55'});
-  assert.equal(calls.at(-1).path,'/api/lyrics');
-  delete globalThis.window;
+  try {
+    const { invokeCore } = await import('../src/api/transport.ts');
+    await assert.rejects(
+      invokeCore({ op: 'playbackRenew', payload: { playbackId } }),
+      { code: 'playback_expired', status: 410, retryable: false },
+    );
+    assert.deepEqual(calls[0], ['core_request', { op: 'playbackRenew', payload: { playbackId } }]);
+    const controller = new AbortController();
+    const reading = invokeCore({ op: 'lyricsGet', payload: { providerId: 'kuwo', platformId: '123' } }, { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(reading, { name: 'AbortError' });
+    finish({ status: 'unavailable' });
+    assert.equal(calls.length, 2);
+    const { playbackOperations } = await import('../src/api/playback.ts');
+    assert.equal((await playbackOperations.open(identity)).playbackId, playbackId);
+    returnedPort++;
+    await assert.rejects(playbackOperations.open(identity), { code: 'invalid_response' });
+    assert.deepEqual(calls.at(-1), ['core_request', { op: 'playbackClose', payload: { playbackId } }]);
+
+    await assert.rejects(invokeCore({ op: 'downloadCreate', payload: { identity } }, { mutation: true }),
+      { code: 'outcome_unknown', retryable: false });
+    assert.equal(calls.filter(([, request]) => request?.op === 'downloadCreate').length, 1);
+
+  } finally {
+    delete globalThis.window;
+  }
 });

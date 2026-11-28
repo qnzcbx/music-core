@@ -1,4 +1,4 @@
-"""Tang只选择原歌曲字段，拒绝伴奏和不符版本。"""
+"""Tang 只读取正选媒体字段，使用 MID 和已有元数据核对身份。"""
 import httpx
 from app.core.errors import CoreError,ErrorCode
 from . import check_mid,request_json,result
@@ -14,6 +14,5 @@ async def resolve(client,mid,*,expected_title=None,expected_artist=None):
     for expected,actual in ((expected_title,data['song_name']),(expected_artist,data['singer_name'])):
         if expected is not None and ' '.join(expected.split()).casefold()!=' '.join(actual.split()).casefold():
             raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-    if any(word in data['song_name'] for word in ('伴奏','翻唱','伴唱')):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
     url=next((data[k] for k in ('song_play_url_sq','song_play_url_pq','song_play_url_hq','song_play_url','song_play_url_standard','song_play_url_fq') if data.get(k)),None)
     return result('tang',mid,{**data,'url':url})

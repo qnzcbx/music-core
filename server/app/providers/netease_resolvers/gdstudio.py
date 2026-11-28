@@ -5,7 +5,7 @@ import re
 from urllib.parse import urlsplit
 import httpx
 from pydantic import SecretStr
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError, ErrorCode, UnsupportedRouteFormat, check_access
 
 
 async def resolve(client,song_id,*,quality=None):
@@ -31,7 +31,7 @@ async def resolve(client,song_id,*,quality=None):
             try:data=json.loads(body)
             except (ValueError,UnicodeError):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
             if not isinstance(data,dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
-            if data.get('code') in (401,403,'401','403'):raise CoreError(ErrorCode.ACCESS_DENIED)
+            check_access(data)
             if data.get('code') not in (None,0,200,'0','200'):raise CoreError(ErrorCode.UPSTREAM_FAILURE)
             echoed=data.get('id')
             if echoed is not None and (type(echoed) not in (int,str) or str(echoed)!=song_id):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
@@ -41,7 +41,8 @@ async def resolve(client,song_id,*,quality=None):
                 if not isinstance(url,str):raise ValueError()
                 p=urlsplit(url)
                 if p.scheme not in ('http','https') or not p.hostname or p.username or p.password:raise ValueError()
-                if p.path.lower().endswith(('.m3u8','.mpd')):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                if p.path.lower().endswith('.ncm'):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+                if p.path.lower().endswith(('.m3u8','.mpd')):raise UnsupportedRouteFormat()
             except ValueError:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE) from None
             return {'url':SecretStr(url),'evidence':'response_id_matched' if echoed is not None else 'request_bound'}
         finally:

@@ -1,29 +1,31 @@
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {effectScope} from 'vue';
 import {useQueue} from '../src/player/useQueue.ts';
 import {decodePlayer} from '../src/player/player-persistence.ts';
-const song=(id,source='kuwo')=>({id,source,platformId:id,mid:id,name:'同名歌曲',title:'同名歌曲',artist:'歌手',album:'专辑',duration:10,resolveState:'idle'});
-const local=fileId=>({kind:'local',fileId,id:JSON.stringify(['local',fileId]),source:'local',name:'历史.mp3',title:'历史.mp3',artist:'',album:'',cover:null,duration:null});
+import {trackIdentity} from '../src/utils/player-queue.ts';
+const song=(id,providerId='kuwo')=>({id,identity:{providerId,platformId:id},title:'同名歌曲',artist:'歌手',album:'专辑',duration:10});
+const local=fileId=>({kind:'local',fileId,id:JSON.stringify(['local',fileId]),title:'历史.mp3',artist:'',album:'',cover:null,duration:null});
 function fixture(storage,open=async()=>{}) {
  const scope=effectScope(),calls=[],stops=[];
- const queue=scope.run(()=>useQueue(async row=>{calls.push(row.platformId);await open(row);},async()=>{stops.push(true);},()=>true,()=>0,storage));
+ const queue=scope.run(()=>useQueue(async row=>{calls.push(row.identity?.platformId);await open(row);},async()=>{stops.push(true);},()=>true,()=>0,storage));
  return {queue,calls,stops,close:()=>scope.stop()};
 }
 
 test('本地身份与在线不碰撞，同文件去重，队列直接交还本地条目',async()=>{
  const scope=effectScope(),opened=[];
  const q=scope.run(()=>useQueue(async row=>opened.push(row),async()=>{},()=>true,()=>0));
- q.add(song('same'));q.add(local('same'));q.add(local('same'));assert.equal(q.entries.value.length,2);
- await q.select(local('same'));assert.equal(opened[0].kind,'local');assert.equal(opened[0].fileId,'same');assert.equal(opened[0].artist,'');
+ q.add(song('123'));q.add(local('123'));q.add(local('123'));assert.equal(q.entries.value.length,2);
+ await q.select(local('123'));assert.equal(opened[0].kind,'local');assert.equal(opened[0].fileId,'123');assert.equal(opened[0].artist,'');
  assert.equal('identity' in opened[0],false);scope.stop();
 });
 
 test('混合队列复用四种模式与历史，删除其他文件不中断，删除当前文件停止',async()=>{
  const scope=effectScope(),opened=[],stopped=[];
  const q=scope.run(()=>useQueue(async row=>opened.push(row.id),async()=>{stopped.push(true)},()=>true,()=>0));
- await q.select(local('a'));q.add(song('r'));q.add(local('b'));
- await q.next();assert.equal(q.current.value,JSON.stringify(['kuwo','r']));await q.previous();assert.equal(q.current.value,JSON.stringify(['local','a']));
+ await q.select(local('a'));q.add(song('123'));q.add(local('b'));
+ await q.next();assert.equal(q.current.value,JSON.stringify(['kuwo','123']));await q.previous();assert.equal(q.current.value,JSON.stringify(['local','a']));
  for(const mode of ['repeat_all','repeat_one','shuffle','order']){q.setMode(mode);await q.next();assert.ok(q.entries.value.some(e=>e.key===q.current.value));}
  await q.select(local('a'));await q.remove(JSON.stringify(['local','b']));assert.equal(stopped.length,0);
  await q.remove(JSON.stringify(['local','a']));assert.equal(q.current.value,null);assert.equal(stopped.length,1);scope.stop();
@@ -54,14 +56,12 @@ test('稳定本地文件 ID、混合队列、模式和进度恢复但不打开�
  f.close();restored.close();empty.close();
 });
 
-test('旧快照兼容，非法进度归零，恢复身份与元数据显式投影',()=>{
- for(const version of [1,2,3]){
-   const value=decodePlayer(JSON.stringify({schemaVersion:version,queue:[],position:-10}));
-   assert.equal(value.kind,'valid');assert.equal(value.value.position,0);
- }
- for(const position of ['60',null,-1,86401]){
+test('V3 快照非法进度归零，身份与元数据显式投影',()=>{
+ for(const position of ['60',null,-1,-10,86401]){
    const value=decodePlayer(JSON.stringify({schemaVersion:3,position}));
+   assert.equal(value.kind,'valid');
    assert.equal(value.value.position,0);
+   assert.equal('settings' in value.value, false);
  }
  for(const query of ['token=secret','Authorization=secret','signature=secret']){
    let raw;const f=fixture({getItem:()=>null,setItem:(_key,value)=>{raw=value;}});
@@ -95,12 +95,14 @@ test('安全持久化、刷新仅恢复展示，损坏及未知版本存储忽�
  let raw=null;const storage={getItem:()=>raw,setItem:(_key,value)=>{raw=value;}};
  const f=fixture(storage);await f.queue.select({...song('1'),streamUrl:'secret',token:'secret',cover:'https://x.test/a.jpg?access_token=secret'});f.queue.setMode('shuffle');
  f.queue.entries.value[0].resolved={playbackId:'secret',streamUrl:'secret',lease:'secret'};
+ f.queue.setMode('order');
+ f.queue.setMode('shuffle');
  assert.ok(!raw.includes('secret'));f.close();const restored=fixture(storage);
  assert.equal(restored.queue.entries.value.length,1);assert.equal(restored.queue.navigation.mode,'shuffle');assert.deepEqual(restored.calls,[]);restored.close();
  for(raw of ['{bad','{"schemaVersion":999}',null]){const invalid=fixture(storage);assert.equal(invalid.queue.entries.value.length,0);invalid.close();}
 });
 test('快速切歌和旧打开晚到不提交错误历史',async()=>{
- let finish;const f=fixture(undefined,row=>row.platformId==='2'?new Promise(resolve=>{finish=resolve;}):Promise.resolve());const q=f.queue;
+ let finish;const f=fixture(undefined,row=>row.identity?.platformId==='2'?new Promise(resolve=>{finish=resolve;}):Promise.resolve());const q=f.queue;
  await q.select(song('1'));q.add(song('2'));q.add(song('3'));const late=q.next();await q.next();finish();await late;
  assert.equal(q.current.value,q.key(song('3')));assert.deepEqual(q.navigation.history,[q.key(song('1')),q.key(song('3'))]);f.close();
 });
@@ -124,4 +126,50 @@ test('online queue discards expired desktop relay URLs but preserves the track a
  const restored=decodePlayer(JSON.stringify(old)).value.queue;
  assert.deepEqual(restored.map(row=>[row.track.platformId,row.metadata.cover]),[['12',null],['13',stable],['14',null]]);
  f.close();
+});
+
+test('仅 V3 恢复现有队列、优先待播顺序和当前位置', async () => {
+  let raw = null;
+  const storage = { getItem: () => raw, setItem: (_key, value) => { raw = value; } };
+  const current = fixture(storage);
+  const queue = current.queue;
+  await queue.select(song('1'));
+  queue.add(song('3'));
+  queue.add(song('2'));
+  queue.navigation.upNextKeys = [queue.key(song('3'))];
+  queue.setMode('repeat_all');
+  queue.position.value = 42;
+  const snapshot = JSON.parse(raw);
+  current.close();
+
+  for (const schemaVersion of [1, 2, 999, 3]) {
+    raw = JSON.stringify({ ...snapshot, schemaVersion });
+    const restored = fixture(storage);
+    assert.deepEqual(restored.calls, []);
+    if (schemaVersion === 3) {
+      assert.deepEqual(restored.queue.entries.value.map(entry => entry.track.platformId), ['1', '3', '2']);
+      assert.deepEqual(restored.queue.navigation.upNextKeys, [queue.key(song('3'))]);
+      assert.equal(restored.queue.current.value, queue.key(song('1')));
+      assert.equal(restored.queue.navigation.mode, 'repeat_all');
+      assert.equal(restored.queue.position.value, 42);
+    } else {
+      assert.deepEqual(restored.queue.entries.value, []);
+      assert.equal(restored.queue.current.value, null);
+      assert.equal(restored.queue.navigation.mode, 'order');
+      assert.equal(restored.queue.position.value, 0);
+    }
+    restored.close();
+  }
+});
+
+test('来源和队列解码使用共享身份样本，展示字段无权替换正式身份', () => {
+  const samples = JSON.parse(readFileSync(new URL('../../tests/fixtures/contracts/identity.json', import.meta.url), 'utf8'));
+  for (const {identity, valid} of samples) {
+    const candidate = { identity, source: 'kuwo', platformId: '001', mid: '123' };
+    if (valid) assert.deepEqual(trackIdentity(candidate), identity);
+    else assert.throws(() => trackIdentity(candidate));
+    const restored = decodePlayer(JSON.stringify({ schemaVersion: 3, queue: [{ track: identity }] }));
+    assert.equal(restored.kind, 'valid');
+    assert.equal(restored.value.queue.length, Number(valid));
+  }
 });

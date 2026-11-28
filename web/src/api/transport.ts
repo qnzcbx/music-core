@@ -1,64 +1,99 @@
-type DesktopWindow = Window & {
-  __TAURI__?: { core: { invoke<T>(command: string, args: Record<string, unknown>): Promise<T> } };
+import { bridge } from '../platform/desktop.ts';
+import { ApiError } from './error.ts';
+import type { DownloadQuality, OutputMode, ProviderId, TrackIdentity } from '../types/core';
+
+type Id = { id: string };
+type Lease = { playbackId: string };
+type Token = { token: string };
+type DownloadInput = {
+  identity: TrackIdentity;
+  quality?: DownloadQuality;
+  outputMode?: OutputMode;
+  expectedSourceCodec?: 'flac' | null;
+  saveAs?: boolean;
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  cover?: string | null;
 };
 
-export const isDesktop = typeof window !== 'undefined' && !!(window as DesktopWindow).__TAURI__;
-const mediaUrls = new Set<string>();
+type DesktopPayloads = {
+  providersList: null;
+  searchPage: { providerId: ProviderId; query: string; limit: number; cursor: string | null };
+  lyricsGet: TrackIdentity;
+  paletteRelay: { url: string };
+  cachedCover: { identity: TrackIdentity; cover?: string | null };
+  queueCovers: { entries: ({ fileId: string } | { track: TrackIdentity })[] };
+  cacheSettings: null;
+  cacheOpen: null;
+  cacheClear: { scope: 'cover' | 'lyrics' | 'all' };
+  downloadOptions: DownloadInput;
+  downloadCreate: DownloadInput;
+  downloadsList: null;
+  downloadCancel: Id;
+  downloadRetry: Id;
+  downloadDismiss: Id;
+  downloadSettings: null;
+  downloadNaming: { naming: string };
+  downloadDirectory: { action: 'choose' | 'reset' | 'open' };
+  libraryList: null;
+  libraryImport: null;
+  libraryChooseDirectory: null;
+  libraryRefreshDirectory: Id;
+  libraryRemoveDirectory: Id;
+  libraryOpen: Id;
+  libraryReveal: Id;
+  libraryRemove: Id;
+  recyclePrepare: Id & { pathHint?: string };
+  recycleCancel: Token;
+  recycleExecute: Token;
+  playbackOpen: { identity: TrackIdentity };
+  playbackRenew: Lease;
+  playbackClose: Lease;
+};
 
-export function isPlaybackUrl(url: string): boolean {
-  return /^\/api\/playback\/[A-Za-z0-9_-]+\/stream(?:\?[^#]*)?$/.test(url) ||
-    (isDesktop && mediaUrls.has(url));
-}
+type CoreRequest = {
+  [Op in keyof DesktopPayloads]: DesktopPayloads[Op] extends null
+    ? { op: Op }
+    : { op: Op; payload: DesktopPayloads[Op] };
+}[keyof DesktopPayloads];
 
-/** 桌面轻量请求走 IPC，音频始终由 HTMLAudioElement 流式读取。 */
-export const apiFetch: typeof fetch = async (input, init) => {
-  if (!isDesktop) return fetch(input, init);
-  const path = String(input);
-  if (mediaUrls.has(path)) return fetch(path, init);
-  if (init?.signal?.aborted) throw new DOMException('请求已取消', 'AbortError');
-  let body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
-  let commandPath=path;
-  if(path.startsWith('/api/lyrics?')) {
-    const params=new URLSearchParams(path.slice(path.indexOf('?')+1));
-    body={providerId:params.get('providerId'),platformId:params.get('platformId')};
-    commandPath='/api/lyrics';
-  }
+type RequestOptions =
+  | { signal?: AbortSignal; timeoutMs?: number; mutation?: false }
+  | { mutation: true; signal?: never; timeoutMs?: never };
+
+export async function invokeCore<T>(request: CoreRequest, options: RequestOptions = {}): Promise<T> {
+  const { signal, timeoutMs, mutation } = options;
+  signal?.throwIfAborted();
+  if (!bridge) throw new ApiError(503, '桌面宿主不可用', 'desktop_unavailable');
+
+  // 只有纯查询可以取消等待。宿主已执行的工作仍会完成。
+  const stopped = new AbortController();
+  const abort = () => stopped.abort(signal?.reason);
+  const timeout = timeoutMs === undefined ? undefined : setTimeout(() => {
+    stopped.abort(new ApiError(504, '读取超时，请重试', 'request_timeout', true));
+  }, timeoutMs);
+  signal?.addEventListener('abort', abort, { once: true });
   try {
-    const data = await (window as DesktopWindow).__TAURI__!.core.invoke<Record<string, unknown> | null>(
-      'desktop_request', { path:commandPath, body },
-    );
-    if ((path === '/api/playback/open' || path === '/api/local-library/open') && typeof data?.streamUrl === 'string') {
-      const url = new URL(data.streamUrl);
-      if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port ||
-          !/^\/api\/playback\/[a-f0-9]{32}\/stream$/.test(url.pathname)) {
-        throw new Error('桌面媒体会话地址无效');
-      }
-      mediaUrls.add(data.streamUrl);
+    const pending = bridge.core.invoke<T>('core_request', { request });
+    if (!signal && timeout === undefined) return await pending;
+    return await new Promise<T>((resolve, reject) => {
+      const cancel = () => reject(stopped.signal.reason);
+      stopped.signal.addEventListener('abort', cancel, { once: true });
+      pending.then(resolve, reject).finally(() => stopped.signal.removeEventListener('abort', cancel));
+      if (stopped.signal.aborted) cancel();
+    });
+  } catch (reason) {
+    if (stopped.signal.aborted) throw stopped.signal.reason;
+    const fault = reason as Partial<{ code: string; message: string; status: number; retryable: boolean }> | null;
+    if (typeof fault?.status === 'number' && typeof fault.code === 'string' &&
+        typeof fault.message === 'string' && typeof fault.retryable === 'boolean') {
+      throw new ApiError(fault.status, fault.message, fault.code, fault.retryable);
     }
-    if (path.endsWith('/close')) {
-      const id = path.split('/')[3];
-      for (const url of mediaUrls) if (new URL(url).pathname.includes(`/${id}/`)) mediaUrls.delete(url);
-    }
-    return data === null ? new Response(null, { status: 204 }) : Response.json(data);
-  } catch (error) {
-    const code = String(error);
-    const downloadMessages: Record<string, string> = {
-      download_history_unavailable: '无法读取或保存下载设置与记录，请检查应用配置目录',
-      download_history_invalid: '下载记录文件无法读取，原文件未改动',
-      local_directory_unavailable: '目录暂不可用，已有记录已保留',
-      local_library_unavailable: '无法读取或保存本地歌曲记录',
-      local_file_delete_failed: '无法删除音频文件，文件可能已变更、被占用或没有删除权限',
-      local_unsupported: '请选择可播放的 MP3 或 FLAC 文件',
-      saved_file_missing: '文件已移动或删除，记录中的原位置已不存在',
-      file_exists: '目标文件已存在，请选择其他名称或位置',
-      file_io_error: '文件保存失败，请检查所选位置',
-      access_denied: '未确认该曲目允许下载，请重新搜索或选择其他曲目',
-      capability_unsupported: '当前来源暂不支持所选品质或格式',
-      media_unavailable: '所选品质不可用',
-      upstream_timeout: '下载准备超时，请重试',
-      upstream_failure: '下载来源暂时无法连接，请重试',
-    };
-    const message = (path.startsWith('/api/downloads') || path.startsWith('/api/local-library')) ? (downloadMessages[code] ?? code) : code;
-    return Response.json({ error: { code: 'DESKTOP_UNAVAILABLE', message } }, { status: 503 });
+    if (mutation) throw new ApiError(503, '操作结果未确认，请刷新后检查。', 'outcome_unknown');
+    throw new ApiError(503, '桌面请求失败，请重试', 'desktop_unavailable', true);
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    clearTimeout(timeout);
   }
-};
+}

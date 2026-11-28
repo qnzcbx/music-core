@@ -71,7 +71,7 @@ def verify_home_voice(browser, url, app, out):
             assert page.locator('.home-instrument .instrument-shell').evaluate('el => getComputedStyle(el).overflow === "visible"')
             assert page.locator('.typing-piano-host').evaluate('host => { const shell=host.shadowRoot.querySelector(".shell"); const style=getComputedStyle(shell); return style.backgroundImage === "none" && style.backgroundColor === "rgba(0, 0, 0, 0)" && getComputedStyle(host).backgroundColor === "rgba(0, 0, 0, 0)"; }')
         def snapshot():
-            return page.evaluate('Object.fromEntries(Object.entries(localStorage).filter(([key]) => key !== "media-lab.home-background.v1"))')
+            return page.evaluate('Object.fromEntries(Object.entries(localStorage).filter(([key]) => key !== "music-core.home-background.v1"))')
         page.goto(url + '/')
         page.wait_for_load_state('networkidle')
         assert page.locator('.home-ink-background').count() == 1
@@ -166,7 +166,7 @@ def verify_home_voice(browser, url, app, out):
         wait_piano()
         assert page.locator('.home-ink-background').count() == 0
         assert page.locator('html').get_attribute('data-theme') == 'dark'
-        assert page.evaluate('localStorage.getItem("media-lab.home-background.v1")') == 'voice'
+        assert page.evaluate('localStorage.getItem("music-core.home-background.v1")') == 'voice'
         # 刷新后首次拼音预编辑直接发声，不先用英文或琴键解锁音频。
         page.locator('#query').click()
         cdp.send('Input.imeSetComposition', {'text':'ni','selectionStart':2,'selectionEnd':2})
@@ -271,7 +271,7 @@ def verify_text_melody(browser, url, out):
     context = browser.new_context(viewport={'width': 1440, 'height': 1000})
     context.add_init_script('(' + AUDIO_PROBE + ')()')
     context.add_init_script('window.findVoiceHandle = ' + VOICE_HANDLE)
-    context.add_init_script("localStorage.setItem('media-lab.home-background.v1', 'voice')")
+    context.add_init_script("localStorage.setItem('music-core.home-background.v1', 'voice')")
     page = context.new_page()
     errors, searches = [], []
     page.on('pageerror', lambda error: errors.append(str(error)))

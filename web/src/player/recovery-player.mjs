@@ -1,8 +1,7 @@
 // 单首歌曲的恢复协调器；只持有本地能力和稳定身份，不保存上游地址。
 export class RecoveryPlayer {
-  constructor(audio, {request = fetch, notify = () => {}, validateStreamUrl = url => /^\/api\/playback\/[A-Za-z0-9_-]+\/stream(?:\?[^#]*)?$/.test(url)} = {}) {
-    this.validateStreamUrl = validateStreamUrl;
-    this.audio=audio; this.request=(...args)=>request(...args); this.notify=notify;
+  constructor(audio, {operations, notify = () => {}}) {
+    this.audio=audio; this.operations=operations; this.notify=notify;
     this.identity=null; this.session=null; this.generation=0; this.bookmark=0;
     this.desiredPlaying=false; this.automaticUsed=false; this.operation=null; this.binding=false;
     this.abort=null; this.phase='idle';
@@ -25,7 +24,7 @@ export class RecoveryPlayer {
   }
   async closeId(id) {
     if(!id)return;
-    try {await this.request(`/api/playback/${id}/close`,{method:'POST',keepalive:true});}
+    try {await this.operations.close(id);}
     catch { /* 关闭失败交由服务端TTL兜底，不无限重试。 */ }
   }
   async stop() {
@@ -64,11 +63,14 @@ export class RecoveryPlayer {
     const session=this.session,generation=this.generation;
     if(!session||this.operation)return;
     try {
-      const response=await this.request(`/api/playback/${session.playbackId}/renew`,{method:'POST'});
-      if(this.session!==session||generation!==this.generation)return;
-      if([404,410].includes(response.status))return this.recover(true);
-      if(!response.ok)this.state('error','续租失败，可手动重新打开');
-    } catch {if(this.session===session)this.state('network','暂时无法续期');}
+      await this.operations.renew(session.playbackId);
+    } catch (error) {
+      if (this.session !== session || generation !== this.generation) return;
+      if (['playback_expired', 'playback_closed', 'playback_missing', 'media_expired'].includes(error.code) ||
+          [404, 410].includes(error.status)) return this.recover(true);
+      if (error.status) this.state('error', error.message);
+      else this.state('network', '暂时无法续期');
+    }
   }
   recover(automatic=false) {
     if(!this.identity)return Promise.resolve();
@@ -86,7 +88,7 @@ export class RecoveryPlayer {
     marker.promise=(async()=>{
       let permitted=true;
       try {
-        const response=await this.request(session.streamUrl,{method:'HEAD'});
+        const response=await this.operations.probe(session.streamUrl);
         if([400,401,403,415,422].includes(response.status)||(code===4&&response.ok))permitted=false;
       } catch { /* 网络不明只允许一次有界重新打开。 */ }
       if(this.generation!==generation||this.session!==session)return;
@@ -107,14 +109,12 @@ export class RecoveryPlayer {
       let fresh=null;
       try {
         // 不abort打开请求：服务端可能已建Lease，晚到响应仍要接收并关闭。
-        const response=await this.request('/api/playback/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identity})});
-        const data=await response.json();
-        if(!response.ok)throw new Error('重新打开失败');
-        fresh=data;
-        if(!valid())return;
-        if(data.media?.identity?.providerId!==identity.providerId||data.media?.identity?.platformId!==identity.platformId)
+        fresh = await this.operations.open(identity);
+        if (!valid()) return;
+        if (fresh.identity?.providerId !== identity.providerId ||
+            fresh.identity?.platformId !== identity.platformId) {
           throw new Error('返回歌曲身份不一致');
-        if(!this.validateStreamUrl(data.streamUrl))throw new Error('播放地址无效');
+        }
         this.capture(); saved.time=this.bookmark;
         saved.volume=this.audio.volume; saved.muted=this.audio.muted; saved.rate=this.audio.playbackRate;
         this.session=fresh; this.binding=true; this.audio.pause(); this.abort=new AbortController();
@@ -145,7 +145,7 @@ export class RecoveryPlayer {
         if(valid()) {
           this.session=null; this.binding=true; this.audio.pause(); this.audio.removeAttribute('src'); this.audio.load();
           this.audio.volume=saved.volume; this.audio.muted=saved.muted; this.audio.playbackRate=saved.rate;
-          this.binding=false; this.bookmark=this.pendingSeek??saved.time; this.state('error','恢复失败，可手动重新打开');
+          this.binding=false; this.bookmark=this.pendingSeek??saved.time; this.state('error', error.message || '恢复失败，可手动重新打开');
         }
         if(fresh)await this.closeId(fresh.playbackId);
         await this.closeId(old?.playbackId);

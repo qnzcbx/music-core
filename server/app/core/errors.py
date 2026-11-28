@@ -25,7 +25,24 @@ class ErrorCode(str, Enum):
     PROVIDER_CONTEXT_REJECTED = 'provider_context_rejected'
 
 
+def may_try_another_route(code: ErrorCode) -> bool:
+    return code in (ErrorCode.UPSTREAM_FAILURE, ErrorCode.UPSTREAM_TIMEOUT, ErrorCode.MEDIA_UNAVAILABLE)
+
+
 class CoreError(Exception):
     def __init__(self, code: ErrorCode):
         self.code = code
         super().__init__(code.value)
+
+
+class UnsupportedRouteFormat(CoreError):
+    def __init__(self):
+        super().__init__(ErrorCode.CAPABILITY_UNSUPPORTED)
+
+
+def check_access(payload):
+    if any(payload.get(field) in (301,401,403,'301','401','403') for field in ('code','status')):
+        raise CoreError(ErrorCode.ACCESS_DENIED)
+    for field in ('freeTrialInfo','freeListenType','drm','encrypted','requiresLogin','requiresPayment','regionBlocked'):
+        if payload.get(field) not in (None,False,0,'0'):
+            raise CoreError(ErrorCode.ACCESS_DENIED)

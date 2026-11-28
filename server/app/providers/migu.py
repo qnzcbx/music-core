@@ -75,7 +75,7 @@ class MiguProvider:
             try:
                 headers=dict(HEADERS)
                 if listen:headers.update({'Content-Type':'application/json;charset=UTF-8','birth':'h5page','signature':'1'})
-                response=await self.client.send(httpx.Request('GET',url,params=params,headers=headers),stream=True,follow_redirects=False)
+                response=await self.client.send(httpx.Request('GET',url,params=params,headers=headers),stream=True,follow_redirects=False,auth=None)
                 if response.status_code in (401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
                 if response.status_code==404:raise CoreError(ErrorCode.TRACK_NOT_FOUND)
                 if response.status_code!=200:raise CoreError(ErrorCode.UPSTREAM_FAILURE)
@@ -95,6 +95,9 @@ class MiguProvider:
         try:return await asyncio.wait_for(execute(),20)
         except (asyncio.TimeoutError,httpx.TimeoutException):raise CoreError(ErrorCode.UPSTREAM_TIMEOUT) from None
         except httpx.HTTPError:raise CoreError(ErrorCode.UPSTREAM_FAILURE) from None
+
+    async def song_detail(self, content_id):
+        return await self.request_json(DETAIL_URL, {'resourceId': content_id, 'resourceType': '2'})
 
     async def search(self,query: str,limit: int,cursor: str | None=None) -> SearchPage:
         if not isinstance(query,str) or not 1<=len(query.strip())<=80 or type(limit)is not int or not 1<=limit<=15:
@@ -125,7 +128,7 @@ class MiguProvider:
         quality=requested(options)
         if quality=='lossless':raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         # 先按精确资源ID重新取得双ID及格式目录，绝不按歌名猜测录音。
-        metadata=await self.request_json(DETAIL_URL,{'resourceId':identity.platformId,'resourceType':'2'})
+        metadata=await self.song_detail(identity.platformId)
         rows=metadata.get('resource')
         if not isinstance(rows,list):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         if not rows:raise CoreError(ErrorCode.TRACK_NOT_FOUND)

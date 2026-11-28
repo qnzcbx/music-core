@@ -2,9 +2,9 @@ import type { LyricDocument } from '../types/core';
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { RecoveryPlayer } from './recovery-player.mjs';
-import { requestJson } from '../api/http';
-import { playbackRequest } from '../api/playback';
-import { isDesktop, isPlaybackUrl } from '../api/transport';
+import { invokeCore } from '../api/transport';
+import { closePlayback, openLocalPlayback, playbackOperations } from '../api/playback';
+import { isDesktop } from '../platform/desktop';
 import { isLocalSong, type PlayableSong } from '../types/music';
 import { localStreamUrl, listDownloadFiles } from '../api/downloads';
 import type { SavedDownloadFile, DownloadTask } from '../types/core';
@@ -36,7 +36,7 @@ export function usePlayer() {
   function closeDesktopLocal(id = desktopLocalSession) {
     if (!id) return;
     if (desktopLocalSession === id) desktopLocalSession = undefined;
-    void requestJson(`/api/playback/${id}/close`, { method: 'POST' }).catch(() => {});
+    return closePlayback(id).catch(() => {});
   }
   const localIntent = ref(false);
   const local = computed(() => !!selected.value && isLocalSong(selected.value));
@@ -57,8 +57,7 @@ export function usePlayer() {
     );
   }
   const controller = new RecoveryPlayer(audio, {
-    validateStreamUrl: isPlaybackUrl,
-    request: playbackRequest,
+    operations: playbackOperations,
     notify: (state) => {
       if (local.value) return;
       phase.value = state.phase;
@@ -154,9 +153,9 @@ export function usePlayer() {
       localIntent.value = false;
       const identity = trackIdentity(song);
       if (isDesktop) {
-        void requestJson<{cover: string | null}>('/api/media-cache/cover', {
-          method: 'POST', body: JSON.stringify({identity, cover: song.cover}),
-        }).then(({cover}) => {
+        void invokeCore<{ cover: string | null }>({
+          op: 'cachedCover', payload: { identity, cover: song.cover },
+        }, { timeoutMs: 20_000 }).then(({cover}) => {
           if (revision === selectionRevision && !disposed) selected.value = {...song, cover:cover ?? song.cover};
         }).catch(() => {
           if (revision === selectionRevision && !disposed) selected.value = song;
@@ -174,15 +173,11 @@ export function usePlayer() {
     const signal = localAbort.signal;
     try {
       if (isDesktop) {
-        const session = await requestJson<{ playbackId: string; streamUrl: string; cover?: string | null; lyrics?: LyricDocument | null }>(
-          '/api/local-library/open',
-          { method: 'POST', body: JSON.stringify({ id: song.fileId }) },
-        );
+        const session = await openLocalPlayback(song.fileId);
         if (revision !== selectionRevision || disposed || signal.aborted) {
           closeDesktopLocal(session.playbackId);
           return;
         }
-        if (!isPlaybackUrl(session.streamUrl)) throw new Error('本地媒体地址无效');
         desktopLocalSession = session.playbackId;
         audio.src = session.streamUrl;
         localLyrics.value = session.lyrics ?? null;
@@ -250,7 +245,7 @@ export function usePlayer() {
   async function stop() {
     restored = false;
     localAbort?.abort();
-    closeDesktopLocal();
+    const closing = closeDesktopLocal();
     selectionRevision++;
     clearTimeout(timer);
     timer = undefined;
@@ -260,8 +255,28 @@ export function usePlayer() {
     duration.value = 0;
     playing.value = false;
     localIntent.value = false;
-    await controller.stop();
+    await Promise.all([controller.stop(), closing]);
   }
+
+  async function releaseLocalForRecycle(fileId: string) {
+    const song = selected.value;
+    if (!song || !isLocalSong(song) || song.fileId !== fileId) return;
+    const snapshot = { position: time.value, duration: duration.value };
+    const stopped = stop();
+    const revision = selectionRevision;
+    await stopped;
+    return () => {
+      if (selectionRevision !== revision || disposed) return;
+      selected.value = song;
+      time.value = snapshot.position;
+      duration.value = snapshot.duration;
+      restored = true;
+      phase.value = 'ready';
+      queue.position.value = snapshot.position;
+      message.value = '已暂停';
+    };
+  }
+
   function seek(value: number) {
     if (!Number.isFinite(value)) return;
     if (restored) {
@@ -401,8 +416,6 @@ export function usePlayer() {
         kind: 'local',
         fileId: file.fileId,
         id: JSON.stringify(['local', file.fileId]),
-        source: 'local',
-        name: file.title || task?.title || file.filename,
         title: file.title || task?.title || file.filename,
         artist: file.artist || task?.artist || '',
         album: file.album || '',
@@ -414,14 +427,13 @@ export function usePlayer() {
         kind: 'local',
         fileId: file.id,
         id: JSON.stringify(['local', file.id]),
-        source: 'local',
-        name: file.title,
         title: file.title,
         artist: file.artist,
         album: '',
         cover: null,
         duration: null,
       }),
+    releaseLocalForRecycle,
     removeLocal: (fileId: string) => queue.remove(JSON.stringify(['local', fileId])),
     toggle: () => {
       if (!selected.value || busy.value) return;

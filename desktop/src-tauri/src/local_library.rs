@@ -1,5 +1,9 @@
-use crate::download_history::SavedDownload;
-use serde::{Deserialize, Serialize};
+use crate::{
+    download_history::{History, SavedDownload},
+    storage::{self, Database},
+};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -15,23 +19,64 @@ use symphonia::core::{
     probe::Hint,
 };
 
-#[derive(Clone, Serialize, Deserialize)]
 struct Directory {
     id: String,
     path: PathBuf,
     files: Vec<PathBuf>,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-struct Stored {
+pub(crate) struct Sources {
     manual: Vec<PathBuf>,
     directories: Vec<Directory>,
 }
 
 pub struct Library {
-    path: PathBuf,
-    stored: Stored,
     media: BTreeMap<String, CachedMedia>,
+}
+
+const UNAVAILABLE: &str = "local_library_unavailable";
+
+pub(crate) fn sources(db: &Connection) -> Result<Sources, String> {
+    let read = || -> rusqlite::Result<Sources> {
+        let mut manual_query = db.prepare_cached("SELECT path FROM local_files WHERE manual=1")?;
+        let manual = manual_query
+            .query_map([], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut directory_query =
+            db.prepare_cached("SELECT directory_id,path FROM library_directories ORDER BY seq")?;
+        let mut directories: Vec<Directory> = directory_query
+            .query_map([], |row| {
+                Ok(Directory {
+                    id: row.get(0)?,
+                    path: PathBuf::from(row.get::<_, String>(1)?),
+                    files: Vec::new(),
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut members = db.prepare_cached(
+            "SELECT m.directory_id,f.path FROM directory_files m JOIN local_files f ON f.file_id=m.file_id",
+        )?;
+        let by_id: std::collections::HashMap<_, _> = directories
+            .iter()
+            .enumerate()
+            .map(|(index, dir)| (dir.id.clone(), index))
+            .collect();
+        let mut rows = members.query([])?;
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            if let Some(index) = by_id.get(&id) {
+                directories[*index]
+                    .files
+                    .push(PathBuf::from(row.get::<_, String>(1)?));
+            }
+        }
+        Ok(Sources {
+            manual,
+            directories,
+        })
+    };
+    read().map_err(|_| UNAVAILABLE.into())
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -121,7 +166,7 @@ fn file_format(path: &Path) -> Option<&'static str> {
     }
 }
 
-fn key(path: &Path) -> String {
+pub(crate) fn key(path: &Path) -> String {
     let path = path.to_string_lossy().replace('/', "\\");
     let normalized = if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{unc}")
@@ -131,7 +176,14 @@ fn key(path: &Path) -> String {
     format!("{:x}", Sha256::digest(normalized.to_lowercase().as_bytes()))
 }
 
+#[cfg(test)]
+thread_local! {
+    static PATH_KEY_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) fn path_key(path: &Path) -> String {
+    #[cfg(test)]
+    PATH_KEY_CALLS.with(|count| count.set(count.get() + 1));
     key(path.canonicalize().as_deref().unwrap_or(path))
 }
 
@@ -153,18 +205,6 @@ fn link(metadata: &fs::Metadata) -> bool {
     }
     #[cfg(not(windows))]
     metadata.file_type().is_symlink()
-}
-
-pub(crate) fn delete_audio_file(path: &Path, expected_size: Option<u64>) -> Result<(), String> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Ok(metadata)
-            if metadata.is_file()
-                && !link(&metadata)
-                && expected_size.is_none_or(|size| metadata.len() == size) => {}
-        _ => return Err("local_file_delete_failed".into()),
-    }
-    fs::remove_file(path).map_err(|_| "local_file_delete_failed".into())
 }
 
 fn scan(directory: &Path) -> Result<Vec<PathBuf>, String> {
@@ -190,31 +230,41 @@ fn scan(directory: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(files)
 }
 
+pub(crate) fn stored_path(db: &Database, id: &str) -> Result<Option<PathBuf>, String> {
+    db.lock()
+        .query_row(
+            "SELECT path FROM local_files f WHERE stored_path_key=?1 AND
+               (manual=1 OR EXISTS(SELECT 1 FROM directory_files m WHERE m.file_id=f.file_id))
+             ORDER BY manual DESC,file_id LIMIT 1",
+            [id],
+            |row| Ok(PathBuf::from(row.get::<_, String>(0)?)),
+        )
+        .optional()
+        .map_err(|_| UNAVAILABLE.into())
+}
+
 impl Library {
-    pub fn open(path: PathBuf) -> Result<Self, String> {
-        let stored = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| "local_library_unavailable")?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Stored::default(),
-            Err(_) => return Err("local_library_unavailable".into()),
-        };
-        Ok(Self {
-            path,
-            stored,
+    pub(crate) fn new() -> Self {
+        Self {
             media: BTreeMap::new(),
-        })
+        }
     }
 
-    fn commit(&mut self, next: Stored) -> Result<(), String> {
-        crate::download_history::write_snapshot(&self.path, &next)
-            .map_err(|_| "local_library_unavailable")?;
-        self.stored = next;
-        Ok(())
-    }
-
-    pub fn songs(&self, downloads: Vec<SavedDownload>) -> BTreeMap<String, Song> {
-        fn entry(songs: &mut BTreeMap<String, Song>, path: PathBuf) -> Option<&mut Song> {
+    pub(crate) fn songs(
+        sources: &Sources,
+        downloads: Vec<SavedDownload>,
+        ids: &mut std::collections::HashMap<PathBuf, String>,
+    ) -> BTreeMap<String, Song> {
+        fn entry<'a>(
+            songs: &'a mut BTreeMap<String, Song>,
+            path: PathBuf,
+            ids: &mut std::collections::HashMap<PathBuf, String>,
+        ) -> Option<&'a mut Song> {
             let format = file_format(&path)?;
-            let id = path_key(&path);
+            let id = ids
+                .entry(path.clone())
+                .or_insert_with(|| path_key(&path))
+                .clone();
             Some(songs.entry(id.clone()).or_insert_with(|| {
                 let metadata = fs::metadata(&path)
                     .ok()
@@ -246,7 +296,7 @@ impl Library {
         }
         let mut songs = BTreeMap::new();
         for saved in downloads {
-            if let Some(song) = entry(&mut songs, saved.path) {
+            if let Some(song) = entry(&mut songs, saved.path, ids) {
                 song.downloaded = true;
                 if song.saved_at.is_none() {
                     song.download_identity = Some(saved.identity);
@@ -262,14 +312,14 @@ impl Library {
                 }
             }
         }
-        for path in &self.stored.manual {
-            if let Some(song) = entry(&mut songs, path.clone()) {
+        for path in &sources.manual {
+            if let Some(song) = entry(&mut songs, path.clone(), ids) {
                 song.manual = true;
             }
         }
-        for dir in &self.stored.directories {
+        for dir in &sources.directories {
             for path in &dir.files {
-                if let Some(song) = entry(&mut songs, path.clone()) {
+                if let Some(song) = entry(&mut songs, path.clone(), ids) {
                     if !song.directories.contains(&dir.id) {
                         song.directories.push(dir.id.clone());
                     }
@@ -279,9 +329,13 @@ impl Library {
         songs
     }
 
-    pub fn view(&mut self, downloads: Vec<SavedDownload>, excluded: &BTreeSet<String>) -> Value {
-        let directories: Vec<_> = self
-            .stored
+    pub(crate) fn view(
+        &mut self,
+        sources: &Sources,
+        downloads: Vec<SavedDownload>,
+        excluded: &BTreeSet<String>,
+    ) -> Value {
+        let directories: Vec<_> = sources
             .directories
             .iter()
             .map(|dir| {
@@ -290,7 +344,8 @@ impl Library {
                 })
             })
             .collect();
-        let mut songs = self.songs(downloads.clone());
+        let mut ids = std::collections::HashMap::new();
+        let mut songs = Self::songs(sources, downloads.clone(), &mut ids);
         songs.retain(|id, _| !excluded.contains(id));
         self.media
             .retain(|id, _| songs.get(id).is_some_and(|song| song.available));
@@ -321,7 +376,7 @@ impl Library {
         let downloads: Vec<_> = downloads
             .into_iter()
             .filter_map(|saved| {
-                let id = path_key(&saved.path);
+                let id = ids.get(&saved.path)?.clone();
                 let song = songs.get(&id)?;
                 if !seen.insert(id.clone()) {
                     return None;
@@ -341,96 +396,179 @@ impl Library {
     }
 }
 
-pub async fn change(
-    library: &std::sync::Mutex<Library>,
-    body: &Value,
-) -> Result<Vec<String>, String> {
-    let action = body["action"].as_str().ok_or("invalid_input")?;
+fn restore(tx: &Transaction<'_>, key: &str) -> rusqlite::Result<()> {
+    tx.execute("DELETE FROM excluded_files WHERE song_id=?1", [key])?;
+    Ok(())
+}
+
+fn paths_for_write(paths: &[PathBuf]) -> Result<Vec<(&str, String)>, String> {
+    paths
+        .iter()
+        .map(|path| Ok((storage::path_text(path).ok_or(UNAVAILABLE)?, key(path))))
+        .collect()
+}
+
+pub(crate) fn import(history: &mut History, paths: &[PathBuf]) -> Result<(), String> {
+    let paths = paths_for_write(paths)?;
+    history
+        .transact(|tx| {
+            for (path, key) in paths {
+                let duplicate: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM local_files WHERE stored_path_key=?1 AND manual=1)",
+                [&key], |row| row.get(0),
+            )?;
+                if !duplicate {
+                    let file = storage::file_id(tx, path, &key)?;
+                    tx.execute("UPDATE local_files SET manual=1 WHERE file_id=?1", [file])?;
+                }
+                restore(tx, &key)?;
+            }
+            Ok(())
+        })
+        .map_err(|_| UNAVAILABLE.into())
+}
+
+pub(crate) fn merge_directory(
+    history: &mut History,
+    id: &str,
+    path: &Path,
+    discovered: &[PathBuf],
+    choose: bool,
+) -> Result<(), String> {
+    let path = storage::path_text(path).ok_or(UNAVAILABLE)?;
+    let discovered = paths_for_write(discovered)?;
+    history
+        .transact(|tx| {
+            if choose {
+                tx.execute(
+                    "INSERT INTO library_directories(directory_id,path) VALUES (?1,?2)
+                 ON CONFLICT(directory_id) DO NOTHING",
+                    params![id, path],
+                )?;
+            }
+            let current: Option<String> = tx
+                .query_row(
+                    "SELECT path FROM library_directories WHERE directory_id=?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if current.as_deref() != Some(path) {
+                // 扫描期间目录可能已删除或改变，只提交仍有效的扫描结果。
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+            for (path, key) in discovered {
+                let file = storage::file_id(tx, path, &key)?;
+                tx.execute(
+                    "DELETE FROM directory_files WHERE directory_id=?1 AND file_id<>?2
+                  AND file_id IN (SELECT file_id FROM local_files WHERE stored_path_key=?3)",
+                    params![id, file, key],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO directory_files VALUES (?1,?2)",
+                    params![id, file],
+                )?;
+                restore(tx, &key)?;
+            }
+            storage::prune_files(tx)
+        })
+        .map_err(|_| UNAVAILABLE.into())
+}
+
+pub(crate) enum Change {
+    Import,
+    ChooseDirectory,
+    RefreshDirectory(String),
+    RemoveDirectory(String),
+}
+
+pub async fn change(downloads: &crate::downloads::Downloads, action: Change) -> Result<bool, String> {
     match action {
-        "files" => {
+        Change::Import => {
             let Some(files) = rfd::AsyncFileDialog::new()
                 .set_title("添加歌曲")
                 .add_filter("音乐", &["mp3", "flac"])
                 .pick_files()
                 .await
             else {
-                return Ok(Vec::new());
+                return Ok(false);
             };
-            let paths = tokio::task::spawn_blocking(move || {
-                files
+            let paths = files
+                .into_iter()
+                .map(|file| file.path().to_owned())
+                .collect::<Vec<_>>();
+            let downloads = downloads.clone();
+            tokio::task::spawn_blocking(move || {
+                let paths = paths
                     .iter()
-                    .filter_map(|f| playable_import(f.path()))
-                    .collect::<Vec<_>>()
+                    .filter_map(|path| playable_import(path))
+                    .collect::<Vec<_>>();
+                if paths.is_empty() {
+                    return Err("local_unsupported".into());
+                }
+                downloads.access_history(|history| import(history, &paths))
             })
             .await
-            .map_err(|_| "local_library_unavailable")?;
-            if paths.is_empty() {
-                return Err("local_unsupported".into());
-            }
-            let mut library = library.lock().unwrap();
-            let mut next = library.stored.clone();
-            let ids = paths.iter().map(|path| key(path)).collect();
-            for path in paths {
-                if !next.manual.iter().any(|old| key(old) == key(&path)) {
-                    next.manual.push(path);
-                }
-            }
-            library.commit(next)?;
-            return Ok(ids);
+            .map_err(|_| UNAVAILABLE)??;
         }
-        "choose" | "refresh" => {
-            let (id, path) = if action == "choose" {
-                let Some(folder) = rfd::AsyncFileDialog::new()
-                    .set_title("添加文件夹")
-                    .pick_folder()
-                    .await
-                else {
-                    return Ok(Vec::new());
+        Change::ChooseDirectory | Change::RefreshDirectory(_) => {
+            let choose = matches!(action, Change::ChooseDirectory);
+            let (id, path) =
+                if let Change::RefreshDirectory(id) = action {
+                    let downloads = downloads.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let path = downloads.access_history(|history| {
+                            history.db.lock().query_row(
+                                "SELECT path FROM library_directories WHERE directory_id=?1",
+                                [&id], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)),
+                            ).optional().map_err(|_| UNAVAILABLE)?
+                            .ok_or_else(|| "track_not_found".into())
+                        })?;
+                        Ok::<_, String>((id, path))
+                    }).await.map_err(|_| UNAVAILABLE)??
+                } else {
+                    let Some(folder) = rfd::AsyncFileDialog::new()
+                        .set_title("添加文件夹")
+                        .pick_folder()
+                        .await
+                    else {
+                        return Ok(false);
+                    };
+                    let path = folder
+                        .path()
+                        .canonicalize()
+                        .map_err(|_| "local_directory_unavailable")?;
+                    (key(&path), path)
                 };
-                let path = folder
-                    .path()
-                    .canonicalize()
-                    .map_err(|_| "local_directory_unavailable")?;
-                (key(&path), path)
-            } else {
-                let library = library.lock().unwrap();
-                let dir = library
-                    .stored
-                    .directories
-                    .iter()
-                    .find(|d| d.id == body["id"])
-                    .ok_or("track_not_found")?;
-                (dir.id.clone(), dir.path.clone())
-            };
-            let scan_path = path.clone();
-            let files = tokio::task::spawn_blocking(move || scan(&scan_path))
-                .await
-                .map_err(|_| "local_library_unavailable")??;
-            let mut library = library.lock().unwrap();
-            let mut next = library.stored.clone();
-            if let Some(dir) = next.directories.iter_mut().find(|dir| dir.id == id) {
-                // 保留已不可访问的旧条目，回来后刷新可再次播放。
-                let merged: BTreeMap<_, _> = dir
-                    .files
-                    .iter()
-                    .chain(&files)
-                    .map(|path| (key(path), path.clone()))
-                    .collect();
-                dir.files = merged.into_values().collect();
-            } else if action == "choose" {
-                next.directories.push(Directory { id, path, files });
-            }
-            library.commit(next)?;
+            let downloads = downloads.clone();
+            tokio::task::spawn_blocking(move || {
+                let files = scan(&path)?;
+                downloads
+                    .access_history(|history| merge_directory(history, &id, &path, &files, choose))
+            })
+            .await
+            .map_err(|_| UNAVAILABLE)??;
         }
-        "remove" => {
-            let mut library = library.lock().unwrap();
-            let mut next = library.stored.clone();
-            next.directories.retain(|dir| dir.id != body["id"]);
-            library.commit(next)?;
+        Change::RemoveDirectory(id) => {
+            let downloads = downloads.clone();
+            tokio::task::spawn_blocking(move || {
+                downloads.access_history(|history| {
+                    history
+                        .transact(|tx| {
+                            tx.execute(
+                                "DELETE FROM library_directories WHERE directory_id=?1",
+                                [id],
+                            )?;
+                            storage::prune_files(tx)
+                        })
+                        .map_err(|_| UNAVAILABLE.into())
+                })
+            })
+            .await
+            .map_err(|_| UNAVAILABLE)??;
         }
-        _ => return Err("invalid_input".into()),
     }
-    Ok(Vec::new())
+    Ok(true)
 }
 
 impl Song {
@@ -454,6 +592,51 @@ mod tests {
         fs::write(path, audio).unwrap();
     }
 
+    fn view(library: &mut Library, history: &History) -> Value {
+        let (sources, records, excluded) = {
+            let db = history.db.lock();
+            let (records, excluded) = history.snapshot(&db).unwrap();
+            (sources(&db).unwrap(), records, excluded)
+        };
+        library.view(&sources, records, &excluded)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preparing_one_song_avoids_canonicalizing_unrelated_library_paths() {
+        use crate::delete_plan::Target;
+        let root = tempfile::tempdir().unwrap();
+        let selected = root.path().join("selected.mp3");
+        mp3(&selected);
+        let mut history = History::new(Database::memory(), root.path().into());
+        let mut paths = (0..512)
+            .map(|i| root.path().join(format!("unrelated-{i}.mp3")))
+            .collect::<Vec<_>>();
+        paths.push(selected.clone());
+        import(&mut history, &paths).unwrap();
+        let id = path_key(&selected);
+
+        PATH_KEY_CALLS.with(|count| count.set(0));
+        assert_eq!(
+            Library::songs(
+                &sources(&history.db.lock()).unwrap(),
+                vec![],
+                &mut Default::default()
+            )
+            .len(),
+            513
+        );
+        let list_calls = PATH_KEY_CALLS.with(|count| count.replace(0));
+        let target = Target::resolve(&history, &id, None, &[]).unwrap();
+        let plan_calls = PATH_KEY_CALLS.with(|count| count.get());
+        assert_eq!(target.path, selected);
+        assert_eq!((list_calls, plan_calls), (513, 1));
+        let other = root.path().join("other.mp3");
+        mp3(&other);
+        import(&mut history, &[other]).unwrap();
+        assert_eq!(Target::resolve(&history, &id, None, &[]).unwrap(), target);
+    }
+
     #[test]
     fn reads_mp3_album_and_duration_without_decoding() {
         let temp = tempfile::tempdir().unwrap();
@@ -463,38 +646,42 @@ mod tests {
         let mut tagged = b"ID3\x03\0\0\0\0\0\x10TALB\0\0\0\x06\0\0\0Album".to_vec();
         tagged.extend(audio);
         fs::write(&path, tagged).unwrap();
-
         let facts = MediaFacts::read(&path).unwrap();
         assert_eq!(facts.album.as_deref(), Some("Album"));
         assert!(facts.duration_seconds.is_some_and(|seconds| seconds > 0.4));
     }
 
     #[test]
-    fn removing_a_scanned_song_survives_reopening_and_rescanning() {
+    fn explicit_scan_keeps_members_and_atomically_restores_only_present_files() {
         let temp = tempfile::tempdir().unwrap();
-        let config = temp.path().join("library.json");
-        let music = temp.path().join("Music");
-        fs::create_dir(&music).unwrap();
-        let kept = music.join("kept.mp3");
-        let deleted = music.join("deleted.mp3");
+        let db_path = temp.path().join("music-core.sqlite3");
+        let music = temp.path().join("音乐");
+        let nested = music.join("Nested");
+        fs::create_dir_all(&nested).unwrap();
+        let kept = nested.join("kept.mp3");
+        let missing = music.join("missing.mp3");
         mp3(&kept);
-        mp3(&deleted);
-        let mut library = Library::open(config.clone()).unwrap();
-        let mut state = Stored::default();
-        state.directories.push(Directory {
-            id: "music".into(),
-            path: music.clone(),
-            files: scan(&music).unwrap(),
-        });
-        library.commit(state).unwrap();
-        let history_path = temp.path().join("downloads.json");
-        let mut history =
-            crate::download_history::History::open(history_path.clone(), music.clone()).unwrap();
+        mp3(&missing);
+        fs::write(music.join("fake.flac"), b"not audio").unwrap();
+        let mut history = History::open(db_path.clone(), music.clone()).unwrap();
+        let mut library = Library::new();
+        let discovered = scan(&music).unwrap();
+        assert_eq!(discovered.len(), 2);
+        merge_directory(&mut history, "parent", &music, &discovered, true).unwrap();
+        merge_directory(
+            &mut history,
+            "child",
+            &nested,
+            &scan(&nested).unwrap(),
+            true,
+        )
+        .unwrap();
+        import(&mut history, &[kept.canonicalize().unwrap()]).unwrap();
         history
             .add(SavedDownload {
                 id: "saved".into(),
-                identity: json!({}),
-                title: "Kept".into(),
+                identity: json!({"providerId":"qq","platformId":"fixture"}),
+                title: "Published".into(),
                 artist: String::new(),
                 path: kept.clone(),
                 format: "mp3".into(),
@@ -503,132 +690,104 @@ mod tests {
                 source_preserved: false,
             })
             .unwrap();
-        let before = library.view(history.list(), history.excluded_songs());
-        assert_eq!(before["downloads"][0]["id"], path_key(&kept));
-        assert_eq!(before["songs"].as_array().unwrap().len(), 2);
-        history.remove_song(&kept, &path_key(&kept), false).unwrap();
-        history
-            .remove_song(&deleted, &path_key(&deleted), true)
-            .unwrap();
-        assert!(kept.is_file());
-        assert!(!deleted.exists());
+        let id = path_key(&kept);
+        let missing_id = path_key(&missing);
+        let before = view(&mut library, &history);
+        let songs = before["songs"].as_array().unwrap();
+        assert_eq!(songs.len(), 2);
+        let track = songs.iter().find(|row| row["id"] == id).unwrap();
+        assert_eq!(track["directories"], json!(["parent", "child"]));
+        assert_eq!(track["manual"], true);
+        assert_eq!(track["title"], "Published");
+        assert_eq!(before["downloads"][0]["recordId"], "saved");
 
-        let mut library = Library::open(config).unwrap();
-        let mut rescanned = library.stored.clone();
-        rescanned.directories[0].files = scan(&music).unwrap();
-        library.commit(rescanned).unwrap();
-        let mut history = crate::download_history::History::open(history_path, music).unwrap();
-        let after = library.view(history.list(), history.excluded_songs());
-        assert!(after["songs"].as_array().unwrap().is_empty());
-        assert!(after["downloads"].as_array().unwrap().is_empty());
-        history.restore_songs(&[path_key(&kept)]).unwrap();
+        history.remove_song(&kept, &id).unwrap();
+        history.remove_song(&missing, &missing_id).unwrap();
+        assert!(kept.is_file() && missing.is_file());
+        let outside = temp.path().join("outside.mp3");
+        fs::rename(&missing, &outside).unwrap();
+        drop(library);
+        drop(history);
+        let mut history = History::open(db_path, music.clone()).unwrap();
+        let mut library = Library::new();
+        assert_eq!(view(&mut library, &history)["songs"], json!([]));
+        merge_directory(
+            &mut history,
+            "parent",
+            &music,
+            &scan(&music).unwrap(),
+            false,
+        )
+        .unwrap();
+        assert!(history.is_excluded(&missing_id).unwrap());
         assert_eq!(
-            library.view(history.list(), history.excluded_songs())["songs"]
+            view(&mut library, &history)["songs"]
                 .as_array()
                 .unwrap()
                 .len(),
             1
         );
-    }
+        assert_eq!(view(&mut library, &history)["downloads"], json!([]));
+        fs::rename(outside, &missing).unwrap();
+        merge_directory(
+            &mut history,
+            "parent",
+            &music,
+            &scan(&music).unwrap(),
+            false,
+        )
+        .unwrap();
+        fs::remove_file(&missing).unwrap();
+        merge_directory(
+            &mut history,
+            "parent",
+            &music,
+            &scan(&music).unwrap(),
+            false,
+        )
+        .unwrap();
+        let restored = view(&mut library, &history);
+        let songs = restored["songs"].as_array().unwrap();
+        assert_eq!(songs.len(), 2);
+        assert!(songs
+            .iter()
+            .any(|song| song["id"] == missing_id && song["available"] == false));
 
-    #[tokio::test]
-    async fn explicit_scan_merges_sources_and_keeps_missing_directory_records() {
-        let temp = tempfile::tempdir().unwrap();
-        let config = temp.path().join("library.json");
-        let music = temp.path().join("Music");
-        let download = music.join("拾音/song.mp3");
-        let manual = music.join("manual.mp3");
-        let scanned = music.join("scanned.mp3");
-        fs::create_dir_all(download.parent().unwrap()).unwrap();
-        for p in [&download, &manual, &scanned] {
-            mp3(p);
-        }
-        fs::write(music.join("fake.flac"), b"not audio").unwrap();
-        let mut library = Library::open(config.clone()).unwrap();
-        assert!(library.songs(vec![]).is_empty());
-        let saved = SavedDownload {
-            id: "download".into(),
-            identity: json!({"providerId":"qq","platformId":"song"}),
-            title: "song".into(),
-            artist: "artist".into(),
-            path: download.clone(),
-            format: "mp3".into(),
-            size_bytes: 8340,
-            saved_at: 1,
-            source_preserved: false,
-        };
-        assert_eq!(library.songs(vec![saved.clone()]).len(), 1);
-        let files = scan(&music).unwrap();
-        assert_eq!(files.len(), 3);
-        library
-            .commit(Stored {
-                manual: vec![manual.clone()],
-                directories: vec![
-                    Directory {
-                        id: "parent".into(),
-                        path: music.clone(),
-                        files,
-                    },
-                    Directory {
-                        id: "overlap".into(),
-                        path: download.parent().unwrap().to_owned(),
-                        files: vec![download.clone()],
-                    },
-                ],
-                ..Stored::default()
+        history
+            .transact(|tx| {
+                tx.execute(
+                    "DELETE FROM library_directories WHERE directory_id='child'",
+                    [],
+                )?;
+                storage::prune_files(tx)
             })
             .unwrap();
-        let library = std::sync::Mutex::new(Library::open(config).unwrap());
-        let songs = library.lock().unwrap().songs(vec![saved.clone()]);
-        assert_eq!(songs.len(), 3);
-        let song = &songs[&key(&download.canonicalize().unwrap())];
-        assert!(song.downloaded);
-        assert_eq!(song.directories.len(), 2);
-        let absent = temp.path().join("temporarily-offline");
-        fs::rename(&music, &absent).unwrap();
-        assert!(change(&library, &json!({"action":"refresh","id":"parent"}))
-            .await
-            .is_err());
-        let available = library.lock().unwrap().view(
-            vec![
-                saved.clone(),
-                SavedDownload {
-                    id: "second-download".into(),
-                    path: manual.clone(),
-                    ..saved.clone()
-                },
-            ],
-            &BTreeSet::new(),
-        );
-        let downloaded = available["downloads"].as_array().unwrap();
-        assert_eq!(downloaded.len(), 2);
-        assert_ne!(downloaded[0]["id"], downloaded[1]["id"]);
-        for row in downloaded {
-            assert!(available["songs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|song| song["id"] == row["id"]));
-        }
-        let view = library
-            .lock()
+        let result = view(&mut library, &history);
+        assert!(result["songs"]
+            .as_array()
             .unwrap()
-            .view(vec![saved.clone()], &BTreeSet::new());
-        assert_eq!(view["directories"][0]["available"], false);
-        assert_eq!(view["songs"].as_array().unwrap().len(), 3);
-        fs::rename(&absent, &music).unwrap();
-        change(&library, &json!({"action":"refresh","id":"parent"}))
-            .await
-            .unwrap();
-        change(&library, &json!({"action":"remove","id":"parent"}))
-            .await
-            .unwrap();
-        let songs = library.lock().unwrap().songs(vec![saved]);
-        assert_eq!(songs.len(), 2);
-        assert!(songs.values().any(|s| s.manual));
-        assert!(songs
-            .values()
-            .any(|s| s.downloaded && s.directories == ["overlap"]));
-        assert!(scanned.is_file());
+            .iter()
+            .any(|song| song["id"] == id
+                && song["directories"] == json!(["parent"])
+                && song["manual"] == true));
+    }
+
+    #[test]
+    fn restored_import_and_pending_recycle_cannot_overwrite_each_other() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("same.mp3");
+        mp3(&path);
+        let path = path.canonicalize().unwrap();
+        let id = key(&path);
+        let mut history = History::new(Database::memory(), root.path().into());
+        history.reject_writes(true);
+        assert!(!history.complete_recycle(&id, &[], true));
+        assert!(history.is_excluded(&id).unwrap());
+        assert!(import(&mut history, std::slice::from_ref(&path)).is_err());
+        assert!(sources(&history.db.lock()).unwrap().manual.is_empty());
+        history.reject_writes(false);
+        import(&mut history, &[path]).unwrap();
+        assert!(history.reconcile());
+        assert!(!history.is_excluded(&id).unwrap());
     }
 }

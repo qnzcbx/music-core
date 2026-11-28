@@ -1,18 +1,13 @@
 <script setup lang="ts">
 import SongItem from './SongItem.vue';
-import type { SearchEntry as Song, DownloadJob } from '../types/music';
+import type { SearchEntry as Song } from '../types/music';
 
 defineProps<{
   versions: Song[];
-  now: number;
   activeId?: string;
-  submitting: boolean;
-  downloadJobs: Record<string, DownloadJob>;
 }>();
 const emit = defineEmits<{
   play: [song: Song];
-  download: [song: Song];
-  playNext: [song: Song, origin: HTMLElement];
 }>();
 </script>
 
@@ -24,21 +19,12 @@ const emit = defineEmits<{
     aria-label="歌曲版本"
   >
     <SongItem
-      v-for="(song, index) in versions"
-      :key="`${song.source}:${song.id}`"
+      v-for="song in versions"
+      :key="song.id"
       :song="song"
-      :now="now"
-      :index="index"
       version
-      :selected="
-        activeId === song.id ||
-        (!!activeId && 'resolveState' in song && activeId === song.resolvedId)
-      "
-      :submitting="submitting"
-      :job="downloadJobs[song.id]"
+      :selected="activeId === song.id"
       @play="emit('play', $event)"
-      @download="emit('download', $event)"
-      @play-next="(song, origin) => emit('playNext', song, origin)"
     />
   </TransitionGroup>
 </template>

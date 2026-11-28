@@ -1,4 +1,4 @@
-"""QQ平台RPC的独立异步适配；不使用第三方解析或伪造账号身份。"""
+"""QQ 平台 RPC 与已启用的备用路线编排。"""
 import asyncio
 import json
 import math
@@ -12,7 +12,9 @@ import httpx
 from pydantic import ValidationError
 from app.models import TrackIdentity,SongCandidate,SearchPage,ResolveOptions,ResolvedMedia,MediaRepresentation
 from app.download_quality import requested, qualify
-from app.core.errors import CoreError,ErrorCode
+from app.core.errors import CoreError,ErrorCode,may_try_another_route
+from app.core.media_probe import QQ_ENCRYPTED_SUFFIXES
+from .qq_resolvers import UnsupportedRouteFormat,check_access
 
 ENDPOINT='https://u.y.qq.com/cgi-bin/musicu.fcg'
 SEARCH_URL='https://c.y.qq.com/soso/fcgi-bin/client_search_cp'
@@ -158,7 +160,10 @@ class QQProvider:
                     if route=='official':self.last_resolution={'resolver':'official','identity':'official_mid_matched','protocol':'success','media':'upstream_unprobed','scope':'normal'}
                     return result
                 except CoreError as error:
-                    if not self.continue_on_transient or error.code not in (ErrorCode.UPSTREAM_TIMEOUT,ErrorCode.UPSTREAM_FAILURE,ErrorCode.MEDIA_UNAVAILABLE):raise
+                    can_continue=(may_try_another_route(error.code)
+                        or error.code in (ErrorCode.UPSTREAM_INVALID_RESPONSE,ErrorCode.UNTRUSTED_MEDIA)
+                        or isinstance(error,UnsupportedRouteFormat))
+                    if not self.continue_on_transient or not can_continue:raise
                     failure=error
             raise failure or CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
         try:return await asyncio.wait_for(execute(),self.resolve_timeout)
@@ -185,8 +190,9 @@ class QQProvider:
         rows=data.get('midurlinfo')
         if not isinstance(rows,list) or len(rows)!=1 or not isinstance(rows[0],dict):raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         row=rows[0]
-        if row.get('songmid')!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         if row.get('result') in (401,403):raise CoreError(ErrorCode.ACCESS_DENIED)
+        check_access(row)
+        if row.get('songmid')!=identity.platformId:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         purl=row.get('purl') or row.get('wifiurl')
         if not purl:raise CoreError(ErrorCode.MEDIA_UNAVAILABLE)
         sip=data.get('sip')
@@ -197,7 +203,8 @@ class QQProvider:
             parsed=urlsplit(url)
             if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:
                 raise ValueError()
-            if parsed.path.lower().endswith(('.m3u8','.mgg','.mflac')):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+            if parsed.path.lower().endswith(QQ_ENCRYPTED_SUFFIXES):raise CoreError(ErrorCode.CAPABILITY_UNSUPPORTED)
+            if parsed.path.lower().endswith(('.m3u8','.mpd')):raise UnsupportedRouteFormat()
             return ResolvedMedia(id=uuid4().hex,identity=identity,representation=MediaRepresentation(),
                 resolvedAt=int(time()*1000),validUntil=None,upstreamUrl=url,
                 headers={'User-Agent':'Mozilla/5.0','Referer':'https://y.qq.com/'})

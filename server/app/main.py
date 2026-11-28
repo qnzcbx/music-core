@@ -22,7 +22,7 @@ from app.providers import provider_for
 from app.config import load_policy, provider_info, ProviderInfo
 from app.core.errors import CoreError, ErrorCode
 from app.core.media_store import MediaStore,PlaybackLeases,MediaSettings
-from app.media_stream import validate_target
+from app.media_stream import MediaClient,validate_target
 from app.lyrics import LyricsCache, lyrics_router
 from app.playback import playback_router
 from app.covers import CoverReader, cover_router
@@ -107,7 +107,7 @@ def create_app(config_path=None, *, transport=None, target_check=validate_target
     policy, fallback = load_policy(config_path)
     @asynccontextmanager
     async def lifespan(api):
-        async with httpx.AsyncClient(timeout=httpx.Timeout(12,connect=5),
+        async with MediaClient(timeout=httpx.Timeout(12,connect=5),
                 limits=httpx.Limits(max_connections=10,max_keepalive_connections=5),
                 follow_redirects=False,transport=transport) as client:
             api.state.kuwo = KuwoProvider(client)

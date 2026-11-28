@@ -15,62 +15,24 @@ import {
 } from './ui/dropdown-menu';
 import CoverArt from './CoverArt.vue';
 import { providerName, providerFor } from '../composables/useProviders';
-import { availabilityOf, availabilityLabels } from '../utils/candidate-availability';
-import type { SearchEntry as Song, DownloadJob } from '../types/music';
-import { playbackBlockReason, downloadBlockReason } from '../utils/track-access';
-import { queueEntryFrom } from '../utils/player-queue';
+import type { SearchEntry as Song } from '../types/music';
+import { downloadBlockReason } from '../utils/track-access';
+import { queueKey } from '../utils/player-queue';
 
 const props = defineProps<{
   song: Song;
-  now?: number;
-  index: number;
   selected: boolean;
-  submitting: boolean;
-  job?: DownloadJob;
   version?: boolean;
   groupExpanded?: boolean;
 }>();
 const emit = defineEmits<{
   play: [song: Song];
-  download: [song: Song];
-  playNext: [song: Song, origin: HTMLElement];
 }>();
 
-const identityError = computed(() => {
-  try {
-    queueEntryFrom(props.song);
-    return '';
-  } catch (error) {
-    return error instanceof Error ? error.message : '缺少稳定歌曲身份';
-  }
-});
-const source = computed(() =>
-  providerName(('providerId' in props.song && props.song.providerId) || props.song.source),
-);
-const versionLabel = computed(() => props.song.name + ' · ' + source.value);
-const candidate = computed(() => ('resolveState' in props.song ? props.song : null));
-const playLabel = computed(() =>
-  candidate.value?.resolveState === 'failed' ? '重试试听' : '试听',
-);
+const source = computed(() => providerName(props.song.identity.providerId));
+const versionLabel = computed(() => props.song.title + ' · ' + source.value);
 const downloadUnsupported = computed(
-  () =>
-    !downloadBlockReason(props.song) &&
-    providerFor(('providerId' in props.song && props.song.providerId) || props.song.source)
-      ?.capabilities.download === false,
-);
-const availability = computed(() => availabilityOf(props.song, props.now));
-const stateText = computed(() =>
-  candidate.value?.canPlay === false
-    ? '已解析，格式不支持'
-    : availabilityLabels[availability.value],
-);
-const disabled = computed(
-  () =>
-    !!playbackBlockReason(props.song) ||
-    (candidate.value
-      ? (candidate.value.resolveState === 'resolving' && !candidate.value.resolvingBackground) ||
-        candidate.value.canPlay === false
-      : !props.song.playable),
+  () => providerFor(props.song.identity.providerId)?.capabilities?.download === false,
 );
 const durationText = computed(() =>
   typeof props.song.duration === 'number' && Number.isFinite(props.song.duration)
@@ -82,7 +44,7 @@ const durationText = computed(() =>
 const album = computed(() =>
   props.song.album && props.song.album !== 'NULL' ? props.song.album : '—',
 );
-const downloadKey = computed(() => (identityError.value ? '' : queueEntryFrom(props.song).key));
+const downloadKey = computed(() => queueKey(props.song.identity));
 function download() {
   void downloads.choose(props.song);
 }
@@ -93,15 +55,15 @@ function download() {
     class="song-row"
     :class="{ selected, 'version-row': version }"
     :data-song-id="song.id"
-    :data-provider="('providerId' in song && song.providerId) || song.source"
-    :data-platform-id="'platformId' in song ? song.platformId : song.mid"
+    :data-provider="song.identity.providerId"
+    :data-platform-id="song.identity.platformId"
   >
     <button
       :title="selected ? player.actionLabel.value : '播放此版本'"
       :disabled="selected && player.busy.value"
       type="button"
       class="row-play action-play"
-      :aria-label="(selected ? player.actionLabel.value : playLabel) + ' ' + versionLabel"
+      :aria-label="(selected ? player.actionLabel.value : '试听') + ' ' + versionLabel"
       @click.stop="selected ? player.toggle() : emit('play', song)"
     />
     <div class="row-identity">
@@ -131,7 +93,7 @@ function download() {
         </span>
       </div>
       <div class="song">
-        <h3>{{ song.name }}</h3>
+        <h3>{{ song.title }}</h3>
         <div class="song-subline">
           <span class="row-artist">{{ song.artist }}</span>
           <span class="row-source">{{ source }}</span>
@@ -140,26 +102,8 @@ function download() {
             class="version-badge"
             >当前主版本</span
           >
-          <span
-            v-if="availability !== 'unknown' || candidate?.canPlay === false"
-            class="resource-state"
-            :class="{ 'resource-ready': availability === 'ready' }"
-          >
-            {{ stateText }}
-          </span>
         </div>
         <small class="mobile-metadata">{{ album }} · {{ durationText }}</small>
-        <small
-          v-if="song.license?.id"
-          class="license"
-          >{{ song.license.id }}</small
-        >
-        <small
-          v-if="song.credits?.some((c) => c.role === 'uploader')"
-          class="license"
-        >
-          上传者署名
-        </small>
       </div>
     </div>
 
@@ -169,7 +113,6 @@ function download() {
     >
       <button
         :disabled="
-          !!identityError ||
           !!downloadBlockReason(song) ||
           downloadUnsupported ||
           downloads.pending.value.has(downloadKey)
@@ -180,7 +123,7 @@ function download() {
         :aria-label="'下载 ' + versionLabel"
         @click.stop="download"
       >
-        <DownloadStateIcon :identity="identityError ? null : queueEntryFrom(song).track" />
+        <DownloadStateIcon :identity="song.identity" />
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
@@ -344,9 +287,6 @@ function download() {
   font-size: 10px;
   color: var(--app-text-muted);
 }
-.resource-ready {
-  color: var(--app-success);
-}
 .row-album {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -405,11 +345,6 @@ function download() {
 }
 .mobile-metadata {
   display: none;
-}
-.license {
-  display: block;
-  color: var(--app-text-muted);
-  font-size: 10px;
 }
 .song-row :deep(.download-status) {
   position: relative;

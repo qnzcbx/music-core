@@ -54,7 +54,7 @@ mod tests {
         }
         assert!(netease::media(json!({"code":301}), "123")
             .unwrap_err()
-            .contains("登录"));
+             == "auth_required");
         assert!(netease::media(json!({"code":200,"data":[{"id":123,"code":200,"url":"https://m701.music.126.net/a.mp3","freeTrialInfo":{}}]}),"123").is_err());
         assert!(qq::media(json!({"code":0,"req_0":{"code":0,"data":{"midurlinfo":[{"songmid":"456","purl":"a"}]}}}),"123").is_err());
         assert!(migu::media(json!({"data":{"song":{"contentId":"123","copyrightId":"A"},"url":"x","freeListenType":1}}),"123","A").is_err());
@@ -169,26 +169,26 @@ pub async fn search(client: &reqwest::Client, body: &Value) -> Result<Value, Str
             Some("netease") => netease::search(client, body).await,
             Some("qq") => qq::search(client, body).await,
             Some("migu") => migu::search(client, body).await,
-            _ => Err("来源无效".into()),
+            _ => Err("invalid_input".into()),
         }
     })
     .await
-    .map_err(|_| "来源搜索超时，请稍后重试")?
+    .map_err(|_| "upstream_timeout")?
 }
 
 pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<Media, String> {
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
-        let source = identity["providerId"].as_str().ok_or("歌曲来源无效")?;
-        let id = identity["platformId"].as_str().ok_or("歌曲身份无效")?;
+        let source = identity["providerId"].as_str().ok_or("invalid_input")?;
+        let id = identity["platformId"].as_str().ok_or("invalid_input")?;
         if !common::valid_id(source, id) {
-            return Err("歌曲身份无效".into());
+            return Err("invalid_input".into());
         }
         let url = match source {
             "kuwo" => kuwo::resolve(client, identity).await?,
             "netease" => netease::resolve(client, id).await?,
             "qq" => qq::resolve(client, id).await?,
             "migu" => migu::resolve(client, id).await?,
-            _ => return Err("来源无效".into()),
+            _ => return Err("invalid_input".into()),
         };
         common::validate_media(source, &url)?;
         let mut headers = reqwest::header::HeaderMap::new();
@@ -203,5 +203,5 @@ pub async fn resolve(client: &reqwest::Client, identity: &Value) -> Result<Media
         Ok(Media { url, headers })
     })
     .await
-    .map_err(|_| "歌曲解析超时，请稍后重试")?
+    .map_err(|_| "upstream_timeout")?
 }

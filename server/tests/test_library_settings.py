@@ -28,7 +28,10 @@ def test_default_and_existing(tmp_path):
     assert initial_directory(data, legacy, str(tmp_path / 'override')) == tmp_path / 'override'
     old = tmp_path / 'old'
     old.mkdir()
-    assert initial_directory(tmp_path / 'other-data', old) == old
+    from app.download_index import DownloadIndex
+    other_data = tmp_path / 'other-data'
+    DownloadIndex(other_data)
+    assert initial_directory(other_data, old) == (expected if __import__('os').name == 'nt' else old)
 
 
 def test_authority_switch_and_deployment_lock(tmp_path):
@@ -56,6 +59,7 @@ def test_authority_switch_and_deployment_lock(tmp_path):
 def test_owned_migration_alias_hidden_collision_and_job_root(tmp_path):
     manager = DownloadManager(SimpleNamespace(), DownloadSettings(directory=tmp_path / 'A', data_directory=tmp_path / 'data'))
     original, source = publish(manager)
+    visible, visible_source = publish(manager, 'visible')
     personal = manager.root / 'personal.mp3'
     personal.write_bytes(b'ID3personal')
     manager.files()
@@ -63,10 +67,13 @@ def test_owned_migration_alias_hidden_collision_and_job_root(tmp_path):
     b = manager.library.target('custom', str(tmp_path / 'B'))
     collision = b / source.name
     collision.write_bytes(b'ID3different')
-    assert len(manager.library.candidates()) == 1
+    assert {row[0] for row in manager.library.candidates()} == {original, visible}
     result = manager.library.change(b, True)
-    assert result['results'][0]['status'] == 'moved'
-    assert personal.exists() and not source.exists()
+    assert len(result['results']) == 2
+    assert all(row['status'] == 'moved' for row in result['results'])
+    assert personal.exists() and not source.exists() and not visible_source.exists()
+    assert manager.find_file(visible)[0].parent == b
+    assert visible in {row.fileId for row in manager.files()}
     assert collision.read_bytes() == b'ID3different'
     moved, _, _ = manager.find_file(original)
     assert moved.name.endswith('(2).mp3')
@@ -137,3 +144,26 @@ def test_local_launcher_ticket_and_cookie_session(tmp_path):
         assert not remote.get('/api/downloads/settings').json()['canManage']
         assert remote.post('/api/downloads/settings/local-launch').status_code == 403
         assert remote.post('/api/downloads/settings/directory', json={'location':'music'}).status_code == 403
+
+
+def test_switch_keeps_libraries_and_allows_hiding_in_previous_root(tmp_path, monkeypatch):
+    a = tmp_path / 'A'
+    b = tmp_path / 'B'
+    legacy = tmp_path / 'legacy'
+    legacy.mkdir()
+    (legacy / 'old.mp3').write_bytes(b'ID3legacy')
+    monkeypatch.setattr('app.downloads.ROOT', legacy)
+    data = tmp_path / 'data'
+    manager = DownloadManager(SimpleNamespace(), DownloadSettings(directory=a, data_directory=data))
+    identifier, source = publish(manager)
+    assert manager.index.libraries() == [a]
+    target = manager.library.target('custom', str(b))
+    assert manager.library.change(target, False)['results'] == []
+    assert manager.find_file(identifier)[0] == source
+    manager.remove_file(identifier, False)
+    manager.remove_file(identifier, False)
+    restarted = DownloadManager(SimpleNamespace(), DownloadSettings(directory=b, data_directory=data))
+    assert set(restarted.index.libraries()) == {a, b}
+    assert restarted.files() == []
+    assert source.read_bytes() == b'ID3' + b'x' * 100
+    assert not list(a.glob('.music-core-hidden*'))

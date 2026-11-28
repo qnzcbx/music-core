@@ -11,11 +11,6 @@ pub struct Resolved {
     pub representation: Value,
     pub route: String,
 }
-fn stop(error: &str) -> bool {
-    ["权限", "试听", "加密", "登录", "限制", "access_denied"]
-        .iter()
-        .any(|word| error.contains(word))
-}
 pub async fn probe(client: &reqwest::Client, media: &Media) -> Result<Value, String> {
     let limit = download_media::PREFIX_BYTES;
     let mut response = client
@@ -138,15 +133,15 @@ where
 {
     let mut last = match native.await {
         Ok(value) => return Ok(value),
-        Err(e) if stop(&e) => return Err(e),
+        Err(e) if !fallback::may_try_another_route(&e) => return Err(e),
         Err(e) => e,
     };
     for route in routes {
         match tokio::time::timeout(Duration::from_secs(10), backup(route.clone())).await {
             Ok(Ok(value)) => return Ok(value),
-            Ok(Err(e)) if stop(&e) => return Err(e),
-            Ok(Err(e)) => last = format!("{route}: {e}"),
-            Err(_) => last = format!("{route}: upstream_timeout"),
+            Ok(Err(e)) if !fallback::may_try_another_route(&e) => return Err(e),
+            Ok(Err(e)) => last = e,
+            Err(_) => last = "upstream_timeout".into(),
         }
     }
     Err(last)
@@ -215,12 +210,7 @@ async fn backup(
         _ => return Err("capability_unsupported".into()),
     };
     let response = request.send().await.map_err(|_| "upstream_failure")?;
-    if response.status() == 403
-        && response
-            .headers()
-            .get("cf-mitigated")
-            .is_some_and(|v| v == "challenge")
-    {
+    if route == "gdstudio-preview" && common::is_endpoint_challenge(&response) {
         return Err("upstream_failure".into());
     }
     if matches!(response.status().as_u16(), 401 | 403) {
@@ -254,14 +244,7 @@ pub fn parse(
     if route == "jfjt" && data["success"] != true {
         return Err("upstream_failure".into());
     }
-    let echoed = if source == "qq" {
-        payload.get("song_mid").or(payload.get("mid"))
-    } else {
-        payload.get("id")
-    };
-    if echoed.is_some_and(|v| common::id(v).as_deref() != Some(id)) {
-        return Err("source_verification_failed".into());
-    }
+    let identity_confirmed = fallback::response_identity_matches(source, route, payload, id)?;
     // 与 Python 启动配置一致，允许精确 ID 请求绑定；有回显时必须匹配，另核对版本元数据和整文件时长。
     if matches!(route, "tang" | "xunhuisi" | "jfjt") {
         let (name, singer) = match route {
@@ -295,7 +278,7 @@ pub fn parse(
                 }
             }
         }
-        if route == "tang" && echoed.is_none() {
+        if route == "tang" && !identity_confirmed {
             return Err("source_verification_failed".into());
         }
     }

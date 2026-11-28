@@ -15,27 +15,24 @@ const { downloads } = useCoreClient();
 const matchedTask = computed(() =>
   [...downloads.tasks.value]
     .reverse()
-    .find((t) => props.identity && queueKey(t.identity) === queueKey(props.identity)),
+    .find((t) => props.identity && queueKey(t.identity) === queueKey(props.identity) &&
+      (!downloads.desktopMode || ['queued', 'resolving', 'downloading'].includes(t.status))),
 );
 const state = computed(() => {
   const task = matchedTask.value;
-  if (!task) {
-    const saved =
-      downloads.desktopMode &&
-      downloads.saved?.value.some(
-        (file) => props.identity && queueKey(file.identity) === queueKey(props.identity),
-      );
-    return saved ? 'completed' : 'none';
-  }
+  if (downloads.desktopMode && props.identity && downloads.savedKeys.value.has(queueKey(props.identity)))
+    return 'completed';
+  if (!task) return 'none';
   if (task.deliveryMode === 'browser') {
     if (downloads.delivering.value.has(task.id)) return 'downloading';
     if (task.status === 'completed') return 'none';
   }
-  if (task.status === 'downloading' && ['transcoding', 'verifying'].includes(task.phase || ''))
-    return task.phase!;
+  if (task.status === 'downloading') {
+    if (task.phase === 'transcoding') return 'transcoding';
+    if (['source_verifying', 'output_verifying', 'publishing', 'verifying'].includes(task.phase || ''))
+      return 'verifying';
+  }
   if (task.status === 'completed') {
-    // 桌面完成状态由 Rust 在成品落盘后返回，不需要音乐库记录再次确认。
-    if (task.deliveryMode === 'desktop') return 'completed';
     return task.fileId && downloads.files.value.some((f) => f.fileId === task.fileId)
       ? 'completed'
       : 'unconfirmed';
@@ -55,8 +52,7 @@ const labels: Record<string, string> = {
   unconfirmed: '等待确认文件',
 };
 const label = computed(() =>
-  state.value === 'completed' &&
-  (matchedTask.value?.deliveryMode === 'desktop' || (!matchedTask.value && downloads.desktopMode))
+  state.value === 'completed' && downloads.desktopMode
     ? '已下载'
     : labels[state.value],
 );

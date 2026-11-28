@@ -124,8 +124,7 @@ async def provider_lyrics(provider,identity):
                 if not seconds.is_finite() or seconds<0:raise ValueError()
                 ms=int(seconds*1000);parts.append(f'[{ms//60000:02d}:{ms//1000%60:02d}.{ms%1000:03d}]'+row['lineLyric'])
             return document(identity,'\n'.join(parts))
-        from app.providers.migu import DETAIL_URL
-        detail=await provider.request_json(DETAIL_URL,{'resourceId':pid,'resourceType':'2'})
+        detail = await provider.song_detail(pid)
         rows=detail.get('resource')
         if not isinstance(rows,list) or len(rows)!=1 or str(rows[0].get('contentId'))!=pid:raise CoreError(ErrorCode.UPSTREAM_INVALID_RESPONSE)
         copyright=rows[0].get('copyrightId')

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { bridge, hasWindowsTray } from '../composables/useDesktopLyrics';
-import { isDesktop } from '../api/transport';
+import { bridge, isDesktop } from '../platform/desktop';
+import { desktopCapabilities } from '../platform/window';
 import { useHomeBackground } from '../features/home/background';
-import { inject, ref, onUnmounted } from 'vue';
+import { inject, ref, onUnmounted, watch } from 'vue';
 import { APPEARANCE, type Appearance } from '../appearance/theme';
 import { useCoreClient } from '../composables/useCoreClient';
 import { usePlayerVisuals } from '../composables/usePlayerTransition';
@@ -28,7 +28,9 @@ async function setCloseAction(action?: CloseAction) {
     closeActionPending.value = false;
   }
 }
-if (hasWindowsTray) void setCloseAction();
+watch(() => desktopCapabilities.value?.tray, (available) => {
+  if (available) void setCloseAction();
+}, { immediate: true });
 
 const appearance = inject<Appearance>(APPEARANCE)!;
 const mode = ref(appearance.mode);
@@ -56,7 +58,7 @@ const {
 <template>
   <section class="settings-view">
     <h1 class="page-title">设置</h1>
-    <section v-if="hasWindowsTray">
+    <section v-if="desktopCapabilities?.tray">
       <h2>关闭窗口时</h2>
       <fieldset aria-label="关闭窗口时" :disabled="closeActionPending">
         <label

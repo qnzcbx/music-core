@@ -7,6 +7,7 @@ import { checkDownloadQuality, supportedDownloadQualities } from '../api/downloa
 import { downloadQualitySummary } from '../utils/download-quality';
 import { trackIdentity } from '../utils/player-queue';
 import type { DownloadQuality, DownloadQualityOption, OutputMode } from '../types/core';
+
 const { downloads } = useCoreClient();
 const dialog = ref<HTMLDialogElement>();
 const quality = ref<DownloadQuality>('auto');
@@ -42,9 +43,10 @@ function close() {
 function retryable(option?: DownloadQualityOption) {
   return (
     option?.availability === 'unavailable' &&
-    /(?:upstream_timeout|upstream_failure|network_error|request_timeout)/.test(
-      option.errorCode || '',
-    )
+    (option.retryable ??
+      ['upstream_timeout', 'upstream_failure', 'upstream_rate_limited', 'request_timeout'].includes(
+        option.errorCode ?? '',
+      ))
   );
 }
 async function inspect(selected: DownloadQuality, retry = false) {
@@ -68,6 +70,7 @@ async function inspect(selected: DownloadQuality, retry = false) {
           quality: selected,
           availability: 'unavailable',
           representation: null,
+          retryable: reason instanceof ApiError ? reason.retryable : true,
           errorCode:
             reason instanceof ApiError
               ? reason.code ||
@@ -130,11 +133,7 @@ function estimated(bitrate: number) {
   const rep = result.value?.representation;
   const value =
     rep?.durationSeconds || rep?.expectedDurationSeconds || downloads.downloadSong.value?.duration;
-  let seconds = typeof value === 'number' ? value : 0;
-  if (typeof value === 'string' && /^\d+:\d{2}$/.test(value)) {
-    const parts = value.split(':').map(Number);
-    seconds = parts[0]! * 60 + parts[1]!;
-  }
+  const seconds = value ?? 0;
   return seconds > 0 && Number.isFinite(seconds)
     ? `预计 ${((seconds * bitrate) / 8 / 1048576).toFixed(1)} MB`
     : '';
@@ -185,7 +184,7 @@ onScopeDispose(() => {
       </button>
     </header>
     <p class="quality-song">
-      {{ downloads.downloadSong.value?.title || downloads.downloadSong.value?.name }} ·
+      {{ downloads.downloadSong.value?.title }} ·
       {{ downloads.downloadSong.value?.artist }}
     </p>
     <fieldset :disabled="submitting">

@@ -1,4 +1,4 @@
-use crate::provider::common;
+use crate::{provider::common, storage::Database};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 #[cfg(test)]
@@ -23,6 +23,7 @@ fn now() -> u64 {
 }
 #[derive(Clone)]
 struct Recording {
+    expected_flac: bool,
     quality: String,
     cover: Option<String>,
     identity: Value,
@@ -30,6 +31,10 @@ struct Recording {
     artist: String,
     duration: f64,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum DirectoryAction { Choose, Reset, Open }
+
 struct Job {
     public: Value,
     recording: Recording,
@@ -39,10 +44,10 @@ struct Job {
     owns_part: bool,
     owns_output: bool,
 }
-// 沿用网页版设置的枚举及默认值，兼容已有命名偏好文件。
+// 沿用当前界面使用的命名枚举与默认值。
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Naming {
+pub(crate) enum Naming {
     Title,
     #[default]
     ArtistTitle,
@@ -95,8 +100,8 @@ fn suggested_name(recording: &Recording, naming: Naming) -> String {
 pub struct Downloads {
     recordings: Arc<Mutex<HashMap<String, Recording>>>,
     jobs: Arc<Mutex<HashMap<String, Job>>>,
-    naming: Arc<Mutex<Naming>>,
-    settings_path: Option<PathBuf>,
+    closing: CancellationToken,
+    finished: Arc<tokio::sync::Notify>,
     pub tools_dir: Option<PathBuf>,
     history: Option<Arc<Mutex<crate::download_history::History>>>,
     pub media_covers: crate::covers::Covers,
@@ -229,6 +234,14 @@ async fn remove_temporary(path: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+async fn clean_owned_parts(part: &Path, owns_part: bool, owns_output: bool) -> (bool, bool) {
+    let output = part.with_extension("mp3.part");
+    tokio::join!(
+        async { owns_part && remove_temporary(part).await.is_err() },
+        async { owns_output && remove_temporary(&output).await.is_err() },
+    )
+}
+
 async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, String> {
     let id = r.identity["platformId"].as_str().ok_or("invalid_input")?;
     // 重试及新任务都重新核对原平台录音的当前下载限制，不复用播放地址或旧权限快照。
@@ -348,6 +361,13 @@ async fn resolve(client: &reqwest::Client, r: &Recording) -> Result<String, Stri
     common::validate_media("kuwo", url).map_err(|_| "untrusted_media")?;
     Ok(url.to_string())
 }
+fn validate_source_codec(expected_flac: bool, mode: &str, representation: &Value) -> Result<(), String> {
+    if expected_flac && mode == "original" && representation["codec"] != "flac" {
+        return Err("media_unavailable".into());
+    }
+    Ok(())
+}
+
 async fn prefix(client: &reqwest::Client, r: &Recording) -> Result<Value, String> {
     if r.identity["providerId"] != "kuwo" {
         let resolved = crate::download_resolver::resolve(
@@ -408,44 +428,48 @@ fn full_response_size(
     }
 }
 impl Downloads {
-    pub fn new(settings_path: PathBuf) -> Self {
-        let naming = std::fs::read(&settings_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Naming>(&bytes).ok())
-            .unwrap_or_default();
+    pub(crate) fn with_database(db: Database, default_directory: PathBuf) -> Self {
         Self {
-            naming: Arc::new(Mutex::new(naming)),
-            settings_path: Some(settings_path),
+            history: Some(Arc::new(Mutex::new(crate::download_history::History::new(
+                db,
+                default_directory,
+            )))),
             ..Self::default()
         }
     }
-    pub fn with_history(
-        settings_path: PathBuf,
-        default_directory: PathBuf,
-    ) -> Result<Self, String> {
-        let history_path = settings_path.with_file_name("desktop-downloads.json");
-        let history = crate::download_history::History::open(history_path, default_directory)?;
-        let mut downloads = Self::new(settings_path);
-        downloads.history = Some(Arc::new(Mutex::new(history)));
-        Ok(downloads)
+
+    #[cfg(test)]
+    fn with_history(path: PathBuf, default_directory: PathBuf) -> Result<Self, String> {
+        let db = Database::open(&path).map_err(|error| error.to_string())?;
+        Ok(Self::with_database(db, default_directory))
     }
 
     pub fn clear_media_cache(&self, scope: crate::media_cache::ClearScope) -> Result<(), String> {
         let cache = self.media_covers.1.as_ref().ok_or("媒体缓存不可用")?;
-        let history = self
-            .history
-            .as_ref()
-            .ok_or("下载记录不可用")?
-            .lock()
-            .unwrap();
-        cache
-            .clear(&history.list(), scope)
-            .map_err(|_| "媒体缓存清理失败".into())
+        self.access_history(|history| {
+            let mut existence = HashMap::new();
+            let live = history
+                .list()?
+                .into_iter()
+                .filter_map(|row| {
+                    let available = *existence
+                        .entry(row.path.clone())
+                        .or_insert_with(|| row.path.is_file());
+                    available.then_some(row.id)
+                })
+                .collect::<Vec<_>>();
+            // 持业务锁排序下载登记与清理，文件探测期间不占用 SQLite 连接。
+            cache
+                .clear(&live, scope)
+                .map_err(|_| "媒体缓存清理失败".into())
+        })
     }
+    #[cfg(test)]
     pub fn saved(&self) -> Result<Value, String> {
         Ok(json!(self.saved_records()?))
     }
 
+    #[cfg(test)]
     pub fn saved_records(&self) -> Result<Vec<crate::download_history::SavedDownload>, String> {
         let history = self
             .history
@@ -453,9 +477,10 @@ impl Downloads {
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap();
-        Ok(history.list())
+        history.list()
     }
 
+    #[cfg(test)]
     pub fn saved_path(&self, id: &str) -> Result<PathBuf, String> {
         let history = self
             .history
@@ -463,7 +488,25 @@ impl Downloads {
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap();
-        Ok(history.find(id)?.path.clone())
+        history
+            .list()?
+            .into_iter()
+            .find(|row| row.id == id)
+            .map(|row| row.path)
+            .ok_or_else(|| "track_not_found".into())
+    }
+
+    pub fn access_history<T>(
+        &self,
+        action: impl FnOnce(&mut crate::download_history::History) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut history = self
+            .history
+            .as_ref()
+            .ok_or("capability_unsupported")?
+            .lock()
+            .unwrap();
+        action(&mut history)
     }
 
     pub fn library_snapshot(
@@ -475,58 +518,21 @@ impl Downloads {
         ),
         String,
     > {
-        let history = self
-            .history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap();
-        Ok((history.list(), history.excluded_songs().clone()))
+        self.access_history(|history| {
+            history.reconcile();
+            history.snapshot(&history.db.lock())
+        })
     }
 
-    pub fn restore_library_songs(&self, ids: &[String]) -> Result<(), String> {
-        self.history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap()
-            .restore_songs(ids)
-    }
-
-    pub fn remove_library_song(
-        &self,
-        path: &Path,
-        id: &str,
-        delete_file: bool,
-    ) -> Result<(), String> {
-        self.history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap()
-            .remove_song(path, id, delete_file)
-    }
-
-    pub fn reveal_saved(&self, id: &str) -> Result<Value, String> {
-        let path = self.saved_path(id)?;
-        if !path.is_file() {
-            return Err("saved_file_missing".into());
-        }
-        reveal_file(&path)?;
-        Ok(Value::Null)
-    }
-
-    pub async fn directory(&self, body: &Value) -> Result<Value, String> {
-        let current = self
-            .history
-            .as_ref()
-            .ok_or("capability_unsupported")?
-            .lock()
-            .unwrap()
-            .directory()
-            .to_owned();
-        match body["action"].as_str() {
-            Some("choose") => {
+    pub async fn directory(&self, action: DirectoryAction) -> Result<Value, String> {
+        let manager = self.clone();
+        let current = tokio::task::spawn_blocking(move || {
+            manager.access_history(|history| history.directory())
+        })
+        .await
+        .map_err(|_| "download_history_unavailable")??;
+        let directory = match action {
+            DirectoryAction::Choose => {
                 let Some(folder) = rfd::AsyncFileDialog::new()
                     .set_title("更改下载目录")
                     .set_directory(&current)
@@ -535,30 +541,26 @@ impl Downloads {
                 else {
                     return Ok(Value::Null);
                 };
-                self.history
-                    .as_ref()
-                    .unwrap()
-                    .lock()
-                    .unwrap()
-                    .set_directory(Some(folder.path().to_owned()))?;
+                Some(Some(folder.path().to_owned()))
             }
-            Some("reset") => self
-                .history
-                .as_ref()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .set_directory(None)?,
-            Some("open") => {
+            DirectoryAction::Reset => Some(None),
+            DirectoryAction::Open => None,
+        };
+        let manager = self.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(directory) = directory {
+                manager.access_history(|history| history.set_directory(directory))?;
+            } else {
                 std::fs::create_dir_all(&current).map_err(|_| "file_io_error")?;
                 std::process::Command::new("explorer.exe")
                     .arg(&current)
                     .spawn()
                     .map_err(|_| "file_io_error")?;
             }
-            _ => return Err("invalid_input".into()),
-        }
-        self.settings(&Value::Null)
+            manager.settings(None)
+        })
+        .await
+        .map_err(|_| "download_history_unavailable")?
     }
 
     fn automatic_target(&self, name: &str) -> Result<PathBuf, String> {
@@ -568,8 +570,7 @@ impl Downloads {
             .ok_or("capability_unsupported")?
             .lock()
             .unwrap()
-            .directory()
-            .to_owned();
+            .directory()?;
         std::fs::create_dir_all(&directory).map_err(|_| "file_io_error")?;
         let jobs = self.jobs.lock().unwrap();
         let original = directory.join(name);
@@ -601,7 +602,7 @@ impl Downloads {
         Err("file_exists".into())
     }
 
-    fn record_saved(
+    async fn record_saved(
         &self,
         id: &str,
         target: &Path,
@@ -636,39 +637,45 @@ impl Downloads {
             source_preserved,
         };
         let saved_id = record.id.clone();
-        let identity = record.identity.clone();
-        if let Err(error) = history.lock().unwrap().add(record) {
-            self.update(id, json!({"historyError":error,"savedPath":target}));
+        let history = history.clone();
+        let saved = tokio::task::spawn_blocking(move || history.lock().unwrap().add(record))
+            .await
+            .unwrap_or_else(|_| Err("download_history_unavailable".into()));
+        if let Err(error) = saved {
+            self.update(id, json!({"historyError":error}));
             return Err(error);
         }
-        if let Some(cache) = &self.media_covers.1 {
-            cache.pin(&saved_id, &identity);
-        }
-        self.update(id, json!({"savedId":saved_id,"savedPath":target}));
+        self.update(id, json!({"savedId":saved_id}));
         Ok(())
     }
 
-    pub fn settings(&self, body: &Value) -> Result<Value, String> {
-        let mut naming = self.naming.lock().unwrap();
-        if !body.is_null() {
-            let next: Naming =
-                serde_json::from_value(body["naming"].clone()).map_err(|_| "invalid_input")?;
-            if let Some(path) = &self.settings_path {
-                std::fs::create_dir_all(path.parent().ok_or("file_io_error")?)
-                    .map_err(|_| "file_io_error")?;
-                std::fs::write(path, serde_json::to_vec(&next).unwrap())
-                    .map_err(|_| "file_io_error")?;
+    pub fn settings(&self, naming: Option<Naming>) -> Result<Value, String> {
+        self.access_history(|history| {
+            if let Some(naming) = naming {
+                let value = serde_json::to_value(naming).map_err(|_| "invalid_input")?;
+                history.transact(|tx| {
+                    tx.execute("UPDATE download_settings SET naming=?1 WHERE singleton=1", [value.as_str()])?;
+                    Ok(())
+                }).map_err(|_| "file_io_error")?;
             }
-            *naming = next;
+            let (custom, naming) = history.settings()?;
+            let default = history.default_directory();
+            Ok(json!({
+                "mode":"desktop", "naming":naming, "canManage":false, "deploymentLocked":false, "error":null,
+                "directory":custom.as_deref().unwrap_or(default), "defaultDirectory":default,
+                "usingDefaultDirectory":custom.is_none()
+            }))
+        })
+    }
+
+    fn naming(&self) -> Result<Naming, String> {
+        if self.history.is_none() {
+            return Ok(Naming::default());
         }
-        let mut result = json!({"mode":"desktop", "naming":*naming, "canManage":false, "deploymentLocked":false, "error":null});
-        if let Some(history) = &self.history {
-            let history = history.lock().unwrap();
-            result["directory"] = json!(history.directory());
-            result["defaultDirectory"] = json!(history.default_directory());
-            result["usingDefaultDirectory"] = json!(history.using_default());
-        }
-        Ok(result)
+        self.access_history(|history| {
+            serde_json::from_value(json!(history.settings()?.1))
+                .map_err(|_| "download_history_unavailable".into())
+        })
     }
 
     pub fn register(&self, page: &mut Value) {
@@ -688,6 +695,7 @@ impl Downloads {
                     records.insert(
                         key(&row["identity"]),
                         Recording {
+                            expected_flac: false,
                             cover: row["cover"].as_str().map(str::to_owned),
                             quality: "standard".into(),
                             identity: row["identity"].clone(),
@@ -725,6 +733,7 @@ impl Downloads {
             .cloned()
             .ok_or("access_denied")?;
         recording.quality = body["quality"].as_str().unwrap().into();
+        recording.expected_flac = body["expectedSourceCodec"] == "flac";
         Ok(recording)
     }
 
@@ -745,6 +754,32 @@ impl Downloads {
             }
         }
     }
+    pub fn poll(&self) -> Result<Value, String> {
+        self.access_history(|history| {
+            history.reconcile();
+            let mut jobs = self.jobs.lock().unwrap();
+            jobs.retain(|_, job| {
+                !matches!(
+                    job.public["status"].as_str(),
+                    Some("completed" | "cancelled")
+                )
+            });
+            let tasks = jobs
+                .values()
+                .map(|job| job.public.clone())
+                .collect::<Vec<_>>();
+            drop(jobs);
+            let saved = history
+                .list()?
+                .into_iter()
+                .filter(|row| row.path.is_file())
+                .map(|row| json!({"id": row.id, "identity": row.identity}))
+                .collect::<Vec<_>>();
+            Ok(json!({"tasks":tasks,"saved":saved}))
+        })
+    }
+
+    #[cfg(test)]
     pub fn list(&self) -> Value {
         json!(self
             .jobs
@@ -755,14 +790,19 @@ impl Downloads {
             .collect::<Vec<_>>())
     }
     pub async fn create(&self, client: &reqwest::Client, body: &Value) -> Result<Value, String> {
+        self.check_open()?;
         let mut recording = self.recording(body)?;
-        let rep = tokio::time::timeout(Duration::from_secs(50), prefix(client, &recording))
-            .await
-            .map_err(|_| "upstream_timeout")??;
+        let rep = tokio::select! {
+            biased;
+            _ = self.closing.cancelled() => return Err("download_shutting_down".into()),
+            result = tokio::time::timeout(Duration::from_secs(50), prefix(client, &recording)) =>
+                result.map_err(|_| "upstream_timeout")??,
+        };
         if let Some(duration) = rep["expectedDurationSeconds"].as_f64().filter(|n| *n > 0.0) {
             recording.duration = duration;
         }
         let mode = body["outputMode"].as_str().unwrap_or("original");
+        validate_source_codec(recording.expected_flac, mode, &rep)?;
         if mode != "original" && (rep["codec"] != "flac" || !self.converter_available()) {
             return Err("capability_unsupported".into());
         }
@@ -771,7 +811,11 @@ impl Downloads {
         } else {
             "mp3"
         };
-        let name = suggested_name(&recording, *self.naming.lock().unwrap())
+        let manager = self.clone();
+        let naming = tokio::task::spawn_blocking(move || manager.naming())
+            .await
+            .map_err(|_| "download_history_unavailable")??;
+        let name = suggested_name(&recording, naming)
             .trim_end_matches(".mp3")
             .to_owned()
             + "."
@@ -781,22 +825,43 @@ impl Downloads {
             .map(|v| v.as_bool().ok_or("invalid_input"))
             .transpose()?
             .unwrap_or(false);
+        self.check_open()?;
         let target = if save_as {
             let mut picker = rfd::AsyncFileDialog::new()
                 .set_title("另存为音频")
                 .add_filter("音频", &[extension])
                 .set_file_name(name);
-            if let Some(history) = &self.history {
-                picker = picker.set_directory(history.lock().unwrap().directory());
+            if self.history.is_some() {
+                let manager = self.clone();
+                let directory = tokio::task::spawn_blocking(move || {
+                    manager.access_history(|history| history.directory())
+                })
+                .await
+                .map_err(|_| "download_history_unavailable")??;
+                picker = picker.set_directory(directory);
             }
-            let Some(file) = picker.save_file().await else {
+            let Some(file) = (tokio::select! {
+                biased;
+                _ = self.closing.cancelled() => return Err("download_shutting_down".into()),
+                file = picker.save_file() => file,
+            }) else {
                 return Ok(Value::Null);
             };
             file.path().to_owned()
         } else {
-            self.automatic_target(&name)?
+            let manager = self.clone();
+            tokio::task::spawn_blocking(move || manager.automatic_target(&name))
+                .await
+                .map_err(|_| "download_history_unavailable")??
         };
         self.start_mode(recording, target, client.clone(), mode)
+    }
+
+    fn check_open(&self) -> Result<(), String> {
+        if self.closing.is_cancelled() {
+            return Err("download_shutting_down".into());
+        }
+        Ok(())
     }
 
     fn converter_available(&self) -> bool {
@@ -811,6 +876,7 @@ impl Downloads {
         client: reqwest::Client,
         mode: &str,
     ) -> Result<Value, String> {
+        self.check_open()?;
         if target
             .extension()
             .and_then(|s| s.to_str())
@@ -831,9 +897,10 @@ impl Downloads {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let part = target.with_file_name(format!(".music-core-{id}.part"));
         let cancel = CancellationToken::new();
-        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":mode,"deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
+        let public = json!({"id":id,"identity":r.identity,"title":r.title,"artist":r.artist,"quality":r.quality,"outputMode":mode,"expectedSourceCodec":r.expected_flac.then_some("flac"),"deliveryMode":"desktop","status":"resolving","receivedBytes":0,"createdAt":now(),"updatedAt":now()});
         {
             let mut jobs = self.jobs.lock().unwrap();
+            self.check_open()?;
             if jobs.len() >= 128
                 || jobs
                     .values()
@@ -863,14 +930,7 @@ impl Downloads {
         }
         let manager = self.clone();
         tokio::spawn(async move {
-            manager.run(&id, &client, cancel).await;
-            let recording = manager
-                .jobs
-                .lock()
-                .unwrap()
-                .get(&id)
-                .filter(|job| job.public["savedId"].is_string())
-                .map(|job| job.recording.clone());
+            let recording = manager.run(&id, &client, cancel).await;
             if let (Some(recording), Some(cache)) = (recording, manager.media_covers.1.as_ref()) {
                 let _ = tokio::join!(
                     cache.cover(
@@ -893,7 +953,12 @@ impl Downloads {
             j.public["updatedAt"] = json!(now());
         }
     }
-    async fn run(&self, id: &str, client: &reqwest::Client, cancel: CancellationToken) {
+    async fn run(
+        &self,
+        id: &str,
+        client: &reqwest::Client,
+        cancel: CancellationToken,
+    ) -> Option<Recording> {
         let (r, target, part) = {
             let jobs = self.jobs.lock().unwrap();
             let j = &jobs[id];
@@ -902,83 +967,69 @@ impl Downloads {
         self.finish(
             id,
             &target,
-            &part,
-            cancel,
-            self.transfer(id, client, &r, &target, &part),
+            self.transfer(id, client, &r, &target, &part, &cancel),
         )
-        .await;
+        .await
     }
+
+    async fn cleanup_job(&self, id: &str) -> bool {
+        let parts = self
+            .jobs
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|job| (job.part.clone(), job.owns_part, job.owns_output));
+        let Some((part, owns_part, owns_output)) = parts else {
+            return false;
+        };
+        let (part_left, output_left) = clean_owned_parts(&part, owns_part, owns_output).await;
+        if let Some(job) = self.jobs.lock().unwrap().get_mut(id) {
+            job.owns_part = part_left;
+            job.owns_output = output_left;
+        }
+        part_left || output_left
+    }
+
     async fn finish(
         &self,
         id: &str,
         target: &Path,
-        part: &Path,
-        cancel: CancellationToken,
         transfer: impl std::future::Future<Output = Result<Value, String>>,
-    ) {
-        let result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err("cancelled".to_string()),
-            result = transfer => result,
-        };
-        let owned = self
+    ) -> Option<Recording> {
+        // 传输只在没有子进程的阶段丢弃等待。转换先等待自己的子进程退出。
+        let result = transfer.await;
+        let cleanup_failed = self.cleanup_job(id).await;
+        let saved = self
             .jobs
             .lock()
             .unwrap()
             .get(id)
-            .is_some_and(|j| j.owns_part);
-        let output = part.with_extension("mp3.part");
-        let owns_output = self
-            .jobs
-            .lock()
-            .unwrap()
-            .get(id)
-            .is_some_and(|j| j.owns_output);
-        if owns_output {
-            if remove_temporary(&output).await.is_err() {
-                self.update(
-                    id,
-                    json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
-                );
-                return;
+            .filter(|job| job.public["savedId"].is_string())
+            .map(|job| job.recording.clone());
+        let mut terminal = match result {
+            Ok(rep) => json!({
+                "status": if cleanup_failed { "failed" } else { "completed" },
+                "phase": "completed",
+                "errorCode": if cleanup_failed { Some("saved_temporary_cleanup_failed") } else { None },
+                "filename": target.file_name().and_then(|s| s.to_str()),
+                "format": rep["extension"].as_str().unwrap_or("mp3"), "route":rep["route"], "actualMedia": rep,
+                "finalSizeBytes": rep["sizeBytes"], "progress": 1,
+            }),
+            Err(error) if error == "cancelled" && !cleanup_failed => {
+                json!({"status":"cancelled","errorCode":null})
             }
-        }
-        if cancel.is_cancelled() {
-            self.update(id, json!({"sourcePreserved":false}));
-        }
-        let cleanup = if owned {
-            remove_temporary(part).await
-        } else {
-            Ok(())
+            Err(error) => json!({
+                "status":"failed",
+                "errorCode": if error == "cancelled" { "temporary_cleanup_failed".into() } else { error },
+            }),
         };
-        if cleanup
-            .as_ref()
-            .is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound)
-        {
-            self.update(
-                id,
-                json!({"status":"failed","errorCode":"temporary_cleanup_failed"}),
-            );
-            return;
+        if cleanup_failed {
+            eprintln!("下载任务 {id} 的临时文件未全部清理");
+            terminal["cleanupError"] = json!("temporary_cleanup_failed");
         }
-        match result {
-            Ok(rep) => self.update(
-                id,
-                json!({
-                    "status": "completed", "phase": "completed",
-                    "filename": target.file_name().and_then(|s| s.to_str()),
-                    "format": rep["extension"].as_str().unwrap_or("mp3"), "route":rep["route"], "actualMedia": rep,
-                    "finalSizeBytes": rep["sizeBytes"], "progress": 1,
-                }),
-            ),
-            Err(error) => self.update(
-                id,
-                json!({
-                    "status": if error == "cancelled" { "cancelled" } else { "failed" },
-                    "errorCode": if error == "cancelled" { Value::Null } else { json!(error) },
-                }),
-            ),
-        }
+        self.update(id, terminal);
+        self.finished.notify_one();
+        saved
     }
     async fn transfer(
         &self,
@@ -987,48 +1038,56 @@ impl Downloads {
         r: &Recording,
         target: &Path,
         part: &Path,
+        cancel: &CancellationToken,
     ) -> Result<Value, String> {
         let mut checked = r.clone();
-        let (media, route) = if r.identity["providerId"] == "kuwo" {
-            let url = tokio::time::timeout(Duration::from_secs(20), resolve(client, r))
-                .await
-                .map_err(|_| "upstream_timeout")??;
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert("user-agent", "okhttp/3.10.0".parse().unwrap());
-            (
-                crate::provider::Media { url, headers },
-                "native".to_string(),
-            )
-        } else {
-            let resolved = tokio::time::timeout(
-                Duration::from_secs(50),
-                crate::download_resolver::resolve(
-                    client,
-                    &crate::fallback::Config::from_env()?,
-                    &r.identity,
-                    &r.quality,
-                    &r.title,
-                    &r.artist,
-                ),
-            )
-            .await
-            .map_err(|_| "upstream_timeout")??;
-            if let Some(duration) = resolved.representation["expectedDurationSeconds"]
-                .as_f64()
-                .filter(|n| *n > 0.0)
-            {
-                checked.duration = duration;
-            }
-            (resolved.media, resolved.route)
+        let (route, response) = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err("cancelled".into()),
+            result = async {
+                let (media, route) = if r.identity["providerId"] == "kuwo" {
+                    let url = tokio::time::timeout(Duration::from_secs(20), resolve(client, r))
+                        .await
+                        .map_err(|_| "upstream_timeout")??;
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    headers.insert("user-agent", "okhttp/3.10.0".parse().unwrap());
+                    (
+                        crate::provider::Media { url, headers },
+                        "native".to_string(),
+                    )
+                } else {
+                    let resolved = tokio::time::timeout(
+                        Duration::from_secs(50),
+                        crate::download_resolver::resolve(
+                            client,
+                            &crate::fallback::Config::from_env()?,
+                            &r.identity,
+                            &r.quality,
+                            &r.title,
+                            &r.artist,
+                        ),
+                    )
+                    .await
+                    .map_err(|_| "upstream_timeout")??;
+                    if let Some(duration) = resolved.representation["expectedDurationSeconds"]
+                        .as_f64()
+                        .filter(|n| *n > 0.0)
+                    {
+                        checked.duration = duration;
+                    }
+                    (resolved.media, resolved.route)
+                };
+                self.update(id, json!({"route":route}));
+                let response = client
+                    .get(media.url)
+                    .headers(media.headers)
+                    .header("Accept-Encoding", "identity")
+                    .send()
+                    .await
+                    .map_err(|_| "upstream_failure")?;
+                Ok::<_, String>((route, response))
+            } => result?,
         };
-        self.update(id, json!({"route":route}));
-        let response = client
-            .get(media.url)
-            .headers(media.headers)
-            .header("Accept-Encoding", "identity")
-            .send()
-            .await
-            .map_err(|_| "upstream_failure")?;
         let mut rep = self
             .save_response(id, &checked, target, part, response)
             .await?;
@@ -1044,6 +1103,10 @@ impl Downloads {
         part: &Path,
         mut response: reqwest::Response,
     ) -> Result<Value, String> {
+        let cancel = self.jobs.lock().unwrap()[id].cancel.clone();
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
         if response
             .headers()
             .get("content-encoding")
@@ -1094,38 +1157,49 @@ impl Downloads {
             job.owns_part = true;
         }
         let mut received = 0u64;
-        while let Some(chunk) = response.chunk().await.map_err(|_| "upstream_failure")? {
-            received += chunk.len() as u64;
-            if received > MAX_DOWNLOAD_BYTES {
-                return Err("media_capacity".into());
+        let writing = async {
+            loop {
+                let chunk = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err("cancelled".into()),
+                    chunk = response.chunk() => chunk.map_err(|_| "upstream_failure")?,
+                };
+                let Some(chunk) = chunk else { break };
+                received += chunk.len() as u64;
+                if received > MAX_DOWNLOAD_BYTES {
+                    return Err("media_capacity".into());
+                }
+                file.write_all(&chunk).await.map_err(|_| "file_io_error")?;
+                self.update(
+                    id,
+                    json!({"receivedBytes":received,"progress":total.map(|n|received as f64/n as f64)}),
+                );
             }
-            file.write_all(&chunk).await.map_err(|_| "file_io_error")?;
-            self.update(
-                id,
-                json!({"receivedBytes":received,"progress":total.map(|n|received as f64/n as f64)}),
-            );
+            Ok::<_, String>(())
+        }.await;
+        if let Err(error) = writing {
+            // Tokio 文件写入可能还有后台工作，先释放句柄再清理任务文件。
+            let _ = file.flush().await;
+            return Err(error);
         }
         file.sync_all().await.map_err(|_| "file_io_error")?;
         drop(file);
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
         if received == 0 || total.is_some_and(|n| n != received) {
             return Err("source_verification_failed".into());
         }
         self.update(id, json!({"phase":"verifying"}));
         let rep = crate::download_media::inspect_original(part, &r.quality)?;
-        // 仅明确标准档要求 128k；自动和其他显式档由实际表示匹配。
-        if r.identity["providerId"] == "kuwo"
-            && r.quality == "standard"
-            && (rep["codec"] != "mp3"
-                || !rep["bitrateBps"]
-                    .as_u64()
-                    .is_some_and(|n| n.abs_diff(128000) <= 1000))
-        {
-            return Err("media_unavailable".into());
-        }
         let mode = self.jobs.lock().unwrap()[id].public["outputMode"]
             .as_str()
             .unwrap_or("original")
             .to_owned();
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
+        validate_source_codec(r.expected_flac, &mode, &rep)?;
         if mode != "original" {
             if rep["codec"] != "flac" {
                 return Err("source_verification_failed".into());
@@ -1146,30 +1220,46 @@ impl Downloads {
                     part,
                     &output,
                     if mode == "mp3_320" { 320000 } else { 192000 },
+                    &cancel,
                 )
                 .await
             }
             .await;
             let converted = match converted {
                 Ok(value) => value,
+                Err(error)
+                    if matches!(error.as_str(), "cancelled" | "conversion_cleanup_failed") =>
+                {
+                    return Err(error)
+                }
                 Err(error) => {
-                    self.save_failed_original(id, part, target, &rep, &error);
-                    return Err("conversion_failed".into());
+                    self.save_failed_original(id, part, target, &rep, &error)
+                        .await?;
+                    return Err(if error == "conversion_timeout" {
+                        error
+                    } else {
+                        "conversion_failed".into()
+                    });
                 }
             };
             if !target
                 .extension()
                 .is_some_and(|s| s.eq_ignore_ascii_case("mp3"))
             {
-                self.save_failed_original(id, part, target, &rep, "invalid_output_extension");
+                self.save_failed_original(id, part, target, &rep, "invalid_output_extension")
+                    .await?;
                 return Err("conversion_failed".into());
             }
             self.update(id, json!({"phase":"publishing", "transcoded":true}));
-            if let Err(error) = publish(&output, target) {
-                self.save_failed_original(id, part, target, &rep, &error);
+            if let Err(error) = self.publish_if_active(id, &output, target) {
+                if error == "cancelled" {
+                    return Err(error);
+                }
+                self.save_failed_original(id, part, target, &rep, &error)
+                    .await?;
                 return Err("conversion_failed".into());
             }
-            self.record_saved(id, target, &converted, false)?;
+            self.record_saved(id, target, &converted, false).await?;
             return Ok(converted);
         }
         let extension = rep["extension"].as_str().unwrap_or("mp3");
@@ -1181,49 +1271,87 @@ impl Downloads {
             return Err("source_verification_failed".into());
         }
         // 校验与无覆盖发布之间没有 await；取消不会留下未登记的正式文件。
-        publish(part, target)?;
-        self.record_saved(id, target, &rep, false)?;
+        self.publish_if_active(id, part, target)?;
+        self.record_saved(id, target, &rep, false).await?;
         Ok(rep)
     }
+    async fn discard_failed_job(&self, id: &str) -> Result<(), String> {
+        let job = {
+            let mut jobs = self.jobs.lock().unwrap();
+            self.check_open()?;
+            if jobs
+                .get(id)
+                .is_none_or(|job| job.public["status"] != "failed")
+            {
+                return Err("track_not_found".into());
+            }
+            jobs.remove(id).unwrap()
+        };
+        let (part_left, output_left) =
+            clean_owned_parts(&job.part, job.owns_part, job.owns_output).await;
+        if part_left || output_left {
+            eprintln!("放弃下载任务 {id} 时仍有临时文件未清理");
+        }
+        Ok(())
+    }
+
     pub async fn operate(
         &self,
         id: &str,
         operation: &str,
         client: &reqwest::Client,
     ) -> Result<Value, String> {
-        let (r, target, status, cancel, mode) = {
-            let jobs = self.jobs.lock().unwrap();
-            let j = jobs.get(id).ok_or("track_not_found")?;
-            (
-                j.recording.clone(),
-                j.target.clone(),
-                j.public["status"].as_str().unwrap_or("").to_string(),
-                j.cancel.clone(),
-                j.public["outputMode"].clone(),
-            )
-        };
-        match operation {
-            "cancel" => {
-                if matches!(status.as_str(), "resolving" | "downloading") {
-                    cancel.cancel();
-                }
-                Ok(self.jobs.lock().unwrap()[id].public.clone())
-            }
-            "retry" if matches!(status.as_str(), "failed" | "cancelled") => {
-                self.create(
-                    client,
-                    &json!({"identity":r.identity,"quality":r.quality,"outputMode":mode}),
-                )
-                .await
-            }
-            "reveal" if status == "completed" => {
-                reveal_file(&target)?;
-                Ok(Value::Null)
-            }
-            _ => Err("capability_unsupported".into()),
+        if operation == "remove" {
+            self.discard_failed_job(id).await?;
+            return Ok(Value::Null);
         }
+        let body = {
+            let jobs = self.jobs.lock().unwrap();
+            let job = jobs.get(id).ok_or("track_not_found")?;
+            let failed = job.public["status"] == "failed";
+            match operation {
+                "cancel" => {
+                    if matches!(
+                        job.public["status"].as_str(),
+                        Some("resolving" | "downloading")
+                    ) {
+                        job.cancel.cancel();
+                    }
+                    return Ok(job.public.clone());
+                }
+                "retry" if failed => {
+                    json!({
+                        "identity":job.recording.identity, "quality":job.recording.quality,
+                        "outputMode":job.public["outputMode"],
+                        "expectedSourceCodec":job.public["expectedSourceCodec"],
+                        "title":job.recording.title, "artist":job.recording.artist, "cover":job.recording.cover,
+                    })
+                }
+                _ => return Err("capability_unsupported".into()),
+            }
+        };
+        let result = self.create(client, &body).await?;
+        // 退出已接管剩余任务清理时，保留原记录交给退出流程。
+        let _ = self.discard_failed_job(id).await;
+        Ok(result)
     }
-    fn save_failed_original(&self, id: &str, part: &Path, target: &Path, rep: &Value, error: &str) {
+    fn publish_if_active(&self, id: &str, part: &Path, target: &Path) -> Result<(), String> {
+        // 取消、退出与硬链接发布共用任务锁。发布成功后登记和收尾不再响应取消。
+        let jobs = self.jobs.lock().unwrap();
+        if self.closing.is_cancelled() || jobs[id].cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
+        publish(part, target)
+    }
+
+    async fn save_failed_original(
+        &self,
+        id: &str,
+        part: &Path,
+        target: &Path,
+        rep: &Value,
+        error: &str,
+    ) -> Result<(), String> {
         // 使用用户已选目录和文件名；后缀与原文件一致，同名时只添加序号，绝不覆盖。
         let stem = target.file_stem().unwrap_or_default().to_string_lossy();
         let extension = rep["extension"].as_str().unwrap_or("flac");
@@ -1235,7 +1363,7 @@ impl Downloads {
                     format!("{stem} ({index}).{extension}")
                 };
                 let path = target.with_file_name(name);
-                match publish(part, &path) {
+                match self.publish_if_active(id, part, &path) {
                     Ok(()) => Some(Ok(path)),
                     Err(reason) if reason == "file_exists" => None,
                     Err(reason) => Some(Err(reason)),
@@ -1244,11 +1372,13 @@ impl Downloads {
             .unwrap_or_else(|| Err("file_exists".into()));
         match saved {
             Ok(path) => {
-                let history_error = self.record_saved(id,&path,rep,true).err();
+                let history_error = self.record_saved(id,&path,rep,true).await.err();
                 self.update(id,json!({"sourcePreserved":true,"sourceFilename":path.file_name().and_then(|s|s.to_str()),"sourceSaveError":null,"conversionError":error,"historyError":history_error,"transcoded":false}));
             },
+            Err(reason) if reason == "cancelled" => return Err(reason),
             Err(reason) => self.update(id,json!({"sourcePreserved":false,"sourceSaveError":reason,"conversionError":error,"transcoded":false})),
         }
+        Ok(())
     }
     pub fn active(&self) -> bool {
         self.jobs.lock().unwrap().values().any(|j| {
@@ -1258,22 +1388,274 @@ impl Downloads {
             )
         })
     }
-    pub async fn shutdown(&self) {
-        for job in self.jobs.lock().unwrap().values() {
+    pub fn begin_shutdown(&self) -> bool {
+        let jobs = self.jobs.lock().unwrap();
+        if self.closing.is_cancelled() {
+            return false;
+        }
+        self.closing.cancel();
+        for job in jobs.values() {
             job.cancel.cancel();
         }
-        for _ in 0..200 {
-            if !self.active() {
-                return;
+        true
+    }
+
+    pub async fn wait_for_shutdown(&self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, async {
+            while self.active() {
+                self.finished.notified().await;
             }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+            let remaining: Vec<_> = self
+                .jobs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, job)| job.owns_part || job.owns_output)
+                .map(|(id, _)| id.clone())
+                .collect();
+            let results =
+                futures_util::future::join_all(remaining.iter().map(|id| self.cleanup_job(id)))
+                    .await;
+            let residual = results.into_iter().filter(|failed| *failed).count();
+            if residual != 0 {
+                eprintln!("退出时仍有 {residual} 个任务的临时文件未完全清理");
+            }
+        })
+        .await
+        .is_ok()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
+    #[tokio::test]
+    async fn cleanup_failure_does_not_skip_other_owned_file() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::default();
+        let part = root.path().join("owned.part");
+        let target = root.path().join("saved.mp3");
+        let output = part.with_extension("mp3.part");
+        std::fs::write(&part, b"owned").unwrap();
+        #[cfg(windows)]
+        let locked = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::write(&output, b"locked").unwrap();
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1)
+                .open(&output)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        std::fs::create_dir(&output).unwrap();
+        std::fs::write(&target, b"published").unwrap();
+        let cancel = CancellationToken::new();
+        manager.jobs.lock().unwrap().insert(
+            "fixture".into(),
+            Job {
+                public: json!({"status":"downloading", "savedId":"saved"}),
+                recording: Recording {
+                    expected_flac: false,
+                    quality: "auto".into(),
+                    cover: None,
+                    identity: json!({}),
+                    title: "fixture".into(),
+                    artist: String::new(),
+                    duration: 0.0,
+                },
+                target: target.clone(),
+                part: part.clone(),
+                cancel: cancel.clone(),
+                owns_part: true,
+                owns_output: true,
+            },
+        );
+        manager
+            .finish("fixture", &target, async { Ok(json!({})) })
+            .await;
+        assert!(!part.exists());
+        assert!(output.exists());
+        assert_eq!(
+            manager.jobs.lock().unwrap()["fixture"].public["errorCode"],
+            "saved_temporary_cleanup_failed"
+        );
+        assert_eq!(std::fs::read(target).unwrap(), b"published");
+        #[cfg(windows)]
+        {
+            drop(locked);
+            manager.discard_failed_job("fixture").await.unwrap();
+            assert!(!output.exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_one_shot_and_waits_for_both_jobs() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::default();
+        let recording = Recording {
+            expected_flac: false,
+            quality: "auto".into(),
+            cover: None,
+            identity: json!({}),
+            title: "fixture".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        let client = reqwest::Client::new();
+        assert!(manager.wait_for_shutdown(Duration::from_secs(1)).await);
+        let finish_gate = CancellationToken::new();
+        let mut workers = Vec::new();
+        for id in ["first", "second"] {
+            let part = root.path().join(format!("{id}.part"));
+            let target = root.path().join(format!("{id}.mp3"));
+            let cancel = CancellationToken::new();
+            std::fs::write(&part, b"owned").unwrap();
+            manager.jobs.lock().unwrap().insert(
+                id.into(),
+                Job {
+                    public: json!({"id":id,"status":"downloading"}),
+                    recording: recording.clone(),
+                    target: target.clone(),
+                    part,
+                    cancel: cancel.clone(),
+                    owns_part: true,
+                    owns_output: false,
+                },
+            );
+            let manager = manager.clone();
+            let finish_gate = finish_gate.clone();
+            workers.push(tokio::spawn(async move {
+                manager
+                    .finish(id, &target, async {
+                        cancel.cancelled().await;
+                        finish_gate.cancelled().await;
+                        Err("cancelled".into())
+                    })
+                    .await;
+            }));
+        }
+        assert!(manager.begin_shutdown());
+        assert!(!manager.begin_shutdown());
+        assert_eq!(
+            manager.create(&client, &Value::Null).await.unwrap_err(),
+            "download_shutting_down"
+        );
+        assert_eq!(
+            manager
+                .start_mode(recording, root.path().join("late.mp3"), client, "original")
+                .unwrap_err(),
+            "download_shutting_down"
+        );
+        assert!(!manager.wait_for_shutdown(Duration::from_millis(30)).await);
+        assert!(root.path().join("first.part").exists());
+        finish_gate.cancel();
+        assert!(manager.wait_for_shutdown(Duration::from_secs(2)).await);
+        for worker in workers {
+            worker.await.unwrap();
+        }
+        assert!(!root.path().join("first.part").exists());
+        assert!(!root.path().join("second.part").exists());
+        assert!(manager
+            .list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|job| job["status"] == "cancelled"));
+    }
+
+    #[tokio::test]
+    async fn streaming_cancel_and_post_publish_cancel_have_distinct_results() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/music-core.sqlite3"),
+            root.path().into(),
+        )
+        .unwrap();
+        let recording = Recording {
+            expected_flac: false,
+            quality: "auto".into(),
+            cover: None,
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        for after_publish in [false, true] {
+            let id = if after_publish { "saved" } else { "streaming" };
+            let part = root.path().join(format!("{id}.part"));
+            let target = root.path().join(format!("{id}.mp3"));
+            let cancel = CancellationToken::new();
+            manager.jobs.lock().unwrap().insert(
+                id.into(),
+                Job {
+                    public: json!({"id":id,"status":"downloading"}),
+                    recording: recording.clone(),
+                    target: target.clone(),
+                    part: part.clone(),
+                    cancel: cancel.clone(),
+                    owns_part: false,
+                    owns_output: false,
+                },
+            );
+            if after_publish {
+                manager
+                    .finish(id, &target, async {
+                        let result = manager
+                            .save_response(
+                                id,
+                                &recording,
+                                &target,
+                                &part,
+                                original_response(fixture(20), None, 200),
+                            )
+                            .await;
+                        assert!(target.is_file());
+                        cancel.cancel();
+                        tokio::task::yield_now().await;
+                        result
+                    })
+                    .await;
+                assert!(target.is_file());
+                assert_eq!(
+                    manager.jobs.lock().unwrap()[id].public["status"],
+                    "completed"
+                );
+            } else {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                let body =
+                    futures_util::stream::once(async { Ok::<_, std::io::Error>(fixture(20)) })
+                        .chain(futures_util::stream::once(async {
+                            sender.send(()).unwrap();
+                            futures_util::future::pending::<Result<Vec<u8>, std::io::Error>>().await
+                        }));
+                let response = reqwest::Response::from(axum::http::Response::new(
+                    reqwest::Body::wrap_stream(body),
+                ));
+                tokio::join!(
+                    manager.finish(
+                        id,
+                        &target,
+                        manager.save_response(id, &recording, &target, &part, response)
+                    ),
+                    async {
+                        receiver.await.unwrap();
+                        assert!(part.is_file());
+                        cancel.cancel();
+                    }
+                );
+                assert!(!target.exists());
+                assert_eq!(
+                    manager.jobs.lock().unwrap()[id].public["status"],
+                    "cancelled"
+                );
+            }
+            assert!(!part.exists());
+        }
+        assert_eq!(manager.saved().unwrap().as_array().unwrap().len(), 1);
+    }
+
     fn original_response(body: Vec<u8>, length: Option<u64>, status: u16) -> reqwest::Response {
         let chunks = futures_util::stream::once(async move { Ok::<_, std::io::Error>(body) });
         let mut response = axum::http::Response::builder().status(status);
@@ -1334,6 +1716,7 @@ mod tests {
                     ..Downloads::default()
                 };
                 let r = Recording {
+                    expected_flac: false,
                     cover: None,
                     quality: if ["yiluxiangbei", "qifengle"].contains(&label) {
                         "auto"
@@ -1399,6 +1782,7 @@ mod tests {
             std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
                 .unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1504,7 +1888,8 @@ mod tests {
         assert!(!target.exists());
         let saved = dir.join(task["sourceFilename"].as_str().unwrap());
         assert_eq!(std::fs::read(&saved).unwrap(), truncated);
-        manager.shutdown().await;
+        assert!(manager.begin_shutdown());
+        assert!(manager.wait_for_shutdown(Duration::from_secs(8)).await);
         assert!(saved.exists(), "退出只清理临时文件，不能删除已保存的原文件");
         // 原文件也无法发布时，不得报告已保存。
         let absent = dir.join("absent").join("chosen.mp3");
@@ -1552,8 +1937,6 @@ mod tests {
             .finish(
                 "original-fixture",
                 target,
-                part,
-                cancel,
                 manager.save_response("original-fixture", r, target, part, response),
             )
             .await;
@@ -1563,15 +1946,335 @@ mod tests {
         );
         manager.list()[0].clone()
     }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "Windows 回收站专项，需要随包 FFmpeg，使用合成音频和临时目录"]
+    async fn published_downloads_recycle_after_part_cleanup() {
+        use crate::{
+            delete_plan::{Plans, Target},
+            file_recycle, local_library,
+        };
+
+        let root = tempfile::tempdir().unwrap();
+        let settings = root.path().join("config/music-core.sqlite3");
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools");
+        assert!(
+            crate::transcode::available(&tools),
+            "请先准备 FFmpeg 和 FFprobe"
+        );
+        let pcm = root.path().join("synthetic.pcm");
+        let samples: Vec<u8> = (0..3 * 44_100)
+            .flat_map(|sample| {
+                let phase = f64::from(sample) * std::f64::consts::TAU * 480.0 / 44_100.0;
+                ((phase.sin() * 4_000.0) as i16).to_le_bytes()
+            })
+            .collect();
+        std::fs::write(&pcm, samples).unwrap();
+        let source = root.path().join("synthetic.flac");
+        let output = std::process::Command::new(tools.join("ffmpeg.exe"))
+            .args([
+                "-nostdin", "-v", "error", "-f", "s16le", "-ar", "44100", "-ac", "1", "-i",
+            ])
+            .arg(&pcm)
+            .args(["-c:a", "flac"])
+            .arg(&source)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let bytes = std::fs::read(&source).unwrap();
+        let recording = Recording {
+            expected_flac: false,
+            cover: None,
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "临时测试音频".into(),
+            artist: "测试".into(),
+            duration: 0.0,
+        };
+        let mut plans = Plans::default();
+
+        for (label, extension, mode, has_tools) in [
+            ("original", "flac", "original", true),
+            ("converted", "mp3", "mp3_320", true),
+            ("retained", "mp3", "mp3_320", false),
+            ("existing", "flac", "original", true),
+        ] {
+            let mut manager =
+                Downloads::with_history(settings.clone(), root.path().into()).unwrap();
+            manager.tools_dir = has_tools.then(|| tools.clone());
+            let target = root.path().join(format!(
+                "music-core-{label}-{}.{}",
+                uuid::Uuid::new_v4().simple(),
+                extension
+            ));
+            let part = target.with_extension("part");
+            let job = fixture_save(
+                &manager,
+                &recording,
+                &target,
+                &part,
+                original_response(bytes.clone(), None, 200),
+                mode,
+            )
+            .await;
+            let published = if has_tools {
+                assert_eq!(job["status"], "completed", "{job}");
+                target
+            } else {
+                assert_eq!(job["errorCode"], "conversion_failed");
+                assert_eq!(job["sourcePreserved"], true);
+                target.with_extension("flac")
+            };
+            assert!(!part.with_extension("mp3.part").exists());
+            let mut expected = std::fs::read(&published).unwrap();
+            if extension == "flac" || !has_tools {
+                assert_eq!(expected, bytes);
+            }
+
+            if label == "existing" {
+                // 经本地播放代理读完音频并释放会话，再模拟外部标签编辑与应用重启。
+                let sessions = crate::sessions::Sessions::new();
+                let session = sessions.insert_local(published.clone(), "audio/flac");
+                let client = reqwest::Client::new();
+                let port = crate::transport::start(crate::transport::Transport {
+                    sessions: sessions.clone(),
+                    client: client.clone(),
+                })
+                .await
+                .unwrap();
+                let url = format!("http://127.0.0.1:{port}/api/playback/{session}/stream");
+                let response = client
+                    .get(&url)
+                    .send()
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+                assert_eq!(response.bytes().await.unwrap().as_ref(), expected);
+                sessions.close(&session);
+                assert_eq!(client.get(&url).send().await.unwrap().status(), 410);
+
+                let tagged = root.path().join("tagged.flac");
+                let output = std::process::Command::new(tools.join("ffmpeg.exe"))
+                    .args(["-nostdin", "-v", "error", "-i"])
+                    .arg(&published)
+                    .args(["-c", "copy", "-metadata", "title=Updated title"])
+                    .arg(&tagged)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                std::fs::rename(tagged, &published).unwrap();
+                let updated = std::fs::read(&published).unwrap();
+                assert_ne!(updated, expected);
+                expected = updated;
+
+                drop(manager);
+                manager = Downloads::with_history(settings.clone(), root.path().into()).unwrap();
+            }
+            let id = local_library::path_key(&published);
+            let plan = manager
+                .access_history(|history| Target::resolve(history, &id, None, &[]))
+                .unwrap();
+            let token = plans.prepare(plan);
+            assert!(manager
+                .access_history(|history| plans.take(&token)?.execute(history, &[]))
+                .unwrap());
+            assert!(plans.take(&token).is_err());
+            assert!(!published.exists());
+            file_recycle::restore_test_file(&published);
+            assert_eq!(std::fs::read(&published).unwrap(), expected);
+            let reopened = Downloads::with_history(settings.clone(), root.path().into()).unwrap();
+            assert!(reopened.library_snapshot().unwrap().0.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn published_audio_survives_sql_failure_and_shutdown_waits_for_slow_history() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_database(Database::memory(), root.path().into());
+        let recording = Recording {
+            expected_flac: false,
+            cover: None,
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        let raw = fixture(20);
+        let failed = root.path().join("failed.mp3");
+        manager
+            .access_history(|history| {
+                history.reject_writes(true);
+                Ok(())
+            })
+            .unwrap();
+        let task = original_save(
+            &manager,
+            &recording,
+            &failed,
+            &root.path().join("failed.part"),
+            original_response(raw.clone(), None, 200),
+        )
+        .await;
+        assert_eq!(task["historyError"], "download_history_unavailable");
+        assert_eq!(task["status"], "failed");
+        assert!(task["savedId"].is_null());
+        assert_eq!(std::fs::read(&failed).unwrap(), raw);
+        assert!(manager.saved_records().unwrap().is_empty());
+        manager
+            .access_history(|history| {
+                history.reject_writes(false);
+                Ok(())
+            })
+            .unwrap();
+
+        let (release, wait) = std::sync::mpsc::channel();
+        let (held, ready) = tokio::sync::oneshot::channel();
+        let locking = manager.clone();
+        let history_task = tokio::task::spawn_blocking(move || {
+            locking.access_history(|_| {
+                held.send(()).unwrap();
+                let _ = wait.recv();
+                Ok(())
+            })
+        });
+        ready.await.unwrap();
+        let target = root.path().join("slow.mp3");
+        let part = root.path().join("slow.part");
+        let saving = manager.clone();
+        let saved_path = target.clone();
+        let job = tokio::spawn(async move {
+            original_save(
+                &saving,
+                &recording,
+                &saved_path,
+                &part,
+                original_response(raw, None, 200),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !target.is_file() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(manager.begin_shutdown());
+        assert!(!manager.wait_for_shutdown(Duration::from_millis(30)).await);
+        release.send(()).unwrap();
+        history_task.await.unwrap().unwrap();
+        assert_eq!(job.await.unwrap()["status"], "completed");
+        assert!(manager.wait_for_shutdown(Duration::from_secs(1)).await);
+        assert_eq!(manager.saved_records().unwrap()[0].path, target);
+    }
+
+    #[tokio::test]
+    async fn desktop_poll_hands_off_products_and_retires_finalized_jobs() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/music-core.sqlite3"),
+            root.path().into(),
+        )
+        .unwrap();
+        let recording = Recording {
+            expected_flac: false,
+            cover: None,
+            quality: "auto".into(),
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "fixture".into(),
+            artist: "test".into(),
+            duration: 0.0,
+        };
+        let part = root.path().join("job.part");
+        let first = root.path().join("first.mp3");
+        let second = root.path().join("second.mp3");
+        for target in [&first, &second] {
+            let task = original_save(
+                &manager,
+                &recording,
+                target,
+                &part,
+                original_response(fixture(20), None, 200),
+            )
+            .await;
+            assert_eq!(task["status"], "completed");
+            let snapshot = manager.poll().unwrap();
+            assert_eq!(snapshot["tasks"], json!([]));
+            assert!(manager.jobs.lock().unwrap().is_empty());
+        }
+
+        let initial = manager.poll().unwrap();
+        assert_eq!(initial["saved"].as_array().unwrap().len(), 2);
+        assert!(initial["saved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["identity"] == recording.identity));
+        manager
+            .access_history(|history| {
+                history.remove_song(&first, &crate::local_library::path_key(&first))
+            })
+            .unwrap();
+        assert!(first.is_file());
+        assert_eq!(
+            manager.poll().unwrap()["saved"].as_array().unwrap().len(),
+            1
+        );
+        std::fs::rename(second, root.path().join("moved.mp3")).unwrap();
+        assert_eq!(manager.poll().unwrap()["saved"], json!([]));
+
+        for (id, status) in [
+            ("cancelled", "cancelled"),
+            ("failed", "failed"),
+            ("active", "downloading"),
+        ] {
+            manager.jobs.lock().unwrap().insert(
+                id.into(),
+                Job {
+                    public: json!({"id":id,"status":status}),
+                    recording: recording.clone(),
+                    target: first.clone(),
+                    part: part.clone(),
+                    cancel: CancellationToken::new(),
+                    owns_part: false,
+                    owns_output: false,
+                },
+            );
+        }
+        assert_eq!(
+            manager.poll().unwrap()["tasks"].as_array().unwrap().len(),
+            2
+        );
+        assert!(!manager.jobs.lock().unwrap().contains_key("cancelled"));
+        let client = reqwest::Client::new();
+        manager.operate("failed", "remove", &client).await.unwrap();
+        assert_eq!(
+            manager.poll().unwrap()["tasks"],
+            json!([{"id":"active","status":"downloading"}])
+        );
+    }
+
     #[tokio::test]
     async fn saved_products_survive_restart_in_default_and_save_as_locations() {
         let root = tempfile::tempdir().unwrap();
-        let settings = root.path().join("config/download-naming.json");
+        let settings = root.path().join("config/music-core.sqlite3");
         let default = root.path().join("redirected-system-music/拾音");
         let outside = root.path().join("outside-library");
         std::fs::create_dir_all(&outside).unwrap();
         let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1652,12 +2355,12 @@ mod tests {
         );
         let reopened = Downloads::with_history(settings, default).unwrap();
         assert_eq!(
-            reopened.settings(&Value::Null).unwrap()["directory"],
+            reopened.settings(None).unwrap()["directory"],
             json!(changed)
         );
         assert_eq!(reopened.saved().unwrap(), saved, "改目录不重写旧记录路径");
         assert!(first.exists() && second.exists());
-        assert_eq!(reopened.settings(&Value::Null).unwrap()["mode"], "desktop");
+        assert_eq!(reopened.settings(None).unwrap()["mode"], "desktop");
         let failed = outside.join("failed.mp3");
         let task = original_save(
             &reopened,
@@ -1675,13 +2378,14 @@ mod tests {
     async fn cancelled_transfer_never_registers_a_product() {
         let root = tempfile::tempdir().unwrap();
         let manager = Downloads::with_history(
-            root.path().join("config/download-naming.json"),
+            root.path().join("config/music-core.sqlite3"),
             root.path().join("music/拾音"),
         )
         .unwrap();
         let target = manager.automatic_target("cancelled.mp3").unwrap();
         let part = target.with_extension("part");
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1707,8 +2411,6 @@ mod tests {
             .finish(
                 "cancel",
                 &target,
-                &part,
-                cancel,
                 manager.save_response(
                     "cancel",
                     &r,
@@ -1724,6 +2426,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn declared_flac_rejects_changed_upstream_codec_before_publish() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            root.path().join("config/music-core.sqlite3"),
+            root.path().join("music/拾音"),
+        ).unwrap();
+        let target = manager.automatic_target("unexpected.mp3").unwrap();
+        let part = target.with_extension("part");
+        let recording = Recording {
+            expected_flac: true,
+            quality: "auto".into(),
+            cover: None,
+            identity: json!({"providerId":"qq","platformId":"fixture"}),
+            title: "expected FLAC".into(),
+            artist: String::new(),
+            duration: 0.0,
+        };
+        manager.jobs.lock().unwrap().insert("fixture".into(), Job {
+            public: json!({"status":"downloading","outputMode":"original","expectedSourceCodec":"flac"}),
+            recording: recording.clone(),
+            target: target.clone(),
+            part: part.clone(),
+            cancel: CancellationToken::new(),
+            owns_part: false,
+            owns_output: false,
+        });
+        manager.finish("fixture", &target, manager.save_response(
+            "fixture", &recording, &target, &part, original_response(fixture(20), None, 200),
+        )).await;
+        assert_eq!(manager.list()[0]["errorCode"], "media_unavailable");
+        assert!(!target.exists() && !part.exists());
+        assert!(manager.saved().unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     #[ignore = "已有 FLAC：原格式、转码和回退成品的持久记录；不访问网络"]
     async fn actual_products_and_history_roundtrip() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1731,7 +2468,7 @@ mod tests {
             "download-history-{}",
             uuid::Uuid::new_v4().simple()
         ));
-        let settings = dir.join("config/download-naming.json");
+        let settings = dir.join("config/music-core.sqlite3");
         let default = dir.join("music/拾音");
         let bytes =
             std::fs::read(root.join(".runtime/task20/qq/RyaVocal - 晴天 (原唱 周杰伦).flac"))
@@ -1739,6 +2476,7 @@ mod tests {
         let mut manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         manager.tools_dir = Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/tools"));
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "lossless".into(),
             identity: json!({"providerId":"netease","platformId":"2668397359"}),
@@ -1797,7 +2535,7 @@ mod tests {
     #[tokio::test]
     async fn preserved_original_is_a_saved_product_not_a_successful_conversion() {
         let root = tempfile::tempdir().unwrap();
-        let settings = root.path().join("config/download-naming.json");
+        let settings = root.path().join("config/music-core.sqlite3");
         let default = root.path().join("music/拾音");
         let manager = Downloads::with_history(settings.clone(), default.clone()).unwrap();
         let target = manager.automatic_target("chosen.mp3").unwrap();
@@ -1805,6 +2543,7 @@ mod tests {
         let bytes = fixture(20);
         std::fs::write(&part, &bytes).unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1825,15 +2564,14 @@ mod tests {
             },
         );
         let rep = crate::download_media::inspect_original(&part, "auto").unwrap();
-        manager.save_failed_original("fallback", &part, &target, &rep, "fixture_encoder_failure");
         manager
-            .finish(
-                "fallback",
-                &target,
-                &part,
-                CancellationToken::new(),
-                async { Err("conversion_failed".into()) },
-            )
+            .save_failed_original("fallback", &part, &target, &rep, "fixture_encoder_failure")
+            .await
+            .unwrap();
+        manager
+            .finish("fallback", &target, async {
+                Err("conversion_failed".into())
+            })
             .await;
         assert_eq!(manager.list()[0]["status"], "failed");
         assert_eq!(manager.list()[0]["sourcePreserved"], true);
@@ -1854,6 +2592,7 @@ mod tests {
         let dir = folder();
         let manager = Downloads::default();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "auto".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -1892,6 +2631,7 @@ mod tests {
         let part = dir.join("owned.part");
         let manager = Downloads::default();
         let mut r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"qq","platformId":"fixture"}),
@@ -2007,6 +2747,7 @@ mod tests {
                 .unwrap(),
         );
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: quality.into(),
             identity: json!({"providerId":"qq","platformId":"0027oMO61wWi55"}),
@@ -2058,14 +2799,16 @@ mod tests {
     }
     #[test]
     fn naming_rules_settings_and_windows_cleanup() {
-        let dir = folder();
-        let path = dir.join("naming.json");
-        let manager = Downloads::new(path.clone());
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().to_owned();
+        let path = dir.join("music-core.sqlite3");
+        let manager = Downloads::with_history(path.clone(), dir.clone()).unwrap();
         assert_eq!(
-            manager.settings(&Value::Null).unwrap()["naming"],
+            manager.settings(None).unwrap()["naming"],
             "artist_title"
         );
         let mut recording = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
@@ -2078,17 +2821,20 @@ mod tests {
             ("artist_title", "Various Artists - 贝多芬：致爱丽丝.mp3"),
             ("title_artist", "贝多芬：致爱丽丝 - Various Artists.mp3"),
         ] {
-            manager.settings(&json!({"naming":rule})).unwrap();
+            manager.settings(Some(serde_json::from_value(json!(rule)).unwrap())).unwrap();
             assert_eq!(
-                suggested_name(&recording, *manager.naming.lock().unwrap()),
+                suggested_name(&recording, manager.naming().unwrap()),
                 expected
             );
             assert_eq!(
-                Downloads::new(path.clone()).settings(&Value::Null).unwrap()["naming"],
+                Downloads::with_history(path.clone(), dir.clone())
+                    .unwrap()
+                    .settings(None)
+                    .unwrap()["naming"],
                 rule
             );
         }
-        assert!(manager.settings(&json!({"naming":"arbitrary"})).is_err());
+        assert!(serde_json::from_value::<Naming>(json!("arbitrary")).is_err());
         recording.title = " CON. ".into();
         assert_eq!(suggested_name(&recording, Naming::Title), "_CON.mp3");
         recording.title = "a/b:*?\"<>|\n".into();
@@ -2100,8 +2846,6 @@ mod tests {
                 .count(),
             124
         );
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_dir(dir).unwrap();
     }
     fn folder() -> PathBuf {
         let path = std::env::current_dir()
@@ -2190,6 +2934,7 @@ mod tests {
         std::fs::write(&untouched, b"other task").unwrap();
         let manager = Downloads::default();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"fixture"}),
@@ -2256,8 +3001,6 @@ mod tests {
                 .finish(
                     "fixture",
                     &target,
-                    &part,
-                    cancel,
                     manager.save_response("fixture", &r, &target, &part, response),
                 )
                 .await;
@@ -2287,6 +3030,7 @@ mod tests {
             .build()
             .unwrap();
         let r = Recording {
+            expected_flac: false,
             cover: None,
             quality: "standard".into(),
             identity: json!({"providerId":"kuwo","platformId":"151826227"}),
@@ -2295,18 +3039,34 @@ mod tests {
             duration: 235.0,
         };
         let rep = prefix(&client, &r).await.unwrap();
-        assert_eq!(rep["bitrateBps"], 128000);
-        let dir = folder();
-        let target = dir.join("sample.mp3");
-        let part = dir.join("sample.part");
-        let manager = Downloads::default();
-        let result = manager
-            .transfer("fixture", &client, &r, &target, &part)
-            .await;
-        println!("kuwo/151826227 standard result={result:?}");
-        let _ = std::fs::remove_file(&part);
-        let _ = std::fs::remove_file(&target);
-        std::fs::remove_dir(dir).unwrap();
-        assert!(result.is_ok());
+        assert_eq!(rep["codec"], "mp3");
+        assert!(rep["bitrateBps"].as_u64().is_some_and(|rate| rate.abs_diff(128_000) <= 1_000));
+
+        let dir = tempfile::tempdir().unwrap();
+        let manager = Downloads::with_history(
+            dir.path().join("music-core.sqlite3"),
+            dir.path().join("music"),
+        ).unwrap();
+        let target = manager.automatic_target("sample.mp3").unwrap();
+        let part = manager.start_mode(r, target.clone(), client, "original").unwrap();
+        assert_eq!(part["deliveryMode"], "desktop");
+
+        let result = tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                let list = manager.list();
+                let task = &list[0];
+                if matches!(task["status"].as_str(), Some("completed" | "failed" | "cancelled")) {
+                    break task.clone();
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }).await.unwrap();
+        assert_eq!(result["status"], "completed", "正式下载：{}", result["errorCode"]);
+        let saved = manager.saved().unwrap();
+        assert_eq!(saved.as_array().unwrap().len(), 1);
+        assert_eq!(saved[0]["identity"]["platformId"], "151826227");
+        let size = target.metadata().unwrap().len();
+        assert_eq!(result["finalSizeBytes"], size);
+        println!("kuwo/151826227 standard published: mp3, {size} bytes");
     }
 }

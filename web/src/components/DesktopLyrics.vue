@@ -9,9 +9,10 @@ import Check from '~icons/lucide/check';
 import Lock from '~icons/lucide/lock';
 import Gear from '~icons/lucide/settings-2';
 import Close from '~icons/lucide/x';
-import { bridge, lyricChannel } from '../composables/useDesktopLyrics';
+import { bridge } from '../platform/desktop';
 import {
   acceptSnapshot,
+  lyricChannel,
   lyricSnapshot,
   type PlaybackAction,
   type Update,
@@ -52,11 +53,12 @@ function readSettings() {
     },
   };
 }
+
 const settings = ref(readSettings());
 const vertical = computed(() => settings.value.layout === 'vertical');
 const menu = ref(false),
   movingLayout = ref(false);
-const update = ref<Update>({ sequence: 0, snapshot: lyricSnapshot(null, null, 0) });
+const update = ref<Update>({ publisher: 0, sequence: 0, snapshot: lyricSnapshot(null, null, 0) });
 const snapshot = computed(() => update.value.snapshot);
 const playback = computed(() => update.value.playback);
 const settingsButton = ref<HTMLButtonElement>();
@@ -73,6 +75,7 @@ function dismissMenu() {
     void bridge?.core.invoke('desktop_lyrics_settings_window', { show: false }).catch(() => {});
   else if (menu.value) toggleMenu();
 }
+
 let toggling = false;
 async function toggleMenu() {
   const anchor = settingsButton.value?.getBoundingClientRect();
@@ -255,7 +258,8 @@ onUnmounted(() => {
         :disabled="!playback?.canToggle"
         @click="play('toggle')"
       >
-        <Pause v-if="playback?.playing" /><Play v-else />
+        <Pause v-if="playback?.playing" />
+        <Play v-else />
       </button>
       <button
         title="下一首"

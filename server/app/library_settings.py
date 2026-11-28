@@ -10,6 +10,8 @@ import subprocess
 from time import time
 from uuid import UUID, uuid4
 
+from app.core.file_name import safe_stem
+
 
 def system_folder(name):
     if os.name != 'nt':
@@ -30,14 +32,18 @@ def system_folder(name):
         ctypes.windll.ole32.CoTaskMemFree(result)
 
 
-def initial_directory(data, legacy, override=None):
+def initial_directory(data, default_directory, override=None):
     from app.download_index import DownloadIndex
     if override is not None and not override.strip():
         raise ValueError('音乐库目录不能为空')
-    existed = (Path(data) / 'downloads.sqlite3').exists()
     index = DownloadIndex(data)
     saved = index.setting('directory')
-    selected = Path(override) if override is not None else Path(saved) if saved else legacy if existed or legacy.exists() else system_folder('music') if os.name == 'nt' else legacy
+    if override is not None:
+        selected = Path(override)
+    elif saved:
+        selected = Path(saved)
+    else:
+        selected = system_folder('music') if os.name == 'nt' else default_directory
     if override is not None or not saved:
         index.setting('directory', str(selected.resolve()))
     return selected
@@ -120,18 +126,18 @@ class LibraryManager:
 
     def candidates(self):
         m = self.manager
-        output = []
-        for identifier, path, raw, hidden in m.index.published():
-            metadata = json.loads(raw)
-            # 06 只有 publish 会写这些元数据；扫描记录为 {}，不能当下载来源。
-            if not metadata or m.index.resolve(identifier) != identifier:
-                continue
-            try:
-                source, info, _ = m.find_file(identifier)
-            except FileNotFoundError:
-                continue
-            output.append((identifier, source, metadata, hidden or identifier in m.hidden(source.parent)))
-        return output
+        published = m.index.published()
+        if not published:
+            return []
+        successors, _ = m.index.aliases()
+        eligible = {identifier: (raw, hidden) for identifier, _, raw, hidden in published
+                    if identifier not in successors}
+        if not eligible:
+            return []
+        paths = {identifier: path for path, info, _ in m.snapshots()
+                 if (identifier := m.fingerprint(path, info)) in eligible}
+        return [(identifier, paths[identifier], json.loads(raw), hidden)
+                for identifier, (raw, hidden) in eligible.items() if identifier in paths]
 
     def change(self, target, migrate):
         m = self.manager
@@ -160,7 +166,6 @@ class LibraryManager:
                             verify.update(chunk)
                     if verify.digest() != digest.digest() or m.fingerprint(source, source.stat()) != identifier:
                         raise OSError('文件完整性验证失败')
-                    from app.downloads import safe_stem
                     for number in range(1, 10001):
                         destination = target / (safe_stem(source.stem) + (f' ({number})' if number > 1 else '') + source.suffix)
                         try:

@@ -4,11 +4,17 @@ import { useEventListener, useInfiniteScroll } from "@vueuse/core";
 import SongList from "../components/SongList.vue";
 import { useCoreClient } from "../composables/useCoreClient";
 import { useSongGroups } from "../composables/useSongGroups";
-import type { Song } from "../types/music";
+import { isLocalSong } from "../types/music";
+import { queueKey } from "../utils/player-queue";
 const { searchState, player } = useCoreClient();
 const { query, songs, busy, error, perSourceStatus, loadingMore, cursors } = searchState;
-const groupsState = useSongGroups(songs, searchState.providers, ref<Song | null>(null));
-const { groups, now } = groupsState;
+const selectedIdentity = computed(() => {
+  const song = player.selected.value;
+  return song && !isLocalSong(song) ? song.identity : null;
+});
+const selectedKey = computed(() => selectedIdentity.value ? queueKey(selectedIdentity.value) : undefined);
+const groupsState = useSongGroups(songs, searchState.providers, selectedIdentity);
+const { groups } = groupsState;
 const hasMore = computed(() => Object.values(cursors.value).some(Boolean));
 const pending = computed(() =>
   Object.values(perSourceStatus.value).some((state) => state.status === "running"),
@@ -113,12 +119,8 @@ function retrySource(source: string) {
     <SongList
       :songs="songs"
       :groups="groups"
-      :now="now"
       :busy="busy"
-      :pre-resolve-enabled="false"
-      :submitting="true"
-      :download-jobs="{}"
-      :active-id="player.selectedId.value"
+      :active-id="selectedKey"
       @play="player.select"
       @toggle="groupsState.toggle"
     />

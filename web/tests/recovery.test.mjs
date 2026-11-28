@@ -47,17 +47,19 @@ class Audio extends EventTarget {
 function setup(){
   const audio=new Audio(),closed=[],opened=[];
   let gate=null,fail=false,headStatus=410;
-  const request=async(url,options)=>{
-    if(url.endsWith('/close')){closed.push(url.split('/')[3]);return {ok:true,status:204};}
-    if(options.method==='HEAD')return {ok:headStatus===200,status:headStatus};
-    if(url.endsWith('/renew'))return {ok:false,status:410};
-    const track=JSON.parse(options.body).identity,key=`lease${opened.length}`;
-    opened.push(track);
-    if(gate){const pending=gate;gate=null;await pending;}
-    return {ok:!fail,status:fail?502:200,json:async()=>fail?{error:{code:'upstream_failure'}}:
-      {playbackId:key,streamUrl:`/api/playback/${key}/stream`,media:{identity:track}}};
+  const operations = {
+    async close(id) { closed.push(id); },
+    async probe() { return { ok: headStatus === 200, status: headStatus }; },
+    async renew() { throw Object.assign(new Error('会话已过期'), { code: 'playback_expired', status: 410 }); },
+    async open(track) {
+      const key = 'lease' + opened.length;
+      opened.push(track);
+      if (gate) { const pending = gate; gate = null; await pending; }
+      if (fail) throw new Error('重新打开失败');
+      return { playbackId: key, streamUrl: '/api/playback/' + key + '/stream', identity: track };
+    },
   };
-  const player=new RecoveryPlayer(audio,{request});
+  const player = new RecoveryPlayer(audio, { operations });
   return {audio,player,opened,closed,delay(){let release;gate=new Promise(r=>release=r);return release;},
     fail(value){fail=value;},head(value){headStatus=value;}};
 }
@@ -87,18 +89,17 @@ test('销毁后移除持久监听且关闭会话',async()=>{
  assert.equal(s.player.listeners.length,0);assert.equal(s.player.session,null);assert(s.closed.includes('lease0'));
 });
 test('旧续期晚到不能覆盖新歌曲',async()=>{
- const s=setup();await s.player.select(identity);const original=s.player.request;let release;
- s.player.request=(url,options)=>url.endsWith('/renew')?new Promise(r=>release=r):original(url,options);
+ const s=setup();await s.player.select(identity);let release;
+ s.player.operations.renew = () => new Promise((_, reject) => { release = reject; });
  const renewal=s.player.renew();await s.player.select({...identity,platformId:'2'});
- release({ok:false,status:410});await renewal;
+ release({code:'playback_expired', status:410});await renewal;
  assert.equal(s.player.identity.platformId,'2');assert.equal(s.opened.length,2);assert.equal(s.player.phase,'ready');
 });
 test('同源stream地址保留服务端查询参数',async()=>{
- const s=setup();const original=s.player.request;
- s.player.request=async(url,options)=>{
-  const response=await original(url,options);
-  if(url.endsWith('/open')){const data=await response.json();data.streamUrl+='?test=1';return {...response,json:async()=>data};}
-  return response;
+ const s=setup();const original=s.player.operations.open;
+ s.player.operations.open = async (identity) => {
+   const session = await original(identity);
+   return { ...session, streamUrl: session.streamUrl + '?test=1' };
  };
  await s.player.select(identity);assert.equal(s.audio.src,'/api/playback/lease0/stream?test=1');
 });

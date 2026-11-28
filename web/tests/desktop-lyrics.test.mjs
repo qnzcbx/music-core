@@ -13,10 +13,13 @@ test('uses actual time for initial snapshot and seeks in either direction', () =
   assert.equal(lyricSnapshot(identity,{...doc,status:'plain'},5).available,false);
 });
 test('late snapshots cannot overwrite a newer track', () => {
-  const current = {sequence:8, snapshot:lyricSnapshot(null,null,0)};
-  assert.equal(acceptSnapshot(current,{sequence:7,snapshot:{...current.snapshot,current:'stale'}}),current);
+  const current = {publisher:1,sequence:8, snapshot:lyricSnapshot(null,null,0)};
+  assert.equal(acceptSnapshot(current,{publisher:1,sequence:7,snapshot:{...current.snapshot,current:'stale'}}),current);
   const next = {...current,sequence:9};
   assert.equal(acceptSnapshot(current,next),next);
+  const remounted = { ...current, publisher: 2, sequence: 1 };
+  assert.equal(acceptSnapshot(current, remounted), remounted);
+  assert.equal(acceptSnapshot(remounted, next), remounted);
 });
 
 test('desktop controls dispatch only enabled actions to the main player', () => {

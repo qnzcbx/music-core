@@ -1,0 +1,100 @@
+[
+  {
+    "identity": {
+      "providerId": "qq",
+      "platformId": "0027oMO61wWi55"
+    },
+    "valid": true
+  },
+  {
+    "identity": {
+      "providerId": "kuwo",
+      "platformId": "123"
+    },
+    "valid": true
+  },
+  {
+    "identity": {
+      "providerId": "netease",
+      "platformId": "123"
+    },
+    "valid": true
+  },
+  {
+    "identity": {
+      "providerId": "migu",
+      "platformId": "123"
+    },
+    "valid": true
+  },
+  {
+    "identity": {
+      "providerId": "qq",
+      "platformId": "123"
+    },
+    "valid": true
+  },
+  {
+    "identity": {
+      "providerId": "migu",
+      "platformId": "12345678901234567890123456789012"
+    },
+    "valid": true
+  },
+  {
+    "identity": {
+      "providerId": "kuwo",
+      "platformId": "001"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "netease",
+      "platformId": "001"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "migu",
+      "platformId": "001"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "migu",
+      "platformId": "copyright-id"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "kuwo",
+      "platformId": "123456789012345678901"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "qq",
+      "platformId": "../abc"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "other",
+      "platformId": "123"
+    },
+    "valid": false
+  },
+  {
+    "identity": {
+      "providerId": "qq",
+      "platformId": 123
+    },
+    "valid": false
+  }
+]

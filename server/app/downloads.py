@@ -8,10 +8,8 @@ import re
 import stat
 import hashlib
 import ipaddress
-import json
 import logging
 import threading
-import unicodedata
 from time import time
 from typing import Literal
 from urllib.parse import urljoin, urlsplit, quote
@@ -24,7 +22,9 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 from app.download_index import DownloadIndex, safe_cover
 from app.models import DTO, TrackIdentity, ResolveOptions, MediaRepresentation
-from app.download_quality import inspect_audio, satisfies
+from app.core.file_name import safe_stem
+from app.core.media_probe import inspect_audio
+from app.download_quality import satisfies
 from app.providers import provider_for
 from app.core.errors import CoreError, ErrorCode
 from app.media_stream import validate_target, range_header, OwnedStream
@@ -160,18 +160,6 @@ class Job:
     worker: asyncio.Task | None = field(default=None, repr=False)
 
 
-def safe_stem(value):
-    value = ''.join('_' if unicodedata.category(c) in ('Cc','Cs') else c for c in value)
-    value = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f]', '_', value).strip(' .')
-    # 按UTF-16长度约束，保留补码字符；避免Windows路径及保留设备名。
-    value = value.encode('utf-16-le', errors='replace')[:240].decode('utf-16-le', errors='ignore').rstrip(' .')
-    if not value:
-        value = '未命名'
-    if re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?', value, re.I):
-        value = '_' + value
-    return value
-
-
 def audio_format(raw):
     if raw.startswith(b'fLaC'): return 'flac'
     if raw.startswith(b'ID3') or len(raw) >= 2 and raw[0] == 255 and raw[1] & 224 == 224: return 'mp3'
@@ -204,7 +192,7 @@ class DownloadManager:
         self.root = Path(settings.directory).resolve()
         self.index = DownloadIndex(settings.data_directory or self.root.parent / ('.music-core-data-' + hashlib.sha256(str(self.root).encode()).hexdigest()[:16]))
         if settings.local_mode:
-            self.index.libraries(self.root, ROOT.resolve()) if settings.data_directory else self.index.libraries(self.root)
+            self.index.libraries(self.root)
         self.jobs = {}
         self.slots = asyncio.Semaphore(settings.concurrency)
         self.conversion_slots = asyncio.Semaphore(1)
@@ -247,32 +235,6 @@ class DownloadManager:
         value = (str(path.parent), path.name, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         return hashlib.sha256(repr(value).encode('utf-8')).hexdigest()
 
-    def hidden(self, root=None):
-        path = (root or self.root) / '.music-core-hidden.json'
-        if not path.exists(): return set()
-        info = path.lstat()
-        if path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400 or not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
-            raise OSError('隐藏索引不可读')
-        try:
-            data = json.loads(path.read_text(encoding='utf-8'))
-            if data.get('version') != 1 or not isinstance(data.get('hidden'), list): raise ValueError()
-            if any(not isinstance(x, str) or not re.fullmatch('[0-9a-f]{64}', x) for x in data['hidden']): raise ValueError()
-            return set(data['hidden'])
-        except (ValueError, AttributeError): raise OSError('隐藏索引损坏') from None
-
-    def write_hidden(self, identifiers):
-        temporary = self.root / ('.music-core-hidden-' + uuid4().hex + '.tmp')
-        content = json.dumps({'version': 1, 'hidden': sorted(identifiers)})
-        if len(content.encode('utf-8')) > 1048576: raise OSError('隐藏索引容量已满')
-        try:
-            with temporary.open('x', encoding='utf-8') as output:
-                output.write(content)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, self.root / '.music-core-hidden.json')
-        finally:
-            temporary.unlink(missing_ok=True)
-
     def snapshots(self):
         for root in self.index.libraries():
             if not root.exists():
@@ -290,7 +252,6 @@ class DownloadManager:
                         if self.fingerprint(path, os.fstat(stream.fileno())) != self.fingerprint(path, info):
                             continue
                         kind = audio_format(stream.read(16))
-                    self.index.record(self.fingerprint(path, info), path)
                     yield path, info, kind
                 except (CoreError, FileNotFoundError):
                     continue
@@ -306,7 +267,9 @@ class DownloadManager:
         if not re.fullmatch('[0-9a-f]{64}', identifier): raise FileNotFoundError()
         identifier = self.index.resolve(identifier)
         for path, info, kind in self.snapshots():
-            if self.fingerprint(path, info) == identifier: return path, info, kind
+            if self.fingerprint(path, info) == identifier:
+                self.index.record(identifier, path)
+                return path, info, kind
         raise FileNotFoundError()
 
     def files(self):
@@ -317,34 +280,33 @@ class DownloadManager:
         output = []
         try:
             with self.file_lock:
-                hidden = self.hidden()
-                for path, info, kind in self.snapshots():
-                    identifier = self.fingerprint(path, info)
-                    if self.index.resolve(identifier) != identifier:
+                snapshots = {self.fingerprint(path, info): (path, info, kind)
+                             for path, info, kind in self.snapshots()}
+                visible = self.index.scanned({key: row[0] for key, row in snapshots.items()})
+                for identifier, (path, info, kind) in snapshots.items():
+                    if identifier not in visible:
                         continue
-                    metadata, indexed_hidden = self.index.metadata(identifier)
-                    legacy_hidden = self.hidden(path.parent)
-                    if identifier not in hidden and identifier not in legacy_hidden and not indexed_hidden:
-                        output.append(SavedDownloadFile(fileId=self.index.public_id(identifier),filename=path.name,sizeBytes=info.st_size,format=kind,modifiedAt=int(info.st_mtime*1000), **metadata))
+                    public_id, metadata = visible[identifier]
+                    output.append(SavedDownloadFile(
+                        fileId=public_id, filename=path.name, sizeBytes=info.st_size,
+                        format=kind, modifiedAt=int(info.st_mtime * 1000), **metadata
+                    ))
             return sorted(output,key=lambda row:(-row.modifiedAt,row.filename))
         except OSError: raise HTTPException(503,detail='无法读取下载目录') from None
 
     def remove_file(self, identifier, delete_file):
-        identifier = self.index.resolve(identifier)
         with self.file_lock:
             path, info, _ = self.find_file(identifier)
+            identifier = self.fingerprint(path, info)
             if delete_file:
                 if self.readers.get(identifier): raise BlockingIOError()
                 # 删除前再次验证实例；无 await，其他 Core 请求不能在检查与删除之间插入。
                 if self.fingerprint(path, path.lstat()) != identifier: raise FileNotFoundError()
                 self.unlink_file(path, identifier)
             else:
-                if path.parent == self.root:
-                    hidden = self.hidden()
-                    hidden.add(identifier)
-                    self.write_hidden(hidden)
-                else:
-                    self.index.hide(identifier)
+                if self.fingerprint(path, path.lstat()) != identifier:
+                    raise FileNotFoundError()
+                self.index.hide(identifier)
 
     def unlink_file(self, path, identifier):
         """Windows 在经过验证的句柄上删除，避免检查后同名替换的竞态。"""
@@ -373,11 +335,11 @@ class DownloadManager:
                 raise ctypes.WinError(ctypes.get_last_error())
 
     def stream_file(self, request, identifier):
-        identifier = self.index.resolve(identifier)
         stream = None
         try:
             with self.file_lock:
                 path, info, kind = self.find_file(identifier)
+                identifier = self.fingerprint(path, info)
                 stream = path.open('rb')
                 if self.fingerprint(path, os.fstat(stream.fileno())) != identifier:
                     raise FileNotFoundError()
@@ -623,7 +585,7 @@ class DownloadManager:
         try:
             for hop in range(4):
                 check = self.state.target_check
-                if check is validate_target: await check(url, media.identity.providerId)
+                if check is validate_target: await check(url, media.identity.providerId,self.state.http_client)
                 else: await check(url)
                 response = await self.state.http_client.send(httpx.Request('GET', url, headers=headers),
                                                              stream=True, follow_redirects=False, auth=None)

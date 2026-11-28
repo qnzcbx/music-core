@@ -11,7 +11,9 @@ import {
 import CirclePlusIcon from '~icons/lucide/circle-plus';
 import SearchIcon from '~icons/lucide/search';
 import XIcon from '~icons/lucide/x';
-import { requestJson } from '../../api/http';
+import { ApiError } from '../../api/http';
+import { invokeCore } from '../../api/transport';
+import type { Choice } from '../../api/downloads';
 import { useCoreClient } from '../../composables/useCoreClient';
 
 import DesktopSongList, { type DesktopSong } from './DesktopSongList.vue';
@@ -76,6 +78,17 @@ async function toggleSearch() {
   else searchButton.value?.focus();
 }
 
+let removalRevision = 0;
+function afterRemoval(id: string) {
+  removalRevision++;
+  library.value = {
+    ...library.value,
+    songs: library.value.songs.filter((song) => song.id !== id),
+    downloads: library.value.downloads.filter((song) => song.id !== id),
+  };
+  void refresh();
+}
+
 async function refresh(action?: 'files' | 'choose' | 'refresh' | 'remove', id?: string) {
   if (busy.value) {
     if (!action) refreshPending = true;
@@ -83,23 +96,30 @@ async function refresh(action?: 'files' | 'choose' | 'refresh' | 'remove', id?: 
   }
   busy.value = true;
   error.value = '';
+  const revision = removalRevision;
   try {
-    library.value = await requestJson<Library>(
-      '/api/local-library',
-      action
-        ? {
-            method: 'POST',
-            body: JSON.stringify({ action, id }),
-            timeoutMs: 600_000,
-          }
-        : {},
-    );
+    const request = action === 'files' ? { op: 'libraryImport' } as const
+      : action === 'choose' ? { op: 'libraryChooseDirectory' } as const
+      : action === 'refresh' && id ? { op: 'libraryRefreshDirectory', payload: { id } } as const
+      : action === 'remove' && id ? { op: 'libraryRemoveDirectory', payload: { id } } as const
+      : { op: 'libraryList' } as const;
+    if (request.op === 'libraryList') {
+      const snapshot = await invokeCore<Library>(request, { timeoutMs: 20_000 });
+      if (revision !== removalRevision) return;
+      library.value = snapshot;
+    } else {
+      const result = await invokeCore<Choice<Library>>(request, { mutation: true });
+      if (revision !== removalRevision || result.status === 'cancelled') return;
+      library.value = result.value;
+    }
     loaded.value = true;
   } catch (reason) {
+    if (revision !== removalRevision) return;
     error.value = reason instanceof Error ? reason.message : '无法读取本地歌曲';
     // 刷新失败后重新读取保存的快照，更新目录可用性。
-    if (action === 'refresh') {
-      library.value = await requestJson<Library>('/api/local-library').catch(() => library.value);
+    if (action === 'refresh' || (reason instanceof ApiError && reason.code === 'outcome_unknown')) {
+      const snapshot = await invokeCore<Library>({ op: 'libraryList' }, { timeoutMs: 20_000 }).catch(() => library.value);
+      if (revision === removalRevision) library.value = snapshot;
     }
   } finally {
     busy.value = false;
@@ -110,7 +130,10 @@ async function refresh(action?: 'files' | 'choose' | 'refresh' | 'remove', id?: 
   }
 }
 
-onMounted(() => void refresh());
+onMounted(() => {
+  void refresh();
+  void downloads.refresh();
+});
 watch([downloads.saved, coverRevision], () => void refresh());
 watch(
   () => props.tab,
@@ -170,6 +193,7 @@ watch(
               </DropdownMenuPortal>
             </DropdownMenuRoot>
           </div>
+
           <div
             v-if="loaded && !empty"
             class="local-search"
@@ -197,6 +221,7 @@ watch(
           </div>
         </div>
       </div>
+
       <dialog
         ref="scanDialog"
         class="scan-dialog"
@@ -303,7 +328,8 @@ watch(
     </p>
     <DesktopSongList
       :songs="renderedSongs"
-      @removed="refresh()"
+      @removed="afterRemoval"
+      @reconcile="refresh()"
     />
     <div v-if="hasMoreSongs" ref="listEnd" class="local-list-end">
       <button type="button" @click="showMoreSongs">显示更多歌曲</button>

@@ -1,7 +1,7 @@
 import { readonly, ref } from 'vue';
 
 export type HomeBackground = 'ink' | 'voice';
-export const HOME_BACKGROUND_KEY = 'media-lab.home-background.v1';
+export const HOME_BACKGROUND_KEY = 'music-core.home-background.v1';
 
 function readBackground(): HomeBackground {
   try {

@@ -1,33 +1,10 @@
-use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use crate::desktop_window::restore;
+use serde::Deserialize;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, WebviewWindow, Window, WindowEvent,
+    AppHandle, Emitter, Manager, WebviewWindow,
 };
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CloseAction {
-    #[default]
-    Tray,
-    Exit,
-}
-
-fn read_close_action(path: &Path) -> CloseAction {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-struct Settings {
-    path: PathBuf,
-    action: Mutex<CloseAction>,
-}
 
 struct Controls {
     previous: MenuItem<tauri::Wry>,
@@ -36,28 +13,7 @@ struct Controls {
     lyrics: CheckMenuItem<tauri::Wry>,
 }
 
-pub fn restore(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let result = window
-            .show()
-            .and_then(|_| window.unminimize())
-            .and_then(|_| {
-                let _ = app.emit_to("main", "desktop-main-hidden", false);
-                window.set_focus()
-            });
-        if let Err(error) = result {
-            eprintln!("恢复主窗口失败: {error}");
-        }
-    }
-}
-
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
-    let path = app.path().app_config_dir()?.join("window.json");
-    app.manage(Settings {
-        action: Mutex::new(read_close_action(&path)),
-        path,
-    });
-
     let open = MenuItem::with_id(app, "open", "打开拾音", true, None::<&str>)?;
     let previous = MenuItem::with_id(app, "previous", "上一首", false, None::<&str>)?;
     let toggle = MenuItem::with_id(app, "toggle", "播放", false, None::<&str>)?;
@@ -123,28 +79,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-pub fn on_close(window: &Window, event: &WindowEvent) {
-    let WindowEvent::CloseRequested { api, .. } = event else {
-        return;
-    };
-    if window.label() != "main" {
-        return;
-    }
-    let Some(settings) = window.try_state::<Settings>() else {
-        return;
-    };
-    if *settings.action.lock().unwrap() == CloseAction::Exit {
-        api.prevent_close();
-        window.app_handle().exit(0);
-    } else if window.try_state::<Controls>().is_some() {
-        match window.hide() {
-            Ok(()) => {
-                api.prevent_close();
-                let _ = window.emit("desktop-main-hidden", true);
-            }
-            Err(error) => eprintln!("隐藏主窗口失败: {error}"),
-        }
-    }
+pub fn available(app: &AppHandle) -> bool {
+    app.try_state::<Controls>().is_some()
 }
 
 pub fn set_lyrics_visible(app: &AppHandle, visible: bool) {
@@ -153,24 +89,6 @@ pub fn set_lyrics_visible(app: &AppHandle, visible: bool) {
             eprintln!("更新托盘歌词状态失败: {error}");
         }
     }
-}
-
-#[tauri::command]
-pub fn desktop_close_action(
-    window: WebviewWindow,
-    action: Option<CloseAction>,
-) -> Result<CloseAction, String> {
-    if window.label() != "main" {
-        return Err("invalid window".into());
-    }
-    let settings = window.try_state::<Settings>().ok_or("窗口设置不可用")?;
-    let mut current = settings.action.lock().unwrap();
-    if let Some(action) = action {
-        crate::download_history::write_snapshot(&settings.path, &action)
-            .map_err(|_| "无法保存关闭窗口设置")?;
-        *current = action;
-    }
-    Ok(*current)
 }
 
 #[derive(Deserialize)]
@@ -202,19 +120,4 @@ pub fn desktop_tray_playback(window: WebviewWindow, playback: Playback) -> Resul
                 .set_text(if playback.playing { "暂停" } else { "播放" })
         })
         .map_err(|error| error.to_string())
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn close_action_defaults_to_tray_and_round_trips_exit() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("window.json");
-        assert_eq!(read_close_action(&path), CloseAction::Tray);
-        crate::download_history::write_snapshot(&path, &CloseAction::Exit).unwrap();
-        assert_eq!(read_close_action(&path), CloseAction::Exit);
-        std::fs::write(&path, b"invalid").unwrap();
-        assert_eq!(read_close_action(&path), CloseAction::Tray);
-    }
 }

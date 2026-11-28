@@ -1,5 +1,5 @@
 """跨音乐库的轻量索引：只保存定位和展示信息，文件身份仍由现有指纹验证。"""
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import json
 import sqlite3
 from pathlib import Path
@@ -22,34 +22,47 @@ def safe_cover(value):
         return None
 
 
+def alias_origins(rows):
+    successors = dict(rows)
+    predecessors = {new: old for old, new in rows}
+    if len(predecessors) != len(successors):
+        raise OSError('音乐库身份索引损坏')
+    origins = {}
+    for origin in successors.keys() - predecessors.keys():
+        current = origin
+        while current in successors:
+            current = successors[current]
+            origins[current] = origin
+    if len(origins) != len(successors):
+        raise OSError('音乐库身份索引损坏')
+    return successors, origins
+
+
 class DownloadIndex:
     def __init__(self, directory):
         Path(directory).mkdir(parents=True, exist_ok=True)
         self.path = Path(directory) / 'downloads.sqlite3'
         with self.connect() as db:
+            columns = {row[1] for row in db.execute('PRAGMA table_info(files)')}
+            if columns and not {'id', 'path', 'metadata', 'hidden', 'published'} <= columns:
+                raise OSError('下载索引使用不受支持的旧结构，请检查开发数据库')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS libraries (path TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS files (
                     id TEXT PRIMARY KEY, path TEXT NOT NULL, metadata TEXT NOT NULL,
-                    hidden INTEGER NOT NULL DEFAULT 0);
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    published INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS aliases (old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL);
             ''')
-            if 'published' not in {row[1] for row in db.execute('PRAGMA table_info(files)')}:
-                db.execute('ALTER TABLE files ADD COLUMN published INTEGER NOT NULL DEFAULT 0')
-                # 06 旧版本仅发布下载时写入非空元数据；普通扫描一直是 {}。
-                db.execute("UPDATE files SET published=1 WHERE metadata <> '{}'")
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=10)
         try:
-            with db:
+            with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
                 yield db
         except sqlite3.Error as reason:
             raise OSError('下载索引不可读写') from reason
-        finally:
-            db.close()
 
     def libraries(self, *paths):
         with self.connect() as db:
@@ -73,7 +86,9 @@ class DownloadIndex:
 
     def hide(self, identifier):
         with self.connect() as db:
-            db.execute('UPDATE files SET hidden=1 WHERE id=?', (identifier,))
+            result = db.execute('UPDATE files SET hidden=1 WHERE id=?', (identifier,))
+            if result.rowcount != 1:
+                raise OSError('未找到需要隐藏的下载索引记录')
 
     def naming(self, value=None):
         with self.connect() as db:
@@ -90,25 +105,38 @@ class DownloadIndex:
         return row[0] if row else None
 
     def resolve(self, identifier):
-        with self.connect() as db:
-            seen = set()
-            while identifier not in seen:
-                seen.add(identifier)
-                row = db.execute('SELECT new_id FROM aliases WHERE old_id=?', (identifier,)).fetchone()
-                if not row:
-                    return identifier
-                identifier = row[0]
-        raise OSError('音乐库身份索引损坏')
+        successors, _ = self.aliases()
+        while identifier in successors:
+            identifier = successors[identifier]
+        return identifier
 
-    def public_id(self, identifier):
+    def aliases(self):
         with self.connect() as db:
-            rows = list(db.execute('SELECT old_id,new_id FROM aliases'))
-        # 展示最初的 ID，使既有本地队列、隐藏记录和续播继续匹配。
-        while True:
-            previous = next((old for old, new in rows if new == identifier), None)
-            if previous is None:
-                return identifier
-            identifier = previous
+            return alias_origins(list(db.execute('SELECT old_id,new_id FROM aliases')))
+
+    def scanned(self, paths):
+        if not paths:
+            return {}
+        with self.connect() as db:
+            entries = list(paths.items())
+            # 每个条目绑定两个参数，在 SQLite 的传统参数上限内分批执行。
+            for offset in range(0, len(entries), 250):
+                batch = entries[offset:offset + 250]
+                values = ','.join("(?,?,'{}')" for _ in batch)
+                parameters = [value for identifier, path in batch for value in (identifier, str(path))]
+                db.execute(f'INSERT OR IGNORE INTO files(id,path,metadata) VALUES {values}', parameters)
+            successors, origins = alias_origins(list(db.execute('SELECT old_id,new_id FROM aliases')))
+            identifiers = [identifier for identifier in paths if identifier not in successors]
+            visible = {}
+            for offset in range(0, len(identifiers), 500):
+                batch = identifiers[offset:offset + 500]
+                parameters = ','.join('?' for _ in batch)
+                rows = db.execute(
+                    f'SELECT id,metadata FROM files WHERE hidden=0 AND id IN ({parameters})', batch
+                )
+                for identifier, metadata in rows:
+                    visible[identifier] = (origins.get(identifier, identifier), json.loads(metadata))
+            return visible
 
     def relocated(self, old, new, path, metadata, hidden):
         with self.connect() as db:

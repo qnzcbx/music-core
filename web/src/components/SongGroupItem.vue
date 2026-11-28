@@ -2,107 +2,37 @@
 import SongItem from "./SongItem.vue";
 import SongVersionList from "./SongVersionList.vue";
 import type { SongGroup } from "../utils/song-group";
-import type { SearchEntry as Song, DownloadJob } from "../types/music";
-import { computed, onUnmounted, ref, watch } from "vue";
+import type { SearchEntry as Song } from "../types/music";
+import { computed } from "vue";
 import DownIcon from "~icons/lucide/chevron-down";
 import UpIcon from "~icons/lucide/chevron-up";
-import { useProviders, providerFor } from "../composables/useProviders";
 
 const props = defineProps<{
   group: SongGroup;
-  now: number;
-  index: number;
   activeId?: string;
-  submitting: boolean;
-  downloadJobs: Record<string, DownloadJob>;
-  preResolveEnabled: boolean;
 }>();
 const emit = defineEmits<{
   play: [song: Song];
-  download: [song: Song];
-  playNext: [song: Song, origin: HTMLElement];
   toggle: [key: string];
-  eligible: [key: string, eligible: boolean, visible: boolean];
 }>();
-const container = ref<HTMLElement>();
-const { providers } = useProviders();
 
 const otherVersions = computed(() =>
-  props.group.versions
-    .filter((song) => song.id !== props.group.representative.id)
-    .sort((a, b) => {
-      const rank = (song: Song) => {
-        const index = providers.value.findIndex(
-          (p) =>
-            p.id ===
-            (providerFor(("providerId" in song && song.providerId) || song.source)?.id ??
-              song.source),
-        );
-        return index < 0 ? providers.value.length : index;
-      };
-      return rank(a) - rank(b);
-    }),
+  props.group.versions.filter((song) => song.id !== props.group.representative.id),
 );
 
-let observer: IntersectionObserver | undefined;
-watch(
-  [container, () => props.preResolveEnabled],
-  () => {
-    observer?.disconnect();
-    emit("eligible", props.group.key, false, false);
-    if (!props.preResolveEnabled || !container.value || !("IntersectionObserver" in window)) return;
-    const root = container.value.closest<HTMLElement>(".app-content");
-    const row = container.value.querySelector<HTMLElement>(":scope > .song-row");
-    if (!row) return;
-    observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const bounds = root?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
-          // 仅观测主行；展开版本没有新的 observer/budget。
-          emit(
-            "eligible",
-            props.group.key,
-            entry.isIntersecting,
-            entry.boundingClientRect.top < bounds.bottom &&
-              entry.boundingClientRect.bottom > bounds.top,
-          );
-        }
-      },
-      { root, rootMargin: "300px 0px", threshold: 0 },
-    );
-    observer.observe(row);
-  },
-  { flush: "post" },
-);
-onUnmounted(() => {
-  observer?.disconnect();
-  emit("eligible", props.group.key, false, false);
-});
 </script>
 
 <template>
   <div
-    ref="container"
     class="song-group"
     :class="{ 'is-expanded': group.expanded }"
     :data-group-key="group.key"
   >
     <SongItem
       :song="group.representative"
-      :now="now"
-      :index="index"
-      :selected="
-        activeId === group.representative.id ||
-        (!!activeId &&
-          'resolveState' in group.representative &&
-          activeId === group.representative.resolvedId)
-      "
-      :submitting="submitting"
-      :job="downloadJobs[group.representative.id]"
+      :selected="activeId === group.representative.id"
       :group-expanded="group.expanded"
       @play="emit('play', $event)"
-      @download="emit('download', $event)"
-      @play-next="(song, origin) => emit('playNext', song, origin)"
     >
       <button
         v-if="otherVersions.length"
@@ -121,14 +51,9 @@ onUnmounted(() => {
     <Transition name="versions-expand">
       <SongVersionList
         v-if="group.expanded"
-        :now="now"
-        :versions="otherVersions"
+          :versions="otherVersions"
         :active-id="activeId"
-        :submitting="submitting"
-        :download-jobs="downloadJobs"
         @play="emit('play', $event)"
-        @download="emit('download', $event)"
-        @play-next="(song, origin) => emit('playNext', song, origin)"
       />
     </Transition>
   </div>

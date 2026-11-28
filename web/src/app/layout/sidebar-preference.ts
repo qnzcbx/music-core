@@ -1,4 +1,4 @@
-export const SIDEBAR_KEY = 'media-lab.shell.sidebar.v1'
+export const SIDEBAR_KEY = 'music-core.shell.sidebar.v1'
 
 export function readSidebarExpanded(raw: string | null): boolean {
   try {

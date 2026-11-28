@@ -1,0 +1,50 @@
+[
+  {
+    "code": "access_denied",
+    "python": "access_denied",
+    "desktop": "access_denied",
+    "continues": false
+  },
+  {
+    "code": "auth_required",
+    "python": "access_denied",
+    "desktop": "auth_required",
+    "continues": false
+  },
+  {
+    "code": "preview_only",
+    "python": "capability_unsupported",
+    "desktop": "preview_only",
+    "continues": false
+  },
+  {
+    "code": "encrypted_media",
+    "python": "capability_unsupported",
+    "desktop": "encrypted_media",
+    "continues": false
+  },
+  {
+    "code": "invalid_input",
+    "python": "invalid_input",
+    "desktop": "invalid_input",
+    "continues": false
+  },
+  {
+    "code": "media_unavailable",
+    "python": "media_unavailable",
+    "desktop": "anonymous_media_unavailable",
+    "continues": true
+  },
+  {
+    "code": "upstream_timeout",
+    "python": "upstream_timeout",
+    "desktop": "upstream_timeout",
+    "continues": true
+  },
+  {
+    "code": "upstream_failure",
+    "python": "upstream_failure",
+    "desktop": "upstream_failure",
+    "continues": true
+  }
+]
