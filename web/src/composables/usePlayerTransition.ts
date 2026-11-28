@@ -43,10 +43,10 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
     void layoutMotion.play(first);
     return true;
   }
-  function selectLyricAlignment(value: unknown) {
-    if (!isLyricAlignment(value) || value === lyricAlignment.value) return false;
-    reset();
-    return selection.selectLyricAlignment(value);
+  function selectLyricAlignment(value: unknown, target = layout.value) {
+    if (!isLyricAlignment(value) || value === selection.lyricAlignments.value[target]) return false;
+    if (target === layout.value) reset();
+    return selection.selectLyricAlignment(value, target);
   }
   let origin = "/",
     wanted = immersive.value,
@@ -350,6 +350,8 @@ function createPlayerVisuals(current: Ref<Song | null>, queueKey: Ref<string | n
     immersive,
     phase,
     backgroundMode: selection.backgroundMode,
+    backgroundModes: selection.backgroundModes,
+    lyricAlignments: selection.lyricAlignments,
     selectBackground: selection.selectBackground,
     ringPreset: selection.ringPreset,
     selectRingPreset: selection.selectRingPreset,

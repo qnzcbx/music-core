@@ -93,15 +93,15 @@ export function createPlayerLayoutSelection(
     persist();
     return true;
   }
-  function selectLyricAlignment(value: unknown) {
-    if (!isLyricAlignment(value) || value === lyricAlignment.value) return false;
-    lyricAlignments.value = { ...lyricAlignments.value, [layout.value]: value };
+  function selectLyricAlignment(value: unknown, target = layout.value) {
+    if (!isLyricAlignment(value) || value === lyricAlignments.value[target]) return false;
+    lyricAlignments.value = { ...lyricAlignments.value, [target]: value };
     persist();
     return true;
   }
-  function selectBackground(value: PlayerBackground) {
+  function selectBackground(value: PlayerBackground, target = layout.value) {
     if (!['cover', 'light', 'dark'].includes(value)) return;
-    backgroundModes.value = { ...backgroundModes.value, [layout.value]: value };
+    backgroundModes.value = { ...backgroundModes.value, [target]: value };
     persist();
   }
   function selectRingPreset(value: RingPreset) {
@@ -111,6 +111,7 @@ export function createPlayerLayoutSelection(
   }
   return {
     backgroundMode,
+    backgroundModes: readonly(backgroundModes),
     selectBackground,
     ringPreset: readonly(ringPreset),
     selectRingPreset,

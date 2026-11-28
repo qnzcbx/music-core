@@ -44,11 +44,11 @@ const {
 } = useCoreClient();
 const {
   layout,
-  lyricAlignment,
+  lyricAlignments,
   selectLayout,
   selectLyricAlignment,
   phase,
-  backgroundMode,
+  backgroundModes,
   selectBackground,
   ringPreset,
   selectRingPreset,
@@ -120,8 +120,8 @@ const {
       <PlayerLayoutSelector
         inline
         :layout="layout"
-        :alignment="lyricAlignment"
-        :background="backgroundMode"
+        :alignments="lyricAlignments"
+        :backgrounds="backgroundModes"
         :ring-preset="ringPreset"
         @background="selectBackground"
         @ring="selectRingPreset"

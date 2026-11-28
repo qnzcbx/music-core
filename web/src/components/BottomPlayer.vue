@@ -252,8 +252,8 @@ function seek(event: Event) {
       icon-only
       above
       :layout="visuals.layout.value"
-      :alignment="visuals.lyricAlignment.value"
-      :background="visuals.backgroundMode.value"
+      :alignments="visuals.lyricAlignments.value"
+      :backgrounds="visuals.backgroundModes.value"
       :ring-preset="visuals.ringPreset.value"
       @background="visuals.selectBackground"
       @ring="visuals.selectRingPreset"

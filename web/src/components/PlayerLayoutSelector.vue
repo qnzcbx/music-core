@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import StyleIcon from '~icons/lucide/shirt';
 import PencilIcon from '~icons/lucide/pencil';
-import BackIcon from '~icons/lucide/arrow-left';
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import CloseIcon from '~icons/lucide/x';
+import {
+  DialogRoot,
+  DialogPortal,
+  DialogOverlay,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+} from 'reka-ui';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
   PLAYER_LAYOUTS,
   PLAYER_RING_PRESETS,
@@ -15,64 +23,63 @@ import {
 const props = withDefaults(
   defineProps<{
     layout: PlayerLayout;
-    alignment: LyricAlignment;
-    background?: PlayerBackground;
+    alignments: Readonly<Record<PlayerLayout, LyricAlignment>>;
+    backgrounds: Readonly<Record<PlayerLayout, PlayerBackground>>;
     ringPreset?: RingPreset;
     transitioning?: boolean;
     inline?: boolean;
     iconOnly?: boolean;
     above?: boolean;
   }>(),
-  { background: 'cover', ringPreset: 'smoky' },
+  { ringPreset: 'smoky' },
 );
 const emit = defineEmits<{
   select: [layout: PlayerLayout];
-  align: [alignment: LyricAlignment];
-  background: [value: PlayerBackground];
+  align: [alignment: LyricAlignment, layout: PlayerLayout];
+  background: [value: PlayerBackground, layout: PlayerLayout];
   ring: [value: RingPreset];
   openChange: [open: boolean];
 }>();
 const panel = ref<HTMLDetailsElement>();
-const editing = ref<PlayerLayout | null>(null);
+const editing = ref<PlayerLayout>('classic');
+const editorOpen = ref(false);
+let editTrigger: HTMLButtonElement | undefined;
+const background = computed(() => props.backgrounds[editing.value]);
+const alignment = computed(() => props.alignments[editing.value]);
 const editingName = computed(() => PLAYER_LAYOUTS.find((item) => item.id === editing.value)?.name);
-const backgrounds = [
+const backgroundOptions = [
   { id: 'cover', name: '跟随封面' },
   { id: 'light', name: '浅色' },
   { id: 'dark', name: '深色' },
 ] as const;
 const rings = PLAYER_RING_PRESETS;
 const backgroundName = computed(
-  () => backgrounds.find((item) => item.id === props.background)?.name,
+  () => backgroundOptions.find((item) => item.id === background.value)?.name,
 );
 const ringName = computed(() => rings.find((item) => item.id === props.ringPreset)?.name);
 function close(restore = false) {
   if (!panel.value?.open) return;
   panel.value.open = false;
-  editing.value = null;
   if (restore) panel.value.querySelector('summary')?.focus();
 }
 function toggled() {
-  if (!panel.value?.open) editing.value = null;
   emit('openChange', !!panel.value?.open);
 }
 function select(layout: PlayerLayout) {
   close(true);
   emit('select', layout);
 }
-async function edit(layout: PlayerLayout) {
-  emit('select', layout);
+function edit(layout: PlayerLayout, event: MouseEvent) {
+  editTrigger = event.currentTarget as HTMLButtonElement;
   editing.value = layout;
-  await nextTick();
-  panel.value?.querySelector<HTMLButtonElement>('.editor-back')?.focus();
+  editorOpen.value = true;
 }
-async function back() {
-  const previous = editing.value;
-  editing.value = null;
-  await nextTick();
-  panel.value?.querySelector<HTMLButtonElement>(`[data-edit="${previous}"]`)?.focus();
+function restoreFocus(event: Event) {
+  event.preventDefault();
+  editTrigger?.focus({ preventScroll: true });
 }
 function outside(event: PointerEvent) {
-  if (!panel.value?.contains(event.target as Node)) close();
+  if (!editorOpen.value && !panel.value?.contains(event.target as Node)) close();
 }
 onMounted(() => document.addEventListener('pointerdown', outside));
 onUnmounted(() => document.removeEventListener('pointerdown', outside));
@@ -97,180 +104,179 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <StyleIcon aria-hidden="true" />
       <span v-if="!iconOnly">样式</span>
     </summary>
-    <div
-      class="layout-panel"
-      :data-style-page="editing ? 'edit' : 'list'"
-    >
-      <template v-if="!editing">
-        <h2
-          v-if="!inline"
-          class="layout-heading"
+    <div class="layout-panel">
+      <h2
+        v-if="!inline"
+        class="layout-heading"
+      >
+        播放器样式
+      </h2>
+      <div
+        class="layout-grid"
+        role="group"
+        aria-label="选择播放器样式"
+      >
+        <article
+          v-for="item in PLAYER_LAYOUTS"
+          :key="item.id"
+          class="layout-card"
+          :class="{ 'is-selected': layout === item.id }"
         >
-          播放器样式
-        </h2>
-        <div
-          class="layout-grid"
-          role="group"
-          aria-label="选择播放器样式"
-        >
-          <article
-            v-for="item in PLAYER_LAYOUTS"
-            :key="item.id"
-            class="layout-card"
-            :class="{ 'is-selected': layout === item.id }"
-          >
-            <button
-              type="button"
-              class="layout-select"
-              :aria-label="item.name"
-              :aria-pressed="layout === item.id"
-              @click="select(item.id)"
-            >
-              <span
-                class="layout-preview alignment-scene"
-                :class="[
-                  `preview-${item.id}`,
-                  `align-${item.id === layout ? alignment : item.id === 'vinyl-wide' ? 'left' : 'center'}`,
-                ]"
-                aria-hidden="true"
-              >
-                <span class="preview-machine">
-                  <span class="preview-disc"><i /></span>
-                  <span class="preview-arm" />
-                </span>
-                <span class="preview-copy"><i /><i /><i /><i /><i /></span>
-                <span
-                  v-if="layout === item.id"
-                  class="preview-check"
-                >
-                  ✓
-                </span>
-              </span>
-              <span class="layout-name">{{ item.name }}</span>
-            </button>
-            <button
-              type="button"
-              class="edit-layout"
-              :data-edit="item.id"
-              :aria-label="`编辑${item.name}`"
-              @click="edit(item.id)"
-            >
-              <PencilIcon aria-hidden="true" />
-            </button>
-          </article>
-        </div>
-      </template>
-      <template v-else>
-        <header class="editor-heading">
           <button
             type="button"
-            class="editor-back"
-            aria-label="返回样式列表"
-            @click="back"
+            class="layout-select"
+            :aria-label="item.name"
+            :aria-pressed="layout === item.id"
+            @click="select(item.id)"
           >
-            <BackIcon aria-hidden="true" />
-          </button>
-          <h2>{{ editingName }}</h2>
-        </header>
-        <fieldset class="editor-section">
-          <legend>
-            背景
             <span
-              class="selected-option"
-              aria-live="polite"
+              class="layout-preview alignment-scene"
+              :class="[
+                `preview-${item.id}`,
+                `align-${alignments[item.id]}`,
+              ]"
+              aria-hidden="true"
             >
-              已选{{ backgroundName }}
-            </span>
-          </legend>
-          <div class="background-options">
-            <button
-              v-for="item in backgrounds"
-              :key="item.id"
-              type="button"
-              class="edit-choice"
-              :aria-pressed="background === item.id"
-              :aria-label="item.name"
-              :title="item.name"
-              @click="emit('background', item.id)"
-            >
-              <i
-                class="background-preview"
-                :class="`background-${item.id}`"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-        </fieldset>
-        <fieldset
-          v-if="editing === 'vinyl-wide'"
-          class="editor-section"
-        >
-          <legend>
-            唱片颜色
-            <span
-              class="selected-option"
-              aria-live="polite"
-            >
-              已选{{ ringName }}
-            </span>
-          </legend>
-          <div class="ring-options">
-            <button
-              v-for="item in rings"
-              :key="item.id"
-              type="button"
-              class="edit-choice"
-              :aria-pressed="ringPreset === item.id"
-              :aria-label="item.name"
-              :title="item.name"
-              @click="emit('ring', item.id)"
-            >
-              <i
-                class="ring-swatch"
-                :style="{ background: `linear-gradient(135deg,${item.colors})` }"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-        </fieldset>
-        <fieldset class="editor-section">
-          <legend>封面和歌词版式</legend>
-          <div class="alignment-options">
-            <button
-              v-for="item in [
-                { id: 'left', name: '居左' },
-                { id: 'center', name: '居中' },
-              ] as const"
-              :key="item.id"
-              type="button"
-              class="edit-choice alignment-choice"
-              :aria-label="`歌词${item.name}`"
-              :aria-pressed="alignment === item.id"
-              @click="emit('align', item.id)"
-            >
-              <span
-                class="alignment-scene layout-preview"
-                :class="[`preview-${editing}`, `align-${item.id}`]"
-                aria-hidden="true"
-              >
-                <span class="preview-machine">
-                  <span class="preview-disc"><i /></span>
-                  <span class="preview-arm" />
-                </span>
-                <span class="preview-copy"><i /><i /><i /><i /><i /></span>
-                <span
-                  v-if="alignment === item.id"
-                  class="preview-check"
-                >
-                  ✓
-                </span>
+              <span class="preview-machine">
+                <span class="preview-disc"><i /></span>
+                <span class="preview-arm" />
               </span>
-              <span>歌词{{ item.name }}</span>
-            </button>
-          </div>
-        </fieldset>
-      </template>
+              <span class="preview-copy"><i /><i /><i /><i /><i /></span>
+              <span
+                v-if="layout === item.id"
+                class="preview-check"
+              >
+                ✓
+              </span>
+            </span>
+            <span class="layout-name">{{ item.name }}</span>
+          </button>
+          <button
+            type="button"
+            class="edit-layout"
+            :data-edit="item.id"
+            :aria-label="`编辑${item.name}`"
+            @click.stop="edit(item.id, $event)"
+          >
+            <PencilIcon aria-hidden="true" />
+          </button>
+        </article>
+      </div>
     </div>
+    <DialogRoot v-model:open="editorOpen">
+      <DialogPortal>
+        <DialogOverlay class="editor-overlay" />
+        <DialogContent
+          class="editor-dialog"
+          :aria-describedby="undefined"
+          @close-auto-focus="restoreFocus"
+        >
+          <header class="editor-heading">
+            <DialogTitle>{{ editingName }}</DialogTitle>
+            <DialogClose class="editor-close" aria-label="关闭">
+              <CloseIcon aria-hidden="true" />
+            </DialogClose>
+          </header>
+          <fieldset class="editor-section">
+            <legend>
+              背景
+              <span
+                class="selected-option"
+                aria-live="polite"
+              >
+                已选{{ backgroundName }}
+              </span>
+            </legend>
+            <div class="background-options">
+              <button
+                v-for="item in backgroundOptions"
+                :key="item.id"
+                type="button"
+                class="edit-choice"
+                :aria-pressed="background === item.id"
+                :aria-label="item.name"
+                :title="item.name"
+                @click="emit('background', item.id, editing)"
+              >
+                <i
+                  class="background-preview"
+                  :class="`background-${item.id}`"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          </fieldset>
+          <fieldset
+            v-if="editing === 'vinyl-wide'"
+            class="editor-section"
+          >
+            <legend>
+              唱片颜色
+              <span
+                class="selected-option"
+                aria-live="polite"
+              >
+                已选{{ ringName }}
+              </span>
+            </legend>
+            <div class="ring-options">
+              <button
+                v-for="item in rings"
+                :key="item.id"
+                type="button"
+                class="edit-choice"
+                :aria-pressed="ringPreset === item.id"
+                :aria-label="item.name"
+                :title="item.name"
+                @click="emit('ring', item.id)"
+              >
+                <i
+                  class="ring-swatch"
+                  :style="{ background: `linear-gradient(135deg,${item.colors})` }"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          </fieldset>
+          <fieldset class="editor-section">
+            <legend>封面和歌词版式</legend>
+            <div class="alignment-options">
+              <button
+                v-for="item in [
+                  { id: 'left', name: '居左' },
+                  { id: 'center', name: '居中' },
+                ] as const"
+                :key="item.id"
+                type="button"
+                class="edit-choice alignment-choice"
+                :aria-label="`歌词${item.name}`"
+                :aria-pressed="alignment === item.id"
+                @click="emit('align', item.id, editing)"
+              >
+                <span
+                  class="alignment-scene layout-preview"
+                  :class="[`preview-${editing}`, `align-${item.id}`]"
+                  aria-hidden="true"
+                >
+                  <span class="preview-machine">
+                    <span class="preview-disc"><i /></span>
+                    <span class="preview-arm" />
+                  </span>
+                  <span class="preview-copy"><i /><i /><i /><i /><i /></span>
+                  <span
+                    v-if="alignment === item.id"
+                    class="preview-check"
+                  >
+                    ✓
+                  </span>
+                </span>
+                <span>歌词{{ item.name }}</span>
+              </button>
+            </div>
+          </fieldset>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
   </component>
 </template>
 
@@ -537,7 +543,7 @@ button:focus-visible {
   box-shadow: 0 2px 6px #0002;
 }
 .edit-layout svg,
-.editor-back svg {
+.editor-close svg {
   width: 16px;
   height: 16px;
 }
@@ -552,7 +558,7 @@ button:focus-visible {
   font-size: 16px;
   font-weight: 500;
 }
-.editor-back {
+.editor-close {
   display: grid;
   place-items: center;
   width: 32px;
@@ -692,9 +698,6 @@ button:focus-visible {
 .layout-panel .edit-choice[aria-pressed='true'] {
   border-color: var(--player-focus, var(--app-focus));
 }
-.layout-panel .editor-back {
-  color: var(--player-text, var(--app-text));
-}
 .layout-panel .edit-layout {
   color: #35434a;
   background: #fffdf8e8;
@@ -704,7 +707,7 @@ button:focus-visible {
   border-color: var(--player-focus, var(--app-focus));
 }
 
-/* 列表与编辑共用稳定的侧栏尺寸；内容少时也保留呼吸空间。 */
+/* 播放器中的样式列表使用固定的侧栏尺寸。 */
 .layout-selector:not(.layout-inline) .layout-panel {
   top: 16px;
   right: 16px;
@@ -767,9 +770,6 @@ button:focus-visible {
 .editor-heading h2 {
   font-size: 18px;
   line-height: 1.5;
-}
-.editor-back {
-  margin-left: -6px;
 }
 .editor-section {
   margin-bottom: 34px;
@@ -1121,5 +1121,67 @@ button:focus-visible {
   font-size: 0.9em;
   font-weight: 400;
   color: var(--player-text-muted, var(--app-text-muted));
+}
+</style>
+
+<style scoped>
+.editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: #0006;
+  animation: editor-fade 180ms ease both;
+}
+.editor-dialog {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  z-index: 111;
+  translate: -50% -50%;
+  width: min(760px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: clamp(16px, 4vw, 26px);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 20px 80px #0004;
+  animation: editor-enter 180ms ease both;
+}
+.editor-dialog .editor-heading {
+  justify-content: space-between;
+  margin: 0 0 16px;
+}
+.editor-close {
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.editor-close:hover {
+  background: var(--app-hover);
+}
+.editor-dialog .editor-section {
+  margin-bottom: 18px;
+}
+.editor-dialog .editor-section:last-child {
+  margin-bottom: 0;
+}
+.editor-dialog .editor-section legend {
+  margin-bottom: 10px;
+}
+.editor-overlay[data-state='closed'] {
+  animation: editor-fade-out 180ms ease both;
+}
+.editor-dialog[data-state='closed'] {
+  animation: editor-exit 180ms ease both;
+}
+@keyframes editor-fade { from { opacity: 0; } }
+@keyframes editor-fade-out { to { opacity: 0; } }
+@keyframes editor-enter { from { opacity: 0; scale: 0.98; } }
+@keyframes editor-exit { to { opacity: 0; scale: 0.98; } }
+@media (prefers-reduced-motion: reduce) {
+  .editor-overlay[data-state],
+  .editor-dialog[data-state] { animation: none; }
 }
 </style>
